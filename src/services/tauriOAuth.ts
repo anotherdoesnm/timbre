@@ -16,6 +16,16 @@ export const OAUTH_COMPLETE_EVENT = 'timbre:oauth-complete';
 
 const POLL_MS = 800;
 
+/**
+ * Android and iOS run one webview: a second window is not something the platform gives us,
+ * so there the provider flow takes over the main window and comes back through
+ * `/auth/callback`. Desktop keeps the popup.
+ */
+export function isMobileShell(): boolean {
+  if (!isTauriRuntime()) return false;
+  return /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+}
+
 export function isTauriRuntime(): boolean {
   const g = globalThis as Record<string, unknown>;
   return typeof g.__TAURI_INTERNALS__ !== 'undefined' || typeof g.__TAURI__ !== 'undefined';
@@ -37,6 +47,11 @@ export async function isOAuthPopup(): Promise<boolean> {
  * events do not reliably cross windows, so the popup's existence is polled instead.
  */
 export async function signInViaOAuthPopup(providerUrl: string): Promise<void> {
+  if (isMobileShell()) {
+    // One webview only: navigate it and let the callback route pick the session up.
+    location.assign(providerUrl);
+    return;
+  }
   const { WebviewWindow } = await import('@tauri-apps/api/webviewWindow');
   const { listen } = await import('@tauri-apps/api/event');
 

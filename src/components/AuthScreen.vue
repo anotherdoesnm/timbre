@@ -53,7 +53,14 @@ async function startProvider(id: string) {
     location.hash = 'auth/callback';
     return;
   }
-  await navigateToSignIn(inst, id);
+  try {
+    await navigateToSignIn(inst, id);
+  } catch (e) {
+    // A refused permission used to fail silently: no window, no error, a dead button.
+    error.value = e instanceof Error && e.message === 'oauth-cancelled'
+      ? 'Вход отменён'
+      : `Не удалось открыть вход: ${e instanceof Error ? e.message : String(e)}`;
+  }
 }
 
 function reset() {
