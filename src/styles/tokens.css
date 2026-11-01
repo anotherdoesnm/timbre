@@ -1,0 +1,85 @@
+/*
+ * Design tokens lifted from Cinny (github.com/cinnyapp/cinny, AGPL-3.0) —
+ * src/colors.css.ts (darkTheme) + folds' spacing/radius scale.
+ * Renamed to plain CSS variables so a Vue SFC can use them directly.
+ */
+:root {
+  /* Background (the deepest layer) */
+  --bg-container: #1a1a1a;
+  --bg-hover: #262626;
+  --bg-active: #333333;
+  --bg-line: #404040;
+
+  /* Surface (room list, headers) */
+  --sf-container: #262626;
+  --sf-hover: #333333;
+  --sf-active: #404040;
+  --sf-line: #4d4d4d;
+
+  /* Surface variant (cards, composer, hovered rows) */
+  --sfv-container: #333333;
+  --sfv-hover: #404040;
+  --sfv-active: #4d4d4d;
+  --sfv-line: #595959;
+
+  /* Primary — Cinny's lavender */
+  --primary-main: #bdb6ec;
+  --primary-hover: #b2aae9;
+  --primary-active: #ada3e8;
+  --primary-on: #2c2843;
+  --primary-container: #413c65;
+  --primary-container-hover: #494370;
+  --primary-on-container: #e3e1f7;
+
+  /* Secondary — white-ish, used for high-contrast text/buttons */
+  --secondary-main: #ffffff;
+  --secondary-on: #1a1a1a;
+  --secondary-container: #404040;
+
+  /* Status */
+  --success: #85e0ba;
+  --warning: #e3ba91;
+  --critical: #e69d9d;
+  --critical-container: #602929;
+
+  /* Text */
+  --text: #f2f2f2;
+  --text-secondary: #a8a8a8;
+  --text-tertiary: #7a7a7a;
+
+  /* Radii */
+  --radius-xs: 4px;
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --radius-round: 999px;
+
+  /* Spacing */
+  --sp-100: 4px;
+  --sp-200: 8px;
+  --sp-300: 12px;
+  --sp-400: 16px;
+  --sp-500: 20px;
+  --sp-600: 24px;
+  --sp-700: 32px;
+
+  /* Layout (measured against Cinny's proportions) */
+  --rail-width: 64px;
+  --rooms-width: 258px;
+  --members-width: 250px;
+  --header-height: 48px;
+
+  /* Type */
+  --font-ui: 'Inter', 'InterVariable', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: ui-monospace, 'JetBrains Mono', 'SF Mono', Menlo, monospace;
+  --fs-xs: 11px;
+  --fs-sm: 12px;
+  --fs-base: 14px;
+  --fs-md: 15px;
+  --fs-lg: 17px;
+
+  --shadow-1: 0 1px 2px rgb(0 0 0 / 40%);
+  --shadow-2: 0 4px 16px rgb(0 0 0 / 45%);
+  --shadow-3: 0 10px 40px rgb(0 0 0 / 55%);
+}
