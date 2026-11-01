@@ -11,8 +11,12 @@ import AuthCallback from './components/AuthCallback.vue';
 import { channels, messages, servers } from './data/mock';
 
 const hash = () => location.hash.replace('#', '');
-const route = ref(hash().split('?')[0]);
-const hashQuery = ref(hash().split('?')[1] ?? '');
+// The OAuth return lands on "/?code=..." (no fragment), while the rest of the app routes on
+// the hash. Both spellings of "callback" end up in the same place.
+const initialSearch = new URLSearchParams(location.search.slice(1));
+const fromSearch = initialSearch.has('code') || initialSearch.has('error') || initialSearch.has('error_description');
+const route = ref(fromSearch ? 'auth/callback' : hash().split('?')[0]);
+const hashQuery = ref(fromSearch ? location.search.slice(1) : hash().split('?')[1] ?? '');
 window.addEventListener('hashchange', () => {
   route.value = hash().split('?')[0];
   hashQuery.value = hash().split('?')[1] ?? '';

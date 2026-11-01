@@ -35,7 +35,9 @@ interface Pending {
 }
 
 export function redirectTarget(): string {
-  return `${location.origin}${location.pathname}#auth/callback`;
+  // No fragment: the instance appends `?code=` to this URL and validates it against its
+  // allowlist, so a hash in the middle is a liability. The app recognises the code on load.
+  return `${location.origin}/`;
 }
 
 /** Same-origin fragment keeps our hash router working; GoTrue appends its own params. */
