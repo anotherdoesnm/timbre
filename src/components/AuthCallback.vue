@@ -8,6 +8,11 @@ const props = defineProps<{ query: string; demo: boolean }>();
 const emit = defineEmits<{ (e: 'done', session: Session): void; (e: 'cancel'): void }>();
 
 const phase = ref<'working' | 'ok' | 'error'>('working');
+// Whatever happens next, this line says which page is rendering and what it received:
+// after an OAuth round trip through a webview that is the only reliable evidence.
+const diag = `${location.origin}${location.pathname} | hash=${location.hash.slice(0, 90) || '-'} | query=${
+  location.search.slice(0, 90) || '-'
+}`;
 const error = ref('');
 const who = ref('');
 
@@ -61,6 +66,8 @@ onMounted(async () => {
       <button v-if="phase === 'ok'" class="primary" @click="emit('done', {} as Session)">Продолжить</button>
       <button v-else-if="phase === 'error'" class="primary" @click="emit('cancel')">Вернуться ко входу</button>
       <div v-else class="spinner" />
+
+      <p class="diag">{{ diag }}</p>
     </div>
   </div>
 </template>
@@ -106,6 +113,15 @@ h1 { margin: 0 0 var(--sp-200); font-size: 19px; }
   font-weight: 600;
 }
 .primary:hover { background: var(--primary-hover); }
+.diag {
+  margin: var(--sp-400) 0 0;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  line-height: 1.5;
+  color: var(--text-tertiary);
+  overflow-wrap: anywhere;
+  text-align: left;
+}
 .spinner {
   width: 22px; height: 22px;
   margin: 0 auto;
