@@ -90,6 +90,30 @@ for f in *.deb; do dpkg-deb -x "$f" root/; done
 `instance-info` не отдаёт `Access-Control-Allow-Origin`, и это ровно то состояние, что
 на `screenshot-5.png`. В Tauri (запрос через Rust) или за релеем — проходит.
 
+## Tauri
+
+`src-tauri/` — каркас оболочки: `identifier` = `xyz.doesnmlab.timbre`, фронт берётся из `dist`.
+
+```bash
+npm run build
+npx tauri android init --ci      # один раз, генерирует src-tauri/gen/android
+npx tauri android build --apk --debug --target aarch64
+npx tauri build                  # десктоп, нужен libwebkit2gtk-4.1-dev и rust
+```
+
+Почему Tauri вообще нужен: в браузере на чужом origin логин через OAuth не работает —
+`redirect_to` не в allowlist инстанса, и GoTrue уводит на SITE_URL. Внутри Tauri origin
+свой (`tauri://localhost` / `http://tauri.localhost`), и официальный десктоп входит точно
+так же, поэтому запись в списке уже есть.
+
+OAuth в оболочке идёт через попап-окно (`src/services/tauriOAuth.ts`): главное окно не
+навигируется, попап возвращается на `/auth/callback`, сессия ложится в общее хранилище,
+попап шлёт `timbre:oauth-complete` и закрывается.
+
+Сборка APK — `.forgejo/workflows/apk.yml`, раннер с меткой `android` (runnerd). Rust и
+конфиг Tauri в этом репозитории **ещё не компилировались** — первый прогон в CI и есть
+проверка.
+
 ## Дальше
 
 1. OAuth-флоу: popup в Tauri, `redirect_to` = `${origin}/auth/callback`; для веба нужен

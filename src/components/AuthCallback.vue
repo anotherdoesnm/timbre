@@ -2,6 +2,7 @@
 import { onMounted, ref } from 'vue';
 import Icon from './Icon.vue';
 import { completeSignIn, type Session } from '../services/auth';
+import { finishOAuthPopup, isOAuthPopup } from '../services/tauriOAuth';
 
 const props = defineProps<{ query: string; demo: boolean }>();
 const emit = defineEmits<{ (e: 'done', session: Session): void; (e: 'cancel'): void }>();
@@ -28,6 +29,10 @@ onMounted(async () => {
       session.provider ?? 'oauth'
     } · ${session.instance}`;
     phase.value = 'ok';
+    if (await isOAuthPopup()) {
+      await finishOAuthPopup();
+      return;
+    }
     emit('done', session);
   } catch (e) {
     error.value = e instanceof Error ? e.message : String(e);

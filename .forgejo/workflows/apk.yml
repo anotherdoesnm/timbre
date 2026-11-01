@@ -1,0 +1,85 @@
+# Debug APK for Timbre, built on runnerd's `android` runner.
+#
+# The runner is a throwaway GoNIX VM: no git, no warm caches, no Android SDK. Everything the
+# job needs is either in the image (JDK 17, node, Rust + the aarch64-linux-android target) or
+# fetched inside the job, and the result leaves as a file uploaded to the LAN cache because
+# `actions/upload-artifact` is a JavaScript action these runners cannot run.
+
+name: apk
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: apk-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  apk:
+    runs-on: [android]
+    timeout-minutes: 90
+    env:
+      CARGO_TARGET_DIR: /tmp/cargo-target
+      CARGO_BUILD_JOBS: "2"
+      ANDROID_HOME: /opt/android-sdk
+      ANDROID_SDK_ROOT: /opt/android-sdk
+      ANDROID_NDK_HOME: /opt/android-sdk/ndk/26.1.10909125
+    steps:
+      - name: Android SDK from the LAN cache
+        # A gigabyte of rarely-changing files; unpacking it over the LAN costs ~40 s.
+        run: |
+          set -eo pipefail
+          mkdir -p "$ANDROID_HOME"
+          curl -fsSL http://192.168.1.10:8080/android-sdk.tgz \
+            | tar xz -C "$ANDROID_HOME" --strip-components=1
+          ls "$ANDROID_HOME/platforms" "$ANDROID_HOME/build-tools" "$ANDROID_HOME/ndk"
+
+      - name: checkout
+        # Not `actions/checkout`: that is a JavaScript action and the runner host has no git,
+        # so it cannot clone it. A plain clone inside the job needs only the image and the
+        # job's own token.
+        env:
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -eo pipefail
+          command -v git >/dev/null ||
+            { apt-get update -qq && apt-get install -y -qq --no-install-recommends git ca-certificates; }
+          auth=$(printf '%s' "${{ github.server_url }}" | sed "s|://|://x-access-token:${TOKEN}@|")
+          git init -q .
+          git remote add origin "$auth/${{ github.repository }}.git"
+          for i in 1 2 3; do
+            git fetch -q --depth=1 origin "${{ github.sha }}" && break
+            echo "fetch attempt $i failed, retrying" >&2
+            sleep 5
+          done
+          git checkout -q FETCH_HEAD
+          git log --oneline -1
+
+      - name: build the debug APK
+        run: |
+          set -eo pipefail
+          mkdir -p /tmp/ci-logs
+          npm ci 2>&1 | tee /tmp/ci-logs/npm.log
+          # gen/android is not committed: it is generated per platform by the CLI.
+          [ -d src-tauri/gen/android ] || npx tauri android init --ci 2>&1 | tee /tmp/ci-logs/init.log
+          npm run build 2>&1 | tee /tmp/ci-logs/web.log
+          npx tauri android build --apk --debug --target aarch64 2>&1 | tee /tmp/ci-logs/apk.log
+
+      - name: publish the APK
+        # A missing APK is an error, not a note in the log: this step is the last thing that
+        # can notice a build which produced nothing.
+        run: |
+          set -eo pipefail
+          src=$(find src-tauri -path '*/outputs/apk/*' -name '*.apk' -print -quit)
+          if [ -z "$src" ]; then
+            echo "ОШИБКА: APK не собрался" >&2
+            find src-tauri -name '*.apk' -o -name 'apk' -type d | head >&2
+            exit 1
+          fi
+          ls -l "$src"
+          dest="http://192.168.1.10:8080/upload/apk/${GITHUB_SHA:-manual}"
+          curl -fsS -T "$src" "$dest/timbre-$(basename "$src")"
+          echo "published $dest/timbre-$(basename "$src")"

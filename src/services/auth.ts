@@ -10,6 +10,7 @@
 
 import type { InstanceInfo } from './discover';
 import { challengeFor, randomVerifier } from './pkce';
+import { isTauriRuntime, signInViaOAuthPopup } from './tauriOAuth';
 
 export interface Session {
   instance: string;
@@ -24,10 +25,7 @@ export interface Session {
 const PENDING_KEY = 'auth.pending';
 const SESSION_PREFIX = 'auth.session.';
 
-export function isTauri(): boolean {
-  const g = globalThis as Record<string, unknown>;
-  return typeof g.__TAURI_INTERNALS__ !== 'undefined' || typeof g.__TAURI__ !== 'undefined';
-}
+export const isTauri = isTauriRuntime;
 
 interface Pending {
   instance: InstanceInfo;
@@ -66,13 +64,13 @@ export async function beginSignIn(instance: InstanceInfo, provider: string): Pro
 
 export async function navigateToSignIn(instance: InstanceInfo, provider: string): Promise<void> {
   const url = await beginSignIn(instance, provider);
-  if (!isTauri()) {
+  if (!isTauriRuntime()) {
     location.assign(url);
     return;
   }
-  // Desktop: a separate window, so the app shell never navigates away.
-  const win = window.open(url, 'harmony-oauth', 'width=520,height=720');
-  if (!win) location.assign(url);
+  // Desktop/mobile shell: a separate window, so the app never navigates away.
+  await signInViaOAuthPopup(url);
+  location.hash = 'chat';
 }
 
 function pending(): Pending | null {
