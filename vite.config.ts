@@ -38,7 +38,7 @@ function instanceProxy(): Plugin {
           }
           const upstream = await fetch(`https://${host}${path}`, {
             headers,
-            signal: AbortSignal.timeout(8000),
+            signal: AbortSignal.timeout(15000),
           });
           const body = Buffer.from(await upstream.arrayBuffer());
           res.statusCode = upstream.status;

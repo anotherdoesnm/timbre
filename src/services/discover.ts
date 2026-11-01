@@ -20,6 +20,8 @@ export interface InstanceInfo {
   capabilities: string[];
   /** OAuth providers only; GoTrue reports `email`/`phone` in the same map. */
   providers: string[];
+  /** Set when the provider list could not be read — the instance may well have some. */
+  providersError?: string;
   emailAuth?: boolean;
   demo?: boolean;
 }
@@ -34,7 +36,7 @@ export type DiscoveryResult =
   | { ok: true; instance: InstanceInfo }
   | { ok: false; error: DiscoveryFailure };
 
-const TIMEOUT_MS = 6000;
+const TIMEOUT_MS = 12000;
 
 /**
  * In dev the request goes through the Vite middleware (see vite.config.ts) because the
@@ -90,22 +92,45 @@ async function getJson(url: string, signal: AbortSignal, headers: Record<string,
   return res.json();
 }
 
-/** Auth providers are per instance: they come from GoTrue, not from our build. */
-async function fetchProviders(supabaseUrl: string, anonKey: string, signal: AbortSignal): Promise<string[]> {
+/**
+ * Auth providers are per instance: they come from GoTrue, not from our build.
+ *
+ * This runs on its own deadline. Sharing one AbortController with the instance-info call
+ * meant a slow link (mobile, WARP, DPI) spent the whole budget on the first request and the
+ * provider list came back empty — which the UI then reported as "the instance offers no
+ * sign-in methods". Wrong message, and the instance was fine.
+ */
+async function fetchProviders(
+  supabaseUrl: string,
+  anonKey: string,
+  timeoutMs = 8000
+): Promise<{ providers: string[]; error?: string }> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const origin = new URL(supabaseUrl).host;
-    const settings = (await getJson(endpoint(origin, '/auth/v1/settings'), signal, {
+    const settings = (await getJson(endpoint(origin, '/auth/v1/settings'), controller.signal, {
       apikey: anonKey ?? '',
-    })) as {
-      external?: Record<string, boolean>;
-    };
+    })) as { external?: Record<string, boolean> };
     const enabled = Object.entries(settings.external ?? {})
       .filter(([, on]) => on)
       .map(([id]) => id);
-    return enabled.filter((id) => id !== 'email' && id !== 'phone');
-  } catch {
-    return [];
+    return { providers: enabled.filter((id) => id !== 'email' && id !== 'phone') };
+  } catch (e) {
+    const err = e as { name?: string; status?: number };
+    const reason =
+      err.name === 'AbortError' ? 'таймаут' : typeof err.status === 'number' ? `HTTP ${err.status}` : 'сеть';
+    return { providers: [], error: reason };
+  } finally {
+    clearTimeout(timer);
   }
+}
+
+/** Re-reads just the provider list, keeping the already-resolved instance. */
+export async function refreshProviders(instance: InstanceInfo, opts: { demo?: boolean } = {}): Promise<InstanceInfo> {
+  if (opts.demo || instance.demo) return instance;
+  const { providers, error } = await fetchProviders(instance.supabaseUrl, instance.supabaseAnonKey);
+  return { ...instance, providers, providersError: error };
 }
 
 export async function discoverInstance(rawHost: string, opts: { demo?: boolean } = {}): Promise<DiscoveryResult> {
@@ -131,7 +156,7 @@ export async function discoverInstance(rawHost: string, opts: { demo?: boolean }
     if (body.success !== true || typeof body.supabaseUrl !== 'string' || typeof body.supabaseAnonKey !== 'string') {
       return { ok: false, error: { kind: 'not-harmony', message: `На ${host} не отвечает Harmony` } };
     }
-    const providers = await fetchProviders(body.supabaseUrl, body.supabaseAnonKey, controller.signal);
+    const { providers, error: providersError } = await fetchProviders(body.supabaseUrl, body.supabaseAnonKey);
     return {
       ok: true,
       instance: {
@@ -145,6 +170,7 @@ export async function discoverInstance(rawHost: string, opts: { demo?: boolean }
           ? body.capabilities.filter((c): c is string => typeof c === 'string')
           : [],
         providers,
+        providersError,
       },
     };
   } catch (e) {

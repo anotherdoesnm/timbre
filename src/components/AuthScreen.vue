@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
 import Icon from './Icon.vue';
-import { discoverInstance, type InstanceInfo } from '../services/discover';
+import { discoverInstance, refreshProviders, type InstanceInfo } from '../services/discover';
 import { navigateToSignIn } from '../services/auth';
 
 const emit = defineEmits<{ (e: 'authenticated'): void }>();
@@ -12,6 +12,7 @@ const loading = ref(false);
 const error = ref('');
 const instance = ref<InstanceInfo | null>(null);
 const showPassword = ref(false);
+const retrying = ref(false);
 const email = ref('');
 const password = ref('');
 
@@ -36,6 +37,13 @@ async function submit() {
   loading.value = false;
   if (result.ok) instance.value = result.instance;
   else error.value = result.error.message;
+}
+
+async function retryProviders() {
+  if (!instance.value || retrying.value) return;
+  retrying.value = true;
+  instance.value = await refreshProviders(instance.value, { demo });
+  retrying.value = false;
 }
 
 async function startProvider(id: string) {
@@ -109,7 +117,14 @@ function reset() {
         </template>
 
         <template v-else>
-          <p class="warn">Инстанс не сообщил ни одного способа входа — попробуйте пароль.</p>
+          <p v-if="instance.providersError" class="warn">
+            Не удалось получить способы входа ({{ instance.providersError }}). Инстанс, скорее всего, их
+            поддерживает — просто ответ не дошёл.
+          </p>
+          <p v-else class="warn">Инстанс не сообщил ни одного способа входа — только пароль.</p>
+          <button class="ghost" :disabled="retrying" @click="retryProviders">
+            {{ retrying ? 'Спрашиваем…' : 'Повторить' }}
+          </button>
         </template>
 
         <div class="divider"><span>или</span></div>
@@ -307,6 +322,17 @@ h1 { margin: 0 0 var(--sp-100); font-size: 21px; letter-spacing: -0.01em; }
 .text-btn:hover { background: var(--sfv-container); }
 .text-btn.muted { color: var(--text-tertiary); }
 
+.ghost {
+  width: 100%;
+  height: 36px;
+  margin-bottom: var(--sp-200);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--sfv-line);
+  color: var(--text);
+  font-size: var(--fs-sm);
+}
+.ghost:hover:not(:disabled) { background: var(--sfv-container); }
+.ghost:disabled { opacity: 0.6; }
 .pw .field { margin-bottom: var(--sp-200); }
 .warn { margin: 0; font-size: var(--fs-sm); color: var(--warning); }
 
