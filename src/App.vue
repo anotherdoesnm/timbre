@@ -149,7 +149,7 @@ watch([activeServer, activeChannel], () => {
     @done="enter"
     @cancel="location.hash = 'auth'"
   />
-  <AuthScreen v-else-if="route !== 'chat' || !session" @authenticated="enter" />
+  <AuthScreen v-else-if="route !== 'chat' || (!session && !demoMode)" @authenticated="enter" />
   <div v-else class="app" :class="{ 'with-members': membersOpen, mobile: mobilePane === 'chat' }">
     <ServerRail :servers="servers" :active-id="activeServer" @select="pickServer" />
     <RoomList
