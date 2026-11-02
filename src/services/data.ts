@@ -16,6 +16,32 @@ function colorFor(seed: string): string {
   return COLORS[h % COLORS.length];
 }
 
+/**
+ * `messages.content` is jsonb: a string, an array of parts, or an object with a text field.
+ * Anything else is shown as compact JSON rather than `[object Object]`.
+ */
+export function renderContent(content: unknown): string {
+  const fromPart = (part: unknown): string => {
+    if (typeof part === 'string') return part;
+    if (part && typeof part === 'object') {
+      const o = part as Record<string, unknown>;
+      for (const key of ['text', 'content', 'value', 'body']) {
+        if (typeof o[key] === 'string') return o[key] as string;
+      }
+      if (Array.isArray(o.parts)) return o.parts.map(fromPart).join('');
+    }
+    return '';
+  };
+  if (typeof content === 'string') return content;
+  if (Array.isArray(content)) return content.map(fromPart).filter(Boolean).join('');
+  if (content && typeof content === 'object') {
+    const text = fromPart(content);
+    if (text) return text;
+    return JSON.stringify(content).slice(0, 400);
+  }
+  return '';
+}
+
 function toAuthor(row: Row): Author {
   const name = String(row.display_name || row.username || 'unknown');
   return {
@@ -60,16 +86,25 @@ export async function fetchServers(session: Session, profileId: string): Promise
 }
 
 export async function fetchChannels(session: Session, serverId: string): Promise<Channel[]> {
-  const rows = await rest<Row[]>(
-    session,
-    'channels',
-    `server_id=eq.${encodeURIComponent(serverId)}&select=id,name,type,category&order=category.asc`
-  );
+  const [rows, categories] = await Promise.all([
+    rest<Row[]>(
+      session,
+      'channels',
+      `server_id=eq.${encodeURIComponent(serverId)}&select=id,name,type,category&order=category.asc`
+    ),
+    rest<Row[]>(
+      session,
+      'channel_categories',
+      `server_id=eq.${encodeURIComponent(serverId)}&select=id,name,order&order=order.asc`
+    ).catch(() => [] as Row[]),
+  ]);
+  const names = new Map(categories.map((c) => [String(c.id), String(c.name ?? 'Channels')]));
   return rows.map((c) => ({
     id: String(c.id),
     name: String(c.name ?? 'channel'),
     kind: String(c.type).toLowerCase().includes('voice') || c.type === 1 ? 'voice' : 'text',
-    category: String(c.category ?? 'Text channels'),
+    // Without the join a category id would be printed as a UUID heading.
+    category: names.get(String(c.category)) ?? 'Channels',
     unread: 0,
   }));
 }
@@ -107,13 +142,23 @@ export async function fetchMessages(session: Session, channelId: string): Promis
     'messages',
     `channel_id=eq.${encodeURIComponent(channelId)}` +
       '&is_deleted=eq.false&order=created_at.asc&limit=80' +
-      '&select=id,created_at,content,encrypted,user_id,author:profiles!messages_user_id_fkey(username,display_name,color,is_admin,is_moderator)'
+      '&select=id,created_at,content,encrypted,user_id'
   );
+
+  const ids = [...new Set(rows.map((m) => String(m.user_id)).filter(Boolean))];
+  const profiles: Row[] = ids.length
+    ? await rest<Row[]>(
+        session,
+        'profiles',
+        `id=in.(${ids.map(encodeURIComponent).join(',')})&select=id,username,display_name,color,is_admin,is_moderator`
+      ).catch(() => [] as Row[])
+    : [];
+  const byId = new Map(profiles.map((p) => [String(p.id), p]));
 
   let prevAuthor = '';
   let prevTime = 0;
   return rows.map((m) => {
-    const author = toAuthor((m.author as Row) ?? {});
+    const author = toAuthor(byId.get(String(m.user_id)) ?? { username: 'unknown' });
     const at = new Date(String(m.created_at));
     const ms = at.getTime();
     const grouped = author.name === prevAuthor && ms - prevTime < 5 * 60 * 1000;
@@ -123,7 +168,7 @@ export async function fetchMessages(session: Session, channelId: string): Promis
       id: String(m.id),
       author,
       time: at.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }),
-      text: m.encrypted ? 'Encrypted message — no keys on this device' : String(m.content ?? ''),
+      text: m.encrypted ? 'Encrypted message — no keys on this device' : renderContent(m.content),
       grouped,
     } satisfies Message;
   });

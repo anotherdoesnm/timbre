@@ -51,7 +51,15 @@ const emit = defineEmits<{ (e: 'toggle-members'): void; (e: 'back'): void }>();
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.back { display: none; width: 32px; height: 32px; place-items: center; border-radius: var(--radius-sm); color: var(--text-secondary); }
+.back {
+  display: none;
+  width: 44px;
+  height: 44px;
+  margin-left: -8px;
+  place-items: center;
+  border-radius: var(--radius-sm);
+  color: var(--text);
+}
 .back:hover { background: var(--sfv-container); color: var(--text); }
 .tag {
   font-size: 9px;

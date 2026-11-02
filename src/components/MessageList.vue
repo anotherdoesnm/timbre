@@ -3,7 +3,7 @@ import { nextTick, ref, watch } from 'vue';
 import Icon from './Icon.vue';
 import type { Channel, Message } from '../data/mock';
 
-const props = defineProps<{ channel: Channel; messages: Message[] }>();
+const props = defineProps<{ channel: Channel; messages: Message[]; live?: boolean }>();
 const scroller = ref<HTMLElement | null>(null);
 
 watch(
@@ -32,8 +32,8 @@ watch(
     <template v-else>
       <div class="intro">
         <div class="intro-icon"><Icon name="hash" :size="26" /></div>
-        <h2>Start of #{{ channel.name }}</h2>
-        <p>Skin prototype. The data is a mock — no session is attached.</p>
+        <h2>{{ live ? '#' + channel.name : 'Start of #' + channel.name }}</h2>
+        <p v-if="!live">Skin prototype. The data is a mock — no session is attached.</p>
       </div>
 
       <article v-for="m in messages" :key="m.id" class="msg" :class="{ grouped: m.grouped, mention: m.mention }">

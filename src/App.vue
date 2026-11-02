@@ -42,7 +42,9 @@ const liveMessages = ref<Record<string, typeof mockMessages.c1>>({});
 const activeServer = ref(mockServers[0].id);
 const activeChannel = ref('c1');
 const membersOpen = ref(true);
-const mobilePane = ref<'rooms' | 'chat'>('chat');
+// Phones start on the channel list: landing straight inside a channel left no way back
+// except a 32px arrow in the corner.
+const mobilePane = ref<'rooms' | 'chat'>('rooms');
 const sending = ref(false);
 const myProfileId = ref<string | null>(null);
 
@@ -214,7 +216,7 @@ watch([activeServer, activeChannel], () => {
         @back="mobilePane = 'rooms'"
       />
       <p v-if="loadError" class="banner">{{ loadError }}</p>
-      <MessageList :channel="channel" :messages="channelMessages" />
+      <MessageList :channel="channel" :messages="channelMessages" :live="live" />
       <Composer :channel-name="channel.name" :disabled="!!channel.encrypted" :sending="sending" @send="onSend" />
     </main>
     <main v-else class="chat empty">
