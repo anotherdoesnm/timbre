@@ -63,38 +63,11 @@ jobs:
           src=$(find "${CARGO_TARGET_DIR:-src-tauri/target}" -name '*.AppImage' -print -quit)
           [ -n "$src" ] || { echo "ОШИБКА: AppImage не собрался" >&2; exit 1; }
           ls -l "$src"
-          # Forgejo Release is the address that works outside this LAN: the cache at
-          # 192.168.1.10 is only reachable from home, and a build link nobody can open is
-          # not a build link. Assets land under /releases/download/<tag>/<file>.
-          TOKEN="${{ secrets.GITHUB_TOKEN }}"
-          API="${{ github.server_url }}/api/v1/repos/${{ github.repository }}"
-          BROWSER="${{ github.server_url }}/${{ github.repository }}"
-          TAG="nightly"
-          case "$GITHUB_REF" in refs/tags/*) TAG="${GITHUB_REF#refs/tags/}";; esac
-          release_id() {
-            rid=$(curl -sS -H "Authorization: token $TOKEN" "$API/releases/tags/$TAG" \
-              | grep -o '"id":[0-9]*' | head -1 | cut -d: -f2)
-            if [ -z "$rid" ]; then
-              rid=$(curl -sS -X POST -H "Authorization: token $TOKEN" -H 'Content-Type: application/json' \
-                -d "{\"tag_name\":\"$TAG\",\"name\":\"$TAG\",\"prerelease\":true,\"target_commitish\":\"main\"}" \
-                "$API/releases" | grep -o '"id":[0-9]*' | head -1 | cut -d: -f2)
-            fi
-            [ -n "$rid" ] || { echo "ОШИБКА: не удалось создать релиз $TAG" >&2; exit 1; }
-            echo "$rid"
-          }
-          RID=$(release_id)
-          put() {
-            if curl -fsS -X POST -H "Authorization: token $TOKEN" \
-                 -F "attachment=@$1" "$API/releases/$RID/assets?name=$(basename "$1")" >/dev/null 2>&1; then
-              echo "$BROWSER/releases/download/$TAG/$(basename "$1")" >> /tmp/published.txt
-            else
-              echo "ПРЕДУПРЕЖДЕНИЕ: релиз не принял $(basename "$1") — приватный репозиторий или лимит размера" >&2
-            fi
-          }
           cache="http://192.168.1.10:8080/upload/apk/${GITHUB_SHA:-manual}"
           case "$src" in *.AppImage|*.exe) cache="http://192.168.1.10:8080/upload/desktop/${GITHUB_SHA:-manual}";; esac
           curl -fsS -T "$src" "$cache/$(basename "$src")" && echo "cache: $cache/$(basename "$src")"
-          put "$src"
+          # The PUT above is LAN-only on purpose; the link handed out is the public one.
+          echo "https://builds.doesnmlab.xyz${cache#http://192.168.1.10:8080}/$(basename "$src")" >> /tmp/published.txt
           tail -1 /tmp/published.txt
 
   windows:
@@ -185,7 +158,8 @@ jobs:
           cache="http://192.168.1.10:8080/upload/apk/${GITHUB_SHA:-manual}"
           case "$src" in *.AppImage|*.exe) cache="http://192.168.1.10:8080/upload/desktop/${GITHUB_SHA:-manual}";; esac
           curl -fsS -T "$src" "$cache/$(basename "$src")" && echo "cache: $cache/$(basename "$src")"
-          put "$src"
+          # The PUT above is LAN-only on purpose; the link handed out is the public one.
+          echo "https://builds.doesnmlab.xyz${cache#http://192.168.1.10:8080}/$(basename "$src")" >> /tmp/published.txt
           tail -1 /tmp/published.txt
 
       - name: tell #new-builds
