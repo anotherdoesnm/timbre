@@ -177,6 +177,53 @@ export async function refreshSession(session: Session): Promise<Session> {
   return next;
 }
 
+/**
+ * Email and password sign-in against the instance's GoTrue.
+ *
+ * This is the one flow that needs nothing from the instance's redirect allowlist: the token
+ * comes back in the response body, not through a browser redirect.
+ */
+export async function signInWithPassword(instance: InstanceInfo, email: string, password: string): Promise<Session> {
+  const res = await fetch(`${instance.supabaseUrl}/auth/v1/token?grant_type=password`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      apikey: instance.supabaseAnonKey,
+      Authorization: `Bearer ${instance.supabaseAnonKey}`,
+    },
+    body: JSON.stringify({ email, password }),
+  });
+  const text = await res.text();
+  let body: Record<string, unknown> = {};
+  try {
+    body = JSON.parse(text) as Record<string, unknown>;
+  } catch {
+    /* keep the raw text for the error below */
+  }
+  if (!res.ok) {
+    const msg =
+      (typeof body.error_description === 'string' && body.error_description) ||
+      (typeof body.msg === 'string' && body.msg) ||
+      (typeof body.error === 'string' && body.error) ||
+      text.slice(0, 160) ||
+      `HTTP ${res.status}`;
+    throw new Error(String(msg));
+  }
+  if (typeof body.access_token !== 'string') throw new Error('The instance returned no token');
+
+  const session: Session = {
+    instance: instance.origin,
+    supabaseUrl: instance.supabaseUrl,
+    anonKey: instance.supabaseAnonKey,
+    accessToken: body.access_token,
+    refreshToken: typeof body.refresh_token === 'string' ? body.refresh_token : undefined,
+    provider: 'password',
+    user: (body.user as Session['user']) ?? undefined,
+  };
+  localStorage.setItem(SESSION_PREFIX + session.instance, JSON.stringify(session));
+  return session;
+}
+
 export function storedSession(instance?: string): Session | null {
   const key = instance ? SESSION_PREFIX + instance : null;
   if (key) {

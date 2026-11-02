@@ -2,7 +2,7 @@
 import { computed, ref } from 'vue';
 import Icon from './Icon.vue';
 import { discoverInstance, refreshProviders, type InstanceInfo } from '../services/discover';
-import { navigateToSignIn } from '../services/auth';
+import { navigateToSignIn, signInWithPassword } from '../services/auth';
 import { adoptSession, describeToken, parseSessionBlob } from '../services/sessionImport';
 
 const emit = defineEmits<{ (e: 'authenticated'): void }>();
@@ -21,6 +21,8 @@ const retrying = ref(false);
 const showImport = ref(false);
 const blob = ref('');
 const importError = ref('');
+const pwError = ref('');
+const pwLoading = ref(false);
 
 function importSession() {
   const inst = instance.value;
@@ -69,6 +71,21 @@ async function retryProviders() {
   retrying.value = true;
   instance.value = await refreshProviders(instance.value, { demo });
   retrying.value = false;
+}
+
+async function usePassword() {
+  const inst = instance.value;
+  if (!inst || pwLoading.value) return;
+  pwError.value = '';
+  pwLoading.value = true;
+  try {
+    await signInWithPassword(inst, email.value.trim(), password.value);
+    emit('authenticated');
+  } catch (e) {
+    pwError.value = e instanceof Error ? e.message : String(e);
+  } finally {
+    pwLoading.value = false;
+  }
 }
 
 async function startProvider(id: string) {
@@ -161,10 +178,13 @@ function reset() {
 
         <div class="divider"><span>or</span></div>
 
-        <form v-if="showPassword" class="pw" @submit.prevent="emit('authenticated')">
-          <div class="field"><input v-model="email" placeholder="Email" type="email" /></div>
-          <div class="field"><input v-model="password" placeholder="Password" type="password" /></div>
-          <button class="primary" type="submit" :disabled="!email || !password">Sign in</button>
+        <form v-if="showPassword" class="pw" @submit.prevent="usePassword">
+          <div class="field"><input v-model="email" placeholder="Email" type="email" autocomplete="username" /></div>
+          <div class="field"><input v-model="password" placeholder="Password" type="password" autocomplete="current-password" /></div>
+          <button class="primary" type="submit" :disabled="pwLoading || !email || !password">
+            {{ pwLoading ? 'Signing in…' : 'Sign in' }}
+          </button>
+          <p v-if="pwError" class="warn">{{ pwError }}</p>
         </form>
         <button v-else class="text-btn" @click="showPassword = true">Sign in with password</button>
 
