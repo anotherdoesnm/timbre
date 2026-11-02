@@ -2,16 +2,18 @@
 import Icon from './Icon.vue';
 import type { Channel } from '../data/mock';
 
-defineProps<{ channel: Channel; membersOpen: boolean }>();
-const emit = defineEmits<{ (e: 'toggle-members'): void }>();
+defineProps<{ channel: Channel; membersOpen: boolean; live?: boolean }>();
+const emit = defineEmits<{ (e: 'toggle-members'): void; (e: 'back'): void }>();
 </script>
 
 <template>
   <header class="head">
     <div class="left">
+      <button class="back" title="Назад" @click="emit('back')"><Icon name="reply" :size="18" /></button>
       <Icon :name="channel.kind === 'voice' ? 'volume' : 'hash'" :size="20" />
       <span class="name">{{ channel.name }}</span>
       <Icon v-if="channel.encrypted" name="lock" :size="14" class="lock" />
+      <span class="tag">{{ live ? 'live' : 'demo' }}</span>
       <span class="topic">Обсуждение клиента и всякое разное</span>
     </div>
     <div class="right">
@@ -49,6 +51,18 @@ const emit = defineEmits<{ (e: 'toggle-members'): void }>();
   overflow: hidden;
   text-overflow: ellipsis;
 }
+.back { display: none; width: 32px; height: 32px; place-items: center; border-radius: var(--radius-sm); color: var(--text-secondary); }
+.back:hover { background: var(--sfv-container); color: var(--text); }
+.tag {
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 1px 5px;
+  border-radius: var(--radius-xs);
+  background: var(--sfv-container);
+  color: var(--text-tertiary);
+}
+@media (max-width: 860px) { .back { display: grid; } .topic { display: none; } }
 .right { display: flex; align-items: center; gap: var(--sp-100); color: var(--text-secondary); }
 .action {
   width: 32px;

@@ -3,7 +3,13 @@ import { computed } from 'vue';
 import Icon from './Icon.vue';
 import type { Channel } from '../data/mock';
 
-const props = defineProps<{ serverName: string; channels: Channel[]; activeId: string }>();
+const props = defineProps<{
+  serverName: string;
+  channels: Channel[];
+  activeId: string;
+  me?: { name: string; role: 'admin' | 'mod' | null };
+  live?: boolean;
+}>();
 const emit = defineEmits<{ (e: 'select', id: string): void }>();
 
 const groups = computed(() => {
@@ -49,12 +55,12 @@ const groups = computed(() => {
     </div>
 
     <footer class="me">
-      <div class="avatar">K</div>
+      <div class="avatar">{{ (me?.name ?? 'вы').slice(0, 1).toUpperCase() }}</div>
       <div class="me-text">
-        <span class="me-name">kirill</span>
-        <span class="me-status">модератор</span>
+        <span class="me-name">{{ me?.name ?? 'вы' }}</span>
+        <span class="me-status">{{ live ? 'сессия инстанса' : 'демо-режим' }}</span>
       </div>
-      <Icon name="shield" :size="15" />
+      <Icon v-if="me?.role" name="shield" :size="15" />
     </footer>
   </aside>
 </template>
