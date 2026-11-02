@@ -3,6 +3,7 @@ import { computed, ref } from 'vue';
 import Icon from './Icon.vue';
 import { discoverInstance, refreshProviders, type InstanceInfo } from '../services/discover';
 import { navigateToSignIn } from '../services/auth';
+import { adoptSession, parseSessionBlob } from '../services/sessionImport';
 
 const emit = defineEmits<{ (e: 'authenticated'): void }>();
 
@@ -13,6 +14,21 @@ const error = ref('');
 const instance = ref<InstanceInfo | null>(null);
 const showPassword = ref(false);
 const retrying = ref(false);
+const showImport = ref(false);
+const blob = ref('');
+const importError = ref('');
+
+function importSession() {
+  const inst = instance.value;
+  if (!inst) return;
+  const parsed = parseSessionBlob(blob.value);
+  if (!parsed) {
+    importError.value = 'Не нашёл access_token — вставьте JSON из localStorage или фрагмент URL';
+    return;
+  }
+  adoptSession(inst, parsed.access, parsed.refresh);
+  emit('authenticated');
+}
 const email = ref('');
 const password = ref('');
 
@@ -144,6 +160,18 @@ function reset() {
         <button v-else class="text-btn" @click="showPassword = true">Войти по паролю</button>
 
         <button class="text-btn muted" @click="reset">Другой инстанс</button>
+
+        <template v-if="showImport">
+          <p class="hint">
+            Пока инстанс не разрешает наш <code>redirect_to</code>, сессию можно принести с собой:
+            открой инстанс в браузере, войди и скопируй
+            <code>sb-*-auth-token</code> из DevTools → Application → Local Storage.
+          </p>
+          <textarea v-model="blob" class="blob" rows="4" placeholder='{"access_token":"eyJ…","refresh_token":"…"}' />
+          <p v-if="importError" class="warn">{{ importError }}</p>
+          <button class="ghost" @click="importSession">Войти с этой сессией</button>
+        </template>
+        <button v-else class="text-btn muted" @click="showImport = true">Уже есть сессия</button>
       </div>
 
       <footer class="legal">
@@ -329,6 +357,18 @@ h1 { margin: 0 0 var(--sp-100); font-size: 21px; letter-spacing: -0.01em; }
 .text-btn:hover { background: var(--sfv-container); }
 .text-btn.muted { color: var(--text-tertiary); }
 
+.hint { margin: var(--sp-200) 0; font-size: var(--fs-xs); line-height: 1.5; color: var(--text-tertiary); }
+.hint code, .blob { font-family: var(--font-mono); font-size: 10px; }
+.blob {
+  width: 100%;
+  margin-bottom: var(--sp-200);
+  padding: var(--sp-200);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--sfv-line);
+  background: var(--bg-container);
+  color: var(--text);
+  resize: vertical;
+}
 .ghost {
   width: 100%;
   height: 36px;
