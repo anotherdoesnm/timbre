@@ -14,7 +14,12 @@ import { fetchChannels, fetchMe, fetchMessages, fetchServers } from './services/
 
 const hash = () => location.hash.replace('#', '');
 const initialSearch = new URLSearchParams(location.search.slice(1));
-const fromSearch = initialSearch.has('code') || initialSearch.has('error') || initialSearch.has('error_description');
+// GoTrue returns to `/auth/callback?code=…`; a hash route says the same thing in the SPA.
+const fromSearch =
+  initialSearch.has('code') ||
+  initialSearch.has('error') ||
+  initialSearch.has('error_description') ||
+  /\/auth\/callback\/?$/.test(location.pathname);
 const route = ref(fromSearch ? 'auth/callback' : hash().split('?')[0]);
 const hashQuery = ref(fromSearch ? location.search.slice(1) : hash().split('?')[1] ?? '');
 window.addEventListener('hashchange', () => {

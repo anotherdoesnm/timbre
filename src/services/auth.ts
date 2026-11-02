@@ -35,9 +35,11 @@ interface Pending {
 }
 
 export function redirectTarget(): string {
-  // No fragment: the instance appends `?code=` to this URL and validates it against its
-  // allowlist, so a hash in the middle is a liability. The app recognises the code on load.
-  return `${location.origin}/`;
+  // Exactly what the official app sends: `${origin}/auth/callback`, origin being the webview's
+  // own (`http://tauri.localhost` on Android/Windows/Linux, `tauri://localhost` on macOS).
+  // The instance's allowlist is matched against this path, so a bare origin or a fragment in
+  // the middle is not the same URL to it — both were tried and both fell back to SITE_URL.
+  return `${location.origin}/auth/callback`;
 }
 
 /** Same-origin fragment keeps our hash router working; GoTrue appends its own params. */
