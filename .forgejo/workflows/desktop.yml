@@ -45,9 +45,10 @@ jobs:
           set -eo pipefail
           apt-get update -qq
           apt-get install -y -qq --no-install-recommends \
-            build-essential libwebkit2gtk-4.1-dev libssl-dev librsvg2-dev \
+            build-essential nodejs npm libwebkit2gtk-4.1-dev libssl-dev librsvg2-dev \
             libayatana-appindicator3-dev libxdo-dev patchelf file wget curl xz-utils
           pkg-config --modversion webkit2gtk-4.1
+          node -v && npm -v
 
       - name: build the AppImage
         run: |
@@ -93,8 +94,9 @@ jobs:
         run: |
           set -eo pipefail
           apt-get update -qq
-          apt-get install -y -qq --no-install-recommends build-essential mingw-w64 nsis
+          apt-get install -y -qq --no-install-recommends build-essential nodejs npm mingw-w64 nsis
           rustup target add x86_64-pc-windows-gnu
+          node -v && npm -v
           x86_64-w64-mingw32-gcc --version | head -1
           makensis -VERSION
 
