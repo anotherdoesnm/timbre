@@ -5,6 +5,9 @@ import type { Channel, Message } from '../data/mock';
 
 const props = defineProps<{ channel: Channel; messages: Message[]; live?: boolean }>();
 const scroller = ref<HTMLElement | null>(null);
+// On a phone there is no hover: the toolbar would sit on every message forever. A tap
+// selects one message and shows its toolbar.
+const selected = ref<string | null>(null);
 
 watch(
   () => props.channel.id,
@@ -40,7 +43,8 @@ watch(
         v-for="m in messages"
         :key="m.id"
         class="msg"
-        :class="{ grouped: m.grouped, mention: m.mention, system: m.system }"
+        :class="{ grouped: m.grouped, mention: m.mention, system: m.system, selected: selected === m.id }"
+        @click="selected = selected === m.id ? null : m.id"
       >
         <div class="avatar-col">
           <div v-if="!m.grouped" class="avatar" :style="{ background: m.author.color }">

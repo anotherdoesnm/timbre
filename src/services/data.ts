@@ -182,12 +182,25 @@ export async function fetchMessages(session: Session, channelId: string): Promis
     'messages',
     `channel_id=eq.${encodeURIComponent(channelId)}` +
       '&is_deleted=eq.false&order=created_at.asc&limit=80' +
-      '&select=id,created_at,content,encrypted,user_id,is_system'
+      '&select=id,created_at,content,encrypted,user_id,is_system,metadata'
   );
 
   // String(null) is "null", which made the in.(...) list invalid and the request 400 — the
   // catch below then returned no profiles and every author became "unknown".
-  const ids = [...new Set(rows.map((m) => m.user_id).filter((id): id is string => typeof id === 'string' && id.length > 0))];
+  // System messages ("has joined the server") carry the actor in metadata.subject_id, not in
+  // user_id, so both have to be resolved or the line says nothing about who joined.
+  const subjectOf = (m: Row): string | null => {
+    const meta = (m.metadata ?? null) as Record<string, unknown> | null;
+    const id = meta && typeof meta.subject_id === 'string' ? meta.subject_id : null;
+    return id;
+  };
+  const ids = [
+    ...new Set(
+      rows
+        .flatMap((m) => [m.user_id, subjectOf(m)])
+        .filter((id): id is string => typeof id === 'string' && id.length > 0)
+    ),
+  ];
   const list = ids.map(encodeURIComponent).join(',');
   // `messages.user_id` may point at profiles.id or at the auth user id; asking for both in
   // one round trip removes the guess (and the guess was wrong: every author was "unknown").
@@ -222,7 +235,7 @@ export async function fetchMessages(session: Session, channelId: string): Promis
       id: String(m.id),
       author,
       time: at.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }),
-      text: parts.text,
+      text: system ? `${byId.get(String(subjectOf(m)))?.display_name ?? byId.get(String(subjectOf(m)))?.username ?? ''} ${parts.text}`.trim() : parts.text,
       images: parts.images,
       system,
       grouped: system ? false : grouped,

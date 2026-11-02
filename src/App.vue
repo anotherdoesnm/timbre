@@ -20,7 +20,10 @@ const fromSearch =
   initialSearch.has('error') ||
   initialSearch.has('error_description') ||
   /\/auth\/callback\/?$/.test(location.pathname);
-const route = ref(fromSearch ? 'auth/callback' : hash().split('?')[0]);
+// A stored session means the app belongs in the chat: showing the sign-in screen on every
+// cold start is what made it look like the session had been lost.
+const initialRoute = fromSearch ? 'auth/callback' : hash().split('?')[0];
+const route = ref(storedSession() && initialRoute !== 'auth/callback' ? 'chat' : initialRoute);
 const hashQuery = ref(fromSearch ? location.search.slice(1) : hash().split('?')[1] ?? '');
 window.addEventListener('hashchange', () => {
   route.value = hash().split('?')[0];
