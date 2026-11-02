@@ -168,7 +168,13 @@ export async function sendMessage(
       'Content-Type': 'application/json',
       Prefer: 'return=minimal',
     },
-    body: JSON.stringify({ channel_id: channelId, user_id: userId, content }),
+    // `content` is jsonb and the table enforces it with a check constraint
+    // (messages_content_is_array): a plain string is rejected with 23514.
+    body: JSON.stringify({
+      channel_id: channelId,
+      user_id: userId,
+      content: [{ type: 'text', text: content }],
+    }),
   });
   if (!res.ok) {
     const body = await res.text().catch(() => '');
