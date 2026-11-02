@@ -8,6 +8,9 @@ const scroller = ref<HTMLElement | null>(null);
 // On a phone there is no hover: the toolbar would sit on every message forever. A tap
 // selects one message and shows its toolbar.
 const selected = ref<string | null>(null);
+// matchMedia, not a CSS media query alone: the webview reports hover capability reliably,
+// while the hover rule kept winning on Android.
+const touch = typeof matchMedia === 'function' && matchMedia('(hover: none)').matches;
 
 watch(
   () => props.channel.id,
@@ -20,7 +23,7 @@ watch(
 </script>
 
 <template>
-  <div class="list" ref="scroller">
+  <div class="list" ref="scroller" :class="{ touch }">
     <div v-if="channel.encrypted" class="encrypted">
       <div class="enc-icon"><Icon name="lock" :size="26" /></div>
       <h2>Encrypted channel</h2>
@@ -48,7 +51,8 @@ watch(
       >
         <div class="avatar-col">
           <div v-if="!m.grouped" class="avatar" :style="{ background: m.author.color }">
-            {{ m.author.initial }}
+            <img v-if="m.author.avatarUrl" :src="m.author.avatarUrl" alt="" loading="lazy" />
+            <template v-else>{{ m.author.initial }}</template>
           </div>
           <span v-else class="time-hover">{{ m.time }}</span>
         </div>
@@ -106,14 +110,17 @@ watch(
 .avatar-col { position: relative; display: flex; justify-content: center; }
 .avatar {
   width: 38px; height: 38px;
+  overflow: hidden;
   display: grid; place-items: center;
   border-radius: var(--radius-round);
   color: #1a1a1a;
   font-weight: 700;
   font-size: var(--fs-sm);
 }
+.avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .time-hover { font-size: 10px; color: var(--text-tertiary); opacity: 0; padding-top: 5px; }
-.msg:hover .time-hover { opacity: 1; }
+.msg:hover .avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.time-hover { opacity: 1; }
 .body { min-width: 0; }
 .meta { display: flex; align-items: baseline; gap: var(--sp-200); margin-bottom: 1px; }
 .author { font-weight: 600; color: var(--text); }

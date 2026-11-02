@@ -82,6 +82,7 @@ function toAuthor(row: Row): Author {
     initial: name.slice(0, 1).toUpperCase(),
     color: typeof row.color === 'string' && row.color ? row.color : colorFor(name),
     role: row.is_admin ? 'admin' : row.is_moderator ? 'mod' : null,
+    avatarUrl: typeof row.avatar_url === 'string' && row.avatar_url ? row.avatar_url : undefined,
   };
 }
 
@@ -215,7 +216,7 @@ export async function fetchMessages(session: Session, channelId: string): Promis
         session,
         'profiles',
         `or=(id.in.(${list}),auth_user_id.in.(${list}))` +
-          '&select=id,auth_user_id,username,display_name,color,is_admin,is_moderator'
+          '&select=id,auth_user_id,username,display_name,color,avatar_url,is_admin,is_moderator'
       ).catch(() => [] as Row[])
     : [];
   const byId = new Map<string, Row>();

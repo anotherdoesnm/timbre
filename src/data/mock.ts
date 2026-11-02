@@ -5,6 +5,7 @@ export interface Author {
   initial: string;
   color: string;
   role?: Role;
+  avatarUrl?: string;
 }
 
 export interface Message {

@@ -51,17 +51,24 @@ const mobilePane = ref<'rooms' | 'chat'>('rooms');
 const sending = ref(false);
 const myProfileId = ref<string | null>(null);
 
-const servers = computed(() => (live.value && liveServers.value.length ? liveServers.value : mockServers));
+// A session means the mocks are a lie: show the real thing or nothing. Rendering the mock
+// first and swapping it is what produced the visible flash.
+const servers = computed(() => {
+  if (session.value) return live.value ? liveServers.value : [];
+  return mockServers;
+});
 const server = computed(() => servers.value.find((s) => s.id === activeServer.value) ?? servers.value[0]);
-const channels = computed(() =>
-  live.value ? liveChannels.value[activeServer.value] ?? [] : mockChannels
-);
+const channels = computed(() => {
+  if (session.value) return live.value ? liveChannels.value[activeServer.value] ?? [] : [];
+  return mockChannels;
+});
 const channel = computed(
   () => channels.value.find((c) => c.id === activeChannel.value) ?? channels.value[0] ?? null
 );
 const channelMessages = computed(() => {
   if (!channel.value) return [];
-  return live.value ? liveMessages.value[channel.value.id] ?? [] : mockMessages[channel.value.id] ?? [];
+  if (session.value) return live.value ? liveMessages.value[channel.value.id] ?? [] : [];
+  return mockMessages[channel.value.id] ?? [];
 });
 
 async function loadChannel(serverId: string, channelId: string) {
@@ -145,6 +152,7 @@ document.addEventListener('visibilitychange', () => {
 function enter() {
   session.value = storedSession();
   location.hash = 'chat';
+  mobilePane.value = 'rooms';
   boot();
 }
 
@@ -230,7 +238,7 @@ watch([activeServer, activeChannel], () => {
       <Composer :channel-name="channel.name" :disabled="!!channel.encrypted" :sending="sending" @send="onSend" />
     </main>
     <main v-else class="chat empty">
-      <p>No channels, or none visible to this session.</p>
+      <p>{{ loading ? 'Loading…' : 'No channels, or none visible to this session.' }}</p>
     </main>
     <MemberList v-if="membersOpen" />
   </div>
@@ -263,11 +271,26 @@ watch([activeServer, activeChannel], () => {
     grid-template-columns: 1fr;
     grid-template-rows: auto 1fr;
   }
-  .app :deep(.rail) { display: none; }
+  /* The rail stays, as a strip along the top: without it there is no way to switch servers
+     on a phone at all. */
+  .app :deep(.rail) {
+    flex-direction: row;
+    width: 100%;
+    height: auto;
+    gap: var(--sp-200);
+    padding: var(--sp-200) var(--sp-300);
+    border-right: none;
+    border-bottom: 1px solid var(--bg-line);
+    overflow-x: auto;
+  }
+  .app :deep(.rail .sep) { width: 1px; height: 28px; margin: 0 var(--sp-100); flex: none; }
+  .app :deep(.rail-btn) { flex: none; }
+  .app :deep(.rail-btn.active)::before { display: none; }
   .app :deep(.members) { display: none; }
-  .app :deep(.rooms) { width: 100%; grid-row: 1 / span 2; display: flex; }
+  .app :deep(.rooms) { width: 100%; grid-row: 2; display: flex; }
   .app.mobile :deep(.rooms) { display: none; }
-  .app :deep(.chat) { display: none; grid-row: 1 / span 2; }
+  .app :deep(.chat) { display: none; grid-row: 2; }
   .app.mobile :deep(.chat) { display: flex; }
+  .app :deep(.me) { display: none; }
 }
 </style>
