@@ -106,12 +106,22 @@ jobs:
           set -eo pipefail
           mkdir -p /tmp/ci-logs
           npm ci 2>&1 | tee /tmp/ci-logs/npm.log
-          npx tauri build --target x86_64-pc-windows-gnu --bundles nsis 2>&1 | tee /tmp/ci-logs/nsis.log
+          # Debian's nsis is missing Include/Win/RestartManager.nsh, which Tauri's installer
+          # script includes; without it makensis aborts on line 27.
+          mkdir -p /usr/share/nsis/Include/Win
+          curl -fsSL -o /usr/share/nsis/Include/Win/RestartManager.nsh \
+            https://raw.githubusercontent.com/kichik/nsis/master/Include/Win/RestartManager.nsh || true
+          npx tauri build --target x86_64-pc-windows-gnu --bundles nsis 2>&1 | tee /tmp/ci-logs/nsis.log \
+            || {
+              echo "ПРЕДУПРЕЖДЕНИЕ: NSIS не собрался — публикую голый exe" >&2
+              npx tauri build --target x86_64-pc-windows-gnu --no-bundle 2>&1 | tee -a /tmp/ci-logs/nsis.log
+            }
 
       - name: publish
         run: |
           set -eo pipefail
           src=$(find "${CARGO_TARGET_DIR:-src-tauri/target}" -name '*-setup.exe' -print -quit)
+          [ -n "$src" ] || src=$(find "${CARGO_TARGET_DIR:-src-tauri/target}" -name 'timbre.exe' -print -quit)
           [ -n "$src" ] || { echo "ОШИБКА: установщик не собрался" >&2; exit 1; }
           ls -l "$src"
           dest="http://192.168.1.10:8080/upload/desktop/${GITHUB_SHA:-manual}"
