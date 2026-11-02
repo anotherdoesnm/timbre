@@ -123,4 +123,4 @@ jobs:
           # JSON-escape the body, then turn the real newlines into \n escapes.
           content=$(sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' /tmp/message.txt | awk 'BEGIN { ORS = "\\n" } { print }')
           curl -fsS -X POST "$HOOK" -H 'Content-Type: application/json' \
-            -d "{\"content\":\"$content\"}"
+            -d "{\"content\":\"$content\",\"allowed_mentions\":{\"parse\":[]}}"
