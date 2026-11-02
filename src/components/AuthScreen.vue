@@ -8,6 +8,10 @@ import { adoptSession, describeToken, parseSessionBlob } from '../services/sessi
 const emit = defineEmits<{ (e: 'authenticated'): void }>();
 
 const demo = new URLSearchParams(location.search).get('demo') === '1';
+// The instance matches its allowlist against exactly this string; there is no address bar
+// in the shell, so the screen has to say it out loud.
+const origin = location.origin;
+const redirect = `${location.origin}/auth/callback`;
 const host = ref('');
 const loading = ref(false);
 const error = ref('');
@@ -400,5 +404,6 @@ h1 { margin: 0 0 var(--sp-100); font-size: 21px; letter-spacing: -0.01em; }
 .legal .dot { color: var(--text-tertiary); }
 .legal .note { margin-top: 2px; color: var(--text-tertiary); }
 .legal a { color: var(--text-secondary); }
+.legal .origin { width: 100%; margin-top: 2px; font-family: var(--font-mono); font-size: 9px; color: var(--text-tertiary); word-break: break-all; }
 .legal .brand { color: var(--primary-main); font-weight: 600; }
 </style>

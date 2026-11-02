@@ -10,7 +10,7 @@
 
 import type { InstanceInfo } from './discover';
 import { challengeFor, randomVerifier } from './pkce';
-import { isTauriRuntime, signInViaOAuthPopup } from './tauriOAuth';
+import { isMobileShell, isTauriRuntime, signInViaOAuthPopup } from './tauriOAuth';
 
 export interface Session {
   instance: string;
@@ -68,11 +68,13 @@ export async function beginSignIn(instance: InstanceInfo, provider: string): Pro
 
 export async function navigateToSignIn(instance: InstanceInfo, provider: string): Promise<void> {
   const url = await beginSignIn(instance, provider);
-  if (!isTauriRuntime()) {
+  // Phone and browser both leave this page; nothing may touch the router afterwards, or the
+  // app flashes its own shell between the click and the provider's page.
+  if (isMobileShell() || !isTauriRuntime()) {
     location.assign(url);
     return;
   }
-  // Desktop/mobile shell: a separate window, so the app never navigates away.
+  // Desktop: a separate window, so the shell never navigates away.
   await signInViaOAuthPopup(url);
   location.hash = 'chat';
 }
