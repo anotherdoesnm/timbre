@@ -9,7 +9,7 @@ import MemberList from './components/MemberList.vue';
 import AuthScreen from './components/AuthScreen.vue';
 import AuthCallback from './components/AuthCallback.vue';
 import { channels as mockChannels, messages as mockMessages, servers as mockServers } from './data/mock';
-import { storedSession, type Session } from './services/auth';
+import { refreshSession, sessionExpired, storedSession, type Session } from './services/auth';
 import { fetchChannels, fetchMe, fetchMessages, fetchServers } from './services/data';
 
 const hash = () => location.hash.replace('#', '');
@@ -68,9 +68,31 @@ async function loadChannel(serverId: string, channelId: string) {
   }
 }
 
+async function ensureFresh(s: Session): Promise<Session | null> {
+  if (!sessionExpired(s, 120_000)) return s;
+  if (!s.refreshToken) return null;
+  try {
+    const next = await refreshSession(s);
+    session.value = next;
+    return next;
+  } catch {
+    return null;
+  }
+}
+
 async function boot() {
-  const s = session.value;
-  if (!s) return;
+  const fresh = session.value ? await ensureFresh(session.value) : null;
+  const s = fresh;
+  if (!s) {
+    if (session.value) {
+      // The instance declined the refresh: the stored session is dead weight.
+      session.value = null;
+      loadError.value = 'Сессия истекла — принесите новую через «I already have a session»';
+      route.value = 'auth';
+      location.hash = 'auth';
+    }
+    return;
+  }
   loading.value = true;
   loadError.value = '';
   try {

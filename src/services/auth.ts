@@ -132,6 +132,51 @@ export async function completeSignIn(params: { code?: string; accessToken?: stri
   return session;
 }
 
+/** Claims of an access token, without verifying anything: exp is all we need. */
+function tokenExpiry(access: string): number | null {
+  try {
+    const part = access.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
+    const payload = JSON.parse(atob(part + '='.repeat((4 - (part.length % 4)) % 4))) as { exp?: number };
+    return typeof payload.exp === 'number' ? payload.exp * 1000 : null;
+  } catch {
+    return null;
+  }
+}
+
+/** True when the access token is gone or about to expire (a minute of slack). */
+export function sessionExpired(session: Session, slackMs = 60_000): boolean {
+  const exp = tokenExpiry(session.accessToken);
+  return exp === null ? true : exp - Date.now() < slackMs;
+}
+
+/**
+ * Exchanges the refresh token for a fresh access token and rewrites the stored session.
+ * Without this an imported session dies an hour after it was pasted, which makes the whole
+ * bring-your-own-session path useless for anything longer than a test.
+ */
+export async function refreshSession(session: Session): Promise<Session> {
+  if (!session.refreshToken) throw new Error('no refresh token');
+  const res = await fetch(`${session.supabaseUrl}/auth/v1/token?grant_type=refresh_token`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      apikey: session.anonKey,
+      Authorization: `Bearer ${session.anonKey}`,
+    },
+    body: JSON.stringify({ refresh_token: session.refreshToken }),
+  });
+  if (!res.ok) throw new Error(`refresh failed: ${res.status}`);
+  const body = (await res.json()) as { access_token?: string; refresh_token?: string };
+  if (!body.access_token) throw new Error('refresh returned no token');
+  const next: Session = {
+    ...session,
+    accessToken: body.access_token,
+    refreshToken: body.refresh_token ?? session.refreshToken,
+  };
+  localStorage.setItem(SESSION_PREFIX + next.instance, JSON.stringify(next));
+  return next;
+}
+
 export function storedSession(instance?: string): Session | null {
   const key = instance ? SESSION_PREFIX + instance : null;
   if (key) {
