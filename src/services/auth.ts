@@ -23,6 +23,25 @@ export interface Session {
 }
 
 const PENDING_KEY = 'auth.pending';
+const LAST_KEY = 'auth.last';
+
+/** Remembers where the last successful sign-in happened, to prefill the form. */
+export function rememberLast(instance: string, email?: string): void {
+  try {
+    localStorage.setItem(LAST_KEY, JSON.stringify({ instance, email: email ?? '' }));
+  } catch {
+    /* storage may be unavailable */
+  }
+}
+
+export function lastSignIn(): { instance: string; email: string } | null {
+  try {
+    const raw = localStorage.getItem(LAST_KEY);
+    return raw ? (JSON.parse(raw) as { instance: string; email: string }) : null;
+  } catch {
+    return null;
+  }
+}
 const SESSION_PREFIX = 'auth.session.';
 
 export const isTauri = isTauriRuntime;
@@ -221,6 +240,7 @@ export async function signInWithPassword(instance: InstanceInfo, email: string, 
     user: (body.user as Session['user']) ?? undefined,
   };
   localStorage.setItem(SESSION_PREFIX + session.instance, JSON.stringify(session));
+  rememberLast(session.instance, email);
   return session;
 }
 

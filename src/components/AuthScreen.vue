@@ -2,7 +2,7 @@
 import { computed, ref } from 'vue';
 import Icon from './Icon.vue';
 import { discoverInstance, refreshProviders, type InstanceInfo } from '../services/discover';
-import { navigateToSignIn, signInWithPassword } from '../services/auth';
+import { lastSignIn, navigateToSignIn, signInWithPassword } from '../services/auth';
 import { adoptSession, describeToken, parseSessionBlob } from '../services/sessionImport';
 
 const emit = defineEmits<{ (e: 'authenticated'): void }>();
@@ -12,7 +12,8 @@ const demo = new URLSearchParams(location.search).get('demo') === '1';
 // in the shell, so the screen has to say it out loud.
 const origin = location.origin;
 const redirect = `${location.origin}/auth/callback`;
-const host = ref('');
+const last = lastSignIn();
+const host = ref(last?.instance ?? '');
 const loading = ref(false);
 const error = ref('');
 const instance = ref<InstanceInfo | null>(null);
@@ -40,7 +41,7 @@ function importSession() {
   adoptSession(inst, parsed.access, parsed.refresh);
   emit('authenticated');
 }
-const email = ref('');
+const email = ref(last?.email ?? '');
 const password = ref('');
 
 const providerMeta: Record<string, { label: string; badge: string }> = {
