@@ -60,7 +60,7 @@ jobs:
       - name: publish
         run: |
           set -eo pipefail
-          src=$(find src-tauri/target -name '*.AppImage' -print -quit)
+          src=$(find "${CARGO_TARGET_DIR:-src-tauri/target}" -name '*.AppImage' -print -quit)
           [ -n "$src" ] || { echo "ОШИБКА: AppImage не собрался" >&2; exit 1; }
           ls -l "$src"
           dest="http://192.168.1.10:8080/upload/desktop/${GITHUB_SHA:-manual}"
@@ -111,7 +111,7 @@ jobs:
       - name: publish
         run: |
           set -eo pipefail
-          src=$(find src-tauri/target -name '*-setup.exe' -print -quit)
+          src=$(find "${CARGO_TARGET_DIR:-src-tauri/target}" -name '*-setup.exe' -print -quit)
           [ -n "$src" ] || { echo "ОШИБКА: установщик не собрался" >&2; exit 1; }
           ls -l "$src"
           dest="http://192.168.1.10:8080/upload/desktop/${GITHUB_SHA:-manual}"
