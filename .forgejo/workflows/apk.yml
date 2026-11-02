@@ -95,3 +95,32 @@ jobs:
           dest="http://192.168.1.10:8080/upload/apk/${GITHUB_SHA:-manual}"
           curl -fsS -T "$src" "$dest/timbre-$(basename "$src")"
           echo "published $dest/timbre-$(basename "$src")"
+          echo "$dest/timbre-$(basename "$src")" >> /tmp/published.txt
+
+      - name: tell #new-builds
+        # Channel webhook, Discord-compatible body. The URL is a secret: when it is unset the
+        # step does nothing, so the workflow stays usable without one.
+        env:
+          HOOK: ${{ secrets.TIMBRE_WEBHOOK }}
+        run: |
+          set -eo pipefail
+          if [ -z "$HOOK" ]; then echo "no TIMBRE_WEBHOOK secret, skipping"; exit 0; fi
+          if [ ! -s /tmp/published.txt ]; then echo "nothing published, skipping"; exit 0; fi
+          subject=$(git log -1 --pretty=%s | cut -c1-120)
+          {
+            printf '**Timbre %s** — %s\n' "${GITHUB_SHA:0:7}" "$subject"
+            while read -r url; do
+              case "$url" in
+                *.apk) label=APK ;;
+                *.AppImage) label=AppImage ;;
+                *.exe) label=Windows ;;
+                *) label=Build ;;
+              esac
+              printf '%s: %s\n' "$label" "$url"
+            done < /tmp/published.txt
+          } > /tmp/message.txt
+          cat /tmp/message.txt
+          # JSON-escape the body, then turn the real newlines into \n escapes.
+          content=$(sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' /tmp/message.txt | awk 'BEGIN { ORS = "\\n" } { print }')
+          curl -fsS -X POST "$HOOK" -H 'Content-Type: application/json' \
+            -d "{\"content\":\"$content\"}"
