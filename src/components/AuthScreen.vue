@@ -190,6 +190,7 @@ function reset() {
           <a href="https://github.com/y4my4my4m/harmony" target="_blank" rel="noreferrer">Powered by Harmony</a>
         </div>
         <div class="note">independent client, not affiliated with the project</div>
+        <div class="origin">origin: {{ origin }} · redirect: {{ redirect }}</div>
       </footer>
     </div>
   </div>
