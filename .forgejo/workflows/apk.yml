@@ -8,10 +8,12 @@
 name: apk
 
 on:
-  push:
-    branches: [main]
-  pull_request:
+  # Not on every push to main: a cold APK is ~10 minutes of runner time, and pushes here are
+  # frequent. Builds happen when asked (workflow_dispatch) or on a tag, so a batch of fixes
+  # costs one build instead of five.
   workflow_dispatch:
+  push:
+    tags: ['v*']
 
 concurrency:
   group: apk-${{ github.ref }}
