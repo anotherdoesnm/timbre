@@ -20,6 +20,39 @@ function colorFor(seed: string): string {
  * `messages.content` is jsonb: a string, an array of parts, or an object with a text field.
  * Anything else is shown as compact JSON rather than `[object Object]`.
  */
+export interface RenderedContent {
+  text: string;
+  images: string[];
+}
+
+/** Splits a jsonb message body into its text and its attachments. */
+export function renderContentParts(content: unknown): RenderedContent {
+  const parts = Array.isArray(content) ? content : content ? [content] : [];
+  const texts: string[] = [];
+  const images: string[] = [];
+  for (const part of parts) {
+    if (typeof part === 'string') {
+      texts.push(part);
+      continue;
+    }
+    if (!part || typeof part !== 'object') continue;
+    const o = part as Record<string, unknown>;
+    const type = String(o.type ?? '');
+    if (typeof o.url === 'string' && (type.includes('image') || type.includes('media') || type.includes('file'))) {
+      images.push(o.url);
+      continue;
+    }
+    if (typeof o.text === 'string') {
+      texts.push(o.text);
+      continue;
+    }
+    if (typeof o.content === 'string') {
+      texts.push(o.content);
+    }
+  }
+  return { text: texts.join(''), images };
+}
+
 export function renderContent(content: unknown): string {
   const fromPart = (part: unknown): string => {
     if (typeof part === 'string') return part;
@@ -69,9 +102,16 @@ export async function fetchServers(session: Session, profileId: string): Promise
     'user_servers',
     `user_id=eq.${encodeURIComponent(profileId)}&select=position,server:servers(id,name,icon,member_count)&order=position.asc`
   );
+  const seen = new Set<string>();
   return rows
     .map((r) => r.server as Row | null)
     .filter((s): s is Row => !!s)
+    .filter((s) => {
+      const id = String(s.id);
+      if (seen.has(id)) return false;
+      seen.add(id);
+      return true;
+    })
     .map((s, i) => {
       const name = String(s.name ?? 'server');
       return {
@@ -142,10 +182,12 @@ export async function fetchMessages(session: Session, channelId: string): Promis
     'messages',
     `channel_id=eq.${encodeURIComponent(channelId)}` +
       '&is_deleted=eq.false&order=created_at.asc&limit=80' +
-      '&select=id,created_at,content,encrypted,user_id'
+      '&select=id,created_at,content,encrypted,user_id,is_system'
   );
 
-  const ids = [...new Set(rows.map((m) => String(m.user_id)).filter(Boolean))];
+  // String(null) is "null", which made the in.(...) list invalid and the request 400 — the
+  // catch below then returned no profiles and every author became "unknown".
+  const ids = [...new Set(rows.map((m) => m.user_id).filter((id): id is string => typeof id === 'string' && id.length > 0))];
   const list = ids.map(encodeURIComponent).join(',');
   // `messages.user_id` may point at profiles.id or at the auth user id; asking for both in
   // one round trip removes the guess (and the guess was wrong: every author was "unknown").
@@ -166,18 +208,24 @@ export async function fetchMessages(session: Session, channelId: string): Promis
   let prevAuthor = '';
   let prevTime = 0;
   return rows.map((m) => {
-    const author = toAuthor(byId.get(String(m.user_id)) ?? { username: 'unknown' });
+    const system = m.is_system === true;
+    const author = toAuthor(byId.get(String(m.user_id)) ?? { username: system ? 'system' : 'unknown' });
     const at = new Date(String(m.created_at));
     const ms = at.getTime();
     const grouped = author.name === prevAuthor && ms - prevTime < 5 * 60 * 1000;
     prevAuthor = author.name;
     prevTime = ms;
+    const parts = m.encrypted
+      ? { text: 'Encrypted message — no keys on this device', images: [] as string[] }
+      : renderContentParts(m.content);
     return {
       id: String(m.id),
       author,
-      time: at.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }),
-      text: m.encrypted ? 'Encrypted message — no keys on this device' : renderContent(m.content),
-      grouped,
+      time: at.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }),
+      text: parts.text,
+      images: parts.images,
+      system,
+      grouped: system ? false : grouped,
     } satisfies Message;
   });
 }

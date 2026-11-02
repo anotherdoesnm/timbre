@@ -14,6 +14,10 @@ export interface Message {
   text: string;
   grouped?: boolean;
   mention?: boolean;
+  /** Signed attachment URLs from the message's jsonb parts. */
+  images?: string[];
+  /** "X joined the server" and friends: no author, no avatar. */
+  system?: boolean;
 }
 
 export interface Channel {

@@ -36,7 +36,12 @@ watch(
         <p v-if="!live">Skin prototype. The data is a mock — no session is attached.</p>
       </div>
 
-      <article v-for="m in messages" :key="m.id" class="msg" :class="{ grouped: m.grouped, mention: m.mention }">
+      <article
+        v-for="m in messages"
+        :key="m.id"
+        class="msg"
+        :class="{ grouped: m.grouped, mention: m.mention, system: m.system }"
+      >
         <div class="avatar-col">
           <div v-if="!m.grouped" class="avatar" :style="{ background: m.author.color }">
             {{ m.author.initial }}
@@ -49,7 +54,10 @@ watch(
             <span v-if="m.author.role" class="role" :class="m.author.role">{{ m.author.role === 'admin' ? 'admin' : 'mod' }}</span>
             <span class="time">{{ m.time }}</span>
           </header>
-          <p class="text">{{ m.text }}</p>
+          <p v-if="m.text" class="text">{{ m.text }}</p>
+          <div v-if="m.images?.length" class="images">
+            <img v-for="(src, i) in m.images" :key="i" :src="src" alt="" loading="lazy" />
+          </div>
         </div>
         <div class="tools">
           <button title="Reply"><Icon name="reply" :size="15" /></button>
@@ -117,6 +125,15 @@ watch(
 .role.admin { background: var(--critical-container); color: #f5d6d6; }
 .time { font-size: var(--fs-xs); color: var(--text-tertiary); }
 .text { margin: 0; color: var(--text); line-height: 1.5; overflow-wrap: anywhere; }
+.images { display: flex; flex-wrap: wrap; gap: var(--sp-200); margin-top: var(--sp-200); }
+.images img {
+  max-width: min(320px, 100%);
+  max-height: 320px;
+  border-radius: var(--radius-md);
+  display: block;
+}
+.msg.system .text { color: var(--text-tertiary); font-size: var(--fs-sm); font-style: italic; }
+.msg.system .avatar-col { visibility: hidden; }
 .tools {
   position: absolute;
   top: -14px;
@@ -129,7 +146,16 @@ watch(
   border: 1px solid var(--sfv-line);
   box-shadow: var(--shadow-1);
 }
-.msg:hover .tools { display: flex; }
+.msg:hover .images { display: flex; flex-wrap: wrap; gap: var(--sp-200); margin-top: var(--sp-200); }
+.images img {
+  max-width: min(320px, 100%);
+  max-height: 320px;
+  border-radius: var(--radius-md);
+  display: block;
+}
+.msg.system .text { color: var(--text-tertiary); font-size: var(--fs-sm); font-style: italic; }
+.msg.system .avatar-col { visibility: hidden; }
+.tools { display: flex; }
 .tools button {
   width: 26px; height: 26px;
   display: grid; place-items: center;
