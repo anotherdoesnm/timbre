@@ -47,6 +47,12 @@ export function parseSessionBlob(raw: string): { access: string; refresh?: strin
   const params = new URLSearchParams(text.replace(/^[^#?]*[#?]/, ''));
   const access = params.get('access_token');
   if (access) return { access, refresh: params.get('refresh_token') ?? undefined };
+
+  // A bare JWT, or the whole "Authorization: Bearer …" header copied out of the Network
+  // tab: the fastest thing to get hold of, and the only thing needed to read data.
+  const bare = text.replace(/^Bearer\s+/i, '').trim();
+  if (/^[\w-]+\.[\w-]+\.[\w-]+$/.test(bare)) return { access: bare };
+
   return null;
 }
 
