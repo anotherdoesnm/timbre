@@ -16,3 +16,9 @@ tauri-build = { version = "2", features = [] }
 tauri = { version = "2", features = [] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+
+# The debug APK was 124 MiB because the Rust library carries full debug symbols; splitting
+# per ABI changed nothing (one ABI, same size). Stripping the symbols in the dev profile
+# keeps the build a debug build but removes what nobody installs a chat client for.
+[profile.dev]
+strip = "symbols"
