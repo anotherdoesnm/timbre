@@ -110,7 +110,9 @@ OAuth в оболочке идёт через попап-окно (`src/services
 навигируется, попап возвращается на `/auth/callback`, сессия ложится в общее хранилище,
 попап шлёт `timbre:oauth-complete` и закрывается.
 
-Сборка APK — `.forgejo/workflows/apk.yml`, раннер с меткой `android` (runnerd). Rust и
+Сборка APK — `.forgejo/workflows/apk.yml`, раннер с меткой `android` (runnerd).
+`src-tauri/debug.keystore` лежит в репозитории намеренно: без него свежая VM генерирует
+новый debug-ключ на каждый ран, и Android отказывается ставить сборку поверх предыдущей. Rust и
 конфиг Tauri в этом репозитории **ещё не компилировались** — первый прогон в CI и есть
 проверка.
 

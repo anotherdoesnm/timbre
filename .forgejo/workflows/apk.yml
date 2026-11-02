@@ -58,31 +58,17 @@ jobs:
           git checkout -q FETCH_HEAD
           git log --oneline -1
 
-      - name: stable debug keystore
-        # The runner is a fresh VM, so ~/.android is empty and the Android Gradle plugin
-        # generates a new debug keystore on every run. A new key means a new signature, and
-        # Android then refuses to install the build over the previous one ("app not
-        # installed") until it is uninstalled. AGP uses this path if it exists, so keeping
-        # one keystore in the LAN cache is enough — no gradle or signing config to touch.
+      - name: debug keystore
+        # The runner is a fresh VM, so ~/.android is empty and the Android Gradle plugin would
+        # generate a new debug key on every run — a new signature every build, and Android
+        # refuses to install over the previous one. The key lives in the repository instead
+        # (password "android", as every debug keystore), so the signature never moves.
         run: |
           set -eo pipefail
           mkdir -p "$HOME/.android"
-          ks="$HOME/.android/debug.keystore"
-          url="http://192.168.1.10:8080/keystore/timbre-debug.keystore"
-          if curl -fsS -m 20 "$url" -o "$ks"; then
-            echo "keystore: fetched from the cache"
-          else
-            echo "keystore: not cached yet, generating one"
-            keytool -genkeypair -keystore "$ks" -storepass android -keypass android \
-              -alias androiddebugkey -keyalg RSA -keysize 2048 -validity 10000 \
-              -dname "CN=Android Debug,O=Timbre,C=RU"
-            if curl -fsS -m 20 -T "$ks" "http://192.168.1.10:8080/upload/keystore/timbre-debug.keystore"; then
-              echo "keystore: uploaded to the cache"
-            else
-              echo "ПРЕДУПРЕЖДЕНИЕ: keystore не залился в кэш — подпись следующей сборки снова будет другой" >&2
-            fi
-          fi
-          keytool -list -keystore "$ks" -storepass android | tail -3
+          cp src-tauri/debug.keystore "$HOME/.android/debug.keystore"
+          chmod 600 "$HOME/.android/debug.keystore"
+          sha256sum "$HOME/.android/debug.keystore"
 
       - name: build the debug APK
         run: |
