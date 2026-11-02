@@ -74,6 +74,33 @@ export async function fetchChannels(session: Session, serverId: string): Promise
   }));
 }
 
+/**
+ * Posts a message. Harmony keeps the insert on the table (row level security decides), and
+ * a refusal comes back as a PostgREST error rather than a silent no-op, which is why the
+ * body is returned as-is instead of being assumed.
+ */
+export async function sendMessage(
+  session: Session,
+  channelId: string,
+  userId: string,
+  content: string
+): Promise<void> {
+  const res = await fetch(`${session.supabaseUrl}/rest/v1/messages`, {
+    method: 'POST',
+    headers: {
+      apikey: session.anonKey,
+      Authorization: `Bearer ${session.accessToken}`,
+      'Content-Type': 'application/json',
+      Prefer: 'return=minimal',
+    },
+    body: JSON.stringify({ channel_id: channelId, user_id: userId, content }),
+  });
+  if (!res.ok) {
+    const body = await res.text().catch(() => '');
+    throw new Error(`send: ${res.status} ${body.slice(0, 200)}`);
+  }
+}
+
 export async function fetchMessages(session: Session, channelId: string): Promise<Message[]> {
   const rows = await rest<Row[]>(
     session,

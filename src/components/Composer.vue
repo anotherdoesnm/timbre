@@ -2,11 +2,14 @@
 import { ref } from 'vue';
 import Icon from './Icon.vue';
 
-const props = defineProps<{ disabled?: boolean; channelName: string }>();
+const props = defineProps<{ disabled?: boolean; channelName: string; sending?: boolean }>();
+const emit = defineEmits<{ (e: 'send', text: string): void }>();
 const text = ref('');
 
 function send() {
-  if (props.disabled || !text.value.trim()) return;
+  const body = text.value.trim();
+  if (props.disabled || !body || props.sending) return;
+  emit('send', body);
   text.value = '';
 }
 </script>
@@ -29,7 +32,7 @@ function send() {
         </div>
         <div class="right">
           <button :disabled="disabled" title="Voice message"><Icon name="mic" :size="18" /></button>
-          <button class="send" :disabled="disabled || !text.trim()" title="Send" @click="send">
+          <button class="send" :disabled="disabled || sending || !text.trim()" title="Send" @click="send">
             <Icon name="send" :size="17" />
           </button>
         </div>

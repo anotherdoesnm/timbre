@@ -10,7 +10,7 @@ import AuthScreen from './components/AuthScreen.vue';
 import AuthCallback from './components/AuthCallback.vue';
 import { channels as mockChannels, messages as mockMessages, servers as mockServers } from './data/mock';
 import { refreshSession, sessionExpired, storedSession, type Session } from './services/auth';
-import { fetchChannels, fetchMe, fetchMessages, fetchServers } from './services/data';
+import { fetchChannels, fetchMe, fetchMessages, fetchServers, sendMessage } from './services/data';
 
 const hash = () => location.hash.replace('#', '');
 const initialSearch = new URLSearchParams(location.search.slice(1));
@@ -43,6 +43,8 @@ const activeServer = ref(mockServers[0].id);
 const activeChannel = ref('c1');
 const membersOpen = ref(true);
 const mobilePane = ref<'rooms' | 'chat'>('chat');
+const sending = ref(false);
+const myProfileId = ref<string | null>(null);
 
 const servers = computed(() => (live.value && liveServers.value.length ? liveServers.value : mockServers));
 const server = computed(() => servers.value.find((s) => s.id === activeServer.value) ?? servers.value[0]);
@@ -97,6 +99,7 @@ async function boot() {
   loadError.value = '';
   try {
     const profile = await fetchMe(s);
+    myProfileId.value = profile ? String(profile.id) : null;
     if (profile) {
       me.value = {
         name: String(profile.display_name || profile.username || 'вы'),
@@ -162,6 +165,21 @@ function pickChannel(id: string) {
   }
 }
 
+async function onSend(body: string) {
+  const s = session.value;
+  const ch = channel.value;
+  if (!s || !ch || !myProfileId.value) return;
+  sending.value = true;
+  try {
+    await sendMessage(s, ch.id, myProfileId.value, body);
+    liveMessages.value[ch.id] = await fetchMessages(s, ch.id);
+  } catch (e) {
+    loadError.value = e instanceof Error ? e.message : String(e);
+  } finally {
+    sending.value = false;
+  }
+}
+
 watch([activeServer, activeChannel], () => {
   const s = session.value;
   if (s && live.value) loadChannel(activeServer.value, activeChannel.value).catch(() => undefined);
@@ -197,7 +215,7 @@ watch([activeServer, activeChannel], () => {
       />
       <p v-if="loadError" class="banner">{{ loadError }}</p>
       <MessageList :channel="channel" :messages="channelMessages" />
-      <Composer :channel-name="channel.name" :disabled="!!channel.encrypted" />
+      <Composer :channel-name="channel.name" :disabled="!!channel.encrypted" :sending="sending" @send="onSend" />
     </main>
     <main v-else class="chat empty">
       <p>No channels, or none visible to this session.</p>
