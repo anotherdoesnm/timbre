@@ -146,14 +146,22 @@ export async function fetchMessages(session: Session, channelId: string): Promis
   );
 
   const ids = [...new Set(rows.map((m) => String(m.user_id)).filter(Boolean))];
+  const list = ids.map(encodeURIComponent).join(',');
+  // `messages.user_id` may point at profiles.id or at the auth user id; asking for both in
+  // one round trip removes the guess (and the guess was wrong: every author was "unknown").
   const profiles: Row[] = ids.length
     ? await rest<Row[]>(
         session,
         'profiles',
-        `id=in.(${ids.map(encodeURIComponent).join(',')})&select=id,username,display_name,color,is_admin,is_moderator`
+        `or=(id.in.(${list}),auth_user_id.in.(${list}))` +
+          '&select=id,auth_user_id,username,display_name,color,is_admin,is_moderator'
       ).catch(() => [] as Row[])
     : [];
-  const byId = new Map(profiles.map((p) => [String(p.id), p]));
+  const byId = new Map<string, Row>();
+  for (const p of profiles) {
+    byId.set(String(p.id), p);
+    if (p.auth_user_id) byId.set(String(p.auth_user_id), p);
+  }
 
   let prevAuthor = '';
   let prevTime = 0;

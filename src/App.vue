@@ -89,11 +89,9 @@ async function boot() {
   const s = fresh;
   if (!s) {
     if (session.value) {
-      // The instance declined the refresh: the stored session is dead weight.
-      session.value = null;
-      loadError.value = 'Сессия истекла — принесите новую через «I already have a session»';
-      route.value = 'auth';
-      location.hash = 'auth';
+      // Do not throw the session away on a failed refresh: a flaky network at start-up used
+      // to log people out. Keep it, say what happened, and let the next attempt fix it.
+      loadError.value = 'Could not renew the session — check the connection and reopen';
     }
     return;
   }
@@ -131,6 +129,15 @@ async function boot() {
 }
 
 onMounted(boot);
+
+// Coming back to the app is the moment a stale token usually shows up: renew it there
+// instead of waiting for the first request to fail.
+document.addEventListener('visibilitychange', () => {
+  const s = session.value;
+  if (document.visibilityState === 'visible' && s && sessionExpired(s, 120_000) && s.refreshToken) {
+    refreshSession(s).then((next) => (session.value = next)).catch(() => undefined);
+  }
+});
 
 function enter() {
   session.value = storedSession();
