@@ -53,7 +53,7 @@ watch(
           <span v-else class="time-hover">{{ m.time }}</span>
         </div>
         <div class="body">
-          <header v-if="!m.grouped" class="meta">
+          <header v-if="!m.grouped && !m.system" class="meta">
             <span class="author">{{ m.author.name }}</span>
             <span v-if="m.author.role" class="role" :class="m.author.role">{{ m.author.role === 'admin' ? 'admin' : 'mod' }}</span>
             <span class="time">{{ m.time }}</span>
