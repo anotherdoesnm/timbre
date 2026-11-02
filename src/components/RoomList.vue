@@ -32,7 +32,7 @@ const groups = computed(() => {
 
     <div class="search">
       <Icon name="search" :size="15" />
-      <input placeholder="Поиск" />
+      <input placeholder="Search" />
     </div>
 
     <div class="scroll">
@@ -55,10 +55,10 @@ const groups = computed(() => {
     </div>
 
     <footer class="me">
-      <div class="avatar">{{ (me?.name ?? 'вы').slice(0, 1).toUpperCase() }}</div>
+      <div class="avatar">{{ (me?.name ?? 'you').slice(0, 1).toUpperCase() }}</div>
       <div class="me-text">
-        <span class="me-name">{{ me?.name ?? 'вы' }}</span>
-        <span class="me-status">{{ live ? 'сессия инстанса' : 'демо-режим' }}</span>
+        <span class="me-name">{{ me?.name ?? 'you' }}</span>
+        <span class="me-status">{{ live ? 'instance session' : 'demo data' }}</span>
       </div>
       <Icon v-if="me?.role" name="shield" :size="15" />
     </footer>

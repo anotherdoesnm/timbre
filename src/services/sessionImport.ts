@@ -56,6 +56,36 @@ export function parseSessionBlob(raw: string): { access: string; refresh?: strin
   return null;
 }
 
+/** Decoded claims of a JWT; null when it is not one. */
+export function jwtClaims(token: string): Record<string, unknown> | null {
+  try {
+    const part = token.split('.')[1];
+    const padded = part.replace(/-/g, '+').replace(/_/g, '/');
+    return JSON.parse(atob(padded + '='.repeat((4 - (padded.length % 4)) % 4))) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The anon key is a JWT too, with `role: anon` and no `sub`. Pasting it produces a session
+ * that authenticates but sees nothing, which is indistinguishable from "RLS is empty" — so
+ * it is refused here, by name.
+ */
+export function describeToken(access: string): { ok: boolean; reason?: string; label: string } {
+  const claims = jwtClaims(access);
+  if (!claims) return { ok: false, reason: 'not a JWT', label: '' };
+  const role = String(claims.role ?? '');
+  const sub = typeof claims.sub === 'string' ? claims.sub : '';
+  const email = typeof claims.email === 'string' ? claims.email : '';
+  const label = `${role || 'role?'}${email ? ' · ' + email : ''}${sub ? ' · sub=' + sub.slice(0, 8) : ''}`;
+  if (role === 'anon' || role === 'service_role') {
+    return { ok: false, reason: `that is the instance key (role=${role}), not your session`, label };
+  }
+  if (!sub) return { ok: false, reason: 'no sub claim — not a user session', label };
+  return { ok: true, label };
+}
+
 export function adoptSession(instance: InstanceInfo, access: string, refresh?: string): Session {
   const session: Session = {
     instance: instance.origin,

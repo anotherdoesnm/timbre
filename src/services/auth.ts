@@ -87,7 +87,7 @@ function pending(): Pending | null {
 /** Exchanges the auth code, or accepts implicit tokens, and stores the session per instance. */
 export async function completeSignIn(params: { code?: string; accessToken?: string; refreshToken?: string }): Promise<Session> {
   const p = pending();
-  if (!p) throw new Error('Нет начатого входа: откройте экран входа заново');
+  if (!p) throw new Error('No sign-in in progress: start again from the sign-in screen');
 
   let body: Record<string, unknown> = {};
   if (params.code) {
@@ -103,13 +103,13 @@ export async function completeSignIn(params: { code?: string; accessToken?: stri
     });
     if (!res.ok) {
       const text = await res.text().catch(() => '');
-      throw new Error(`Не удалось завершить вход: ${res.status} ${text.slice(0, 120)}`);
+      throw new Error(`Sign-in failed: ${res.status} ${text.slice(0, 120)}`);
     }
     body = (await res.json()) as Record<string, unknown>;
   } else if (params.accessToken) {
     body = { access_token: params.accessToken, refresh_token: params.refreshToken };
   } else {
-    throw new Error('Инстанс вернул пустой ответ');
+    throw new Error('The instance returned nothing');
   }
 
   const session: Session = {
@@ -121,7 +121,7 @@ export async function completeSignIn(params: { code?: string; accessToken?: stri
     provider: p.provider,
     user: (body.user as Session['user']) ?? undefined,
   };
-  if (!session.accessToken) throw new Error('Инстанс не вернул токен');
+  if (!session.accessToken) throw new Error('The instance returned no token');
 
   localStorage.setItem(SESSION_PREFIX + session.instance, JSON.stringify(session));
   sessionStorage.removeItem(PENDING_KEY);

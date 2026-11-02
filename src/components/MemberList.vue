@@ -8,15 +8,15 @@ const offline = computed(() => members.filter((m) => m.status === 'offline'));
 
 <template>
   <aside class="members">
-    <section v-for="g in [{ t: `В сети — ${online.length}`, list: online }, { t: `Не в сети — ${offline.length}`, list: offline }]" :key="g.t">
+    <section v-for="g in [{ t: `Online — ${online.length}`, list: online }, { t: `Offline — ${offline.length}`, list: offline }]" :key="g.t">
       <div class="title">{{ g.t }}</div>
       <div v-for="m in g.list" :key="m.name" class="row" :class="{ dim: m.status === 'offline' }">
         <div class="av" :style="{ background: m.color }">{{ m.initial }}</div>
         <div class="who">
           <span class="name">{{ m.name }}</span>
-          <span v-if="m.role" class="role" :class="m.role">{{ m.role === 'admin' ? 'админ' : 'модер' }}</span>
+          <span v-if="m.role" class="role" :class="m.role">{{ m.role === 'admin' ? 'admin' : 'mod' }}</span>
         </div>
-        <span v-if="m.status === 'idle'" class="idle" title="Отошёл" />
+        <span v-if="m.status === 'idle'" class="idle" title="Away" />
       </div>
     </section>
   </aside>

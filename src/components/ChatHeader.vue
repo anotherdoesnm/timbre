@@ -9,20 +9,20 @@ const emit = defineEmits<{ (e: 'toggle-members'): void; (e: 'back'): void }>();
 <template>
   <header class="head">
     <div class="left">
-      <button class="back" title="Назад" @click="emit('back')"><Icon name="reply" :size="18" /></button>
+      <button class="back" title="Back" @click="emit('back')"><Icon name="reply" :size="18" /></button>
       <Icon :name="channel.kind === 'voice' ? 'volume' : 'hash'" :size="20" />
       <span class="name">{{ channel.name }}</span>
       <Icon v-if="channel.encrypted" name="lock" :size="14" class="lock" />
       <span class="tag">{{ live ? 'live' : 'demo' }}</span>
-      <span class="topic">Обсуждение клиента и всякое разное</span>
+      <span class="topic">Timbre — a client for Harmony</span>
     </div>
     <div class="right">
-      <button class="action" title="Поиск"><Icon name="search" :size="18" /></button>
-      <button class="action" title="Уведомления"><Icon name="bell" :size="18" /></button>
-      <button class="action" :class="{ on: membersOpen }" title="Участники" @click="emit('toggle-members')">
+      <button class="action" title="Search"><Icon name="search" :size="18" /></button>
+      <button class="action" title="Notifications"><Icon name="bell" :size="18" /></button>
+      <button class="action" :class="{ on: membersOpen }" title="Members" @click="emit('toggle-members')">
         <Icon name="users" :size="18" />
       </button>
-      <button class="action" title="Ещё"><Icon name="dots" :size="18" /></button>
+      <button class="action" title="More"><Icon name="dots" :size="18" /></button>
     </div>
   </header>
 </template>

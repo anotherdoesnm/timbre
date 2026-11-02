@@ -138,7 +138,7 @@ export async function discoverInstance(rawHost: string, opts: { demo?: boolean }
   try {
     host = normalizeHost(rawHost);
   } catch {
-    return { ok: false, error: { kind: 'bad-host', message: 'Похоже, это не адрес инстанса' } };
+    return { ok: false, error: { kind: 'bad-host', message: 'That does not look like an instance address' } };
   }
 
   if (opts.demo) {
@@ -154,7 +154,7 @@ export async function discoverInstance(rawHost: string, opts: { demo?: boolean }
       unknown
     >;
     if (body.success !== true || typeof body.supabaseUrl !== 'string' || typeof body.supabaseAnonKey !== 'string') {
-      return { ok: false, error: { kind: 'not-harmony', message: `На ${host} не отвечает Harmony` } };
+      return { ok: false, error: { kind: 'not-harmony', message: `${host} does not answer as Harmony` } };
     }
     const { providers, error: providersError } = await fetchProviders(body.supabaseUrl, body.supabaseAnonKey);
     return {
@@ -176,7 +176,7 @@ export async function discoverInstance(rawHost: string, opts: { demo?: boolean }
   } catch (e) {
     const err = e as { name?: string; status?: number; message?: string };
     if (err.name === 'AbortError') {
-      return { ok: false, error: { kind: 'timeout', message: `Не удалось подключиться к инстансу: таймаут` } };
+      return { ok: false, error: { kind: 'timeout', message: `Could not reach the instance: timeout` } };
     }
     if (typeof err.status === 'number') {
       // Content type is not enough: a 200 with an SPA fallback would also land here.

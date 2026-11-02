@@ -60,7 +60,7 @@ export async function signInViaOAuthPopup(providerUrl: string): Promise<void> {
 
   new WebviewWindow(OAUTH_WINDOW_LABEL, {
     url: providerUrl,
-    title: 'Вход в Timbre',
+    title: 'Sign in to Timbre',
     width: 520,
     height: 720,
     resizable: true,

@@ -30,7 +30,7 @@ onMounted(async () => {
       accessToken: params.get('access_token') ?? undefined,
       refreshToken: params.get('refresh_token') ?? undefined,
     });
-    who.value = `${session.user?.user_metadata?.user_name ?? session.user?.email ?? 'аккаунт'} · ${
+    who.value = `${session.user?.user_metadata?.user_name ?? session.user?.email ?? 'account'} · ${
       session.provider ?? 'oauth'
     } · ${session.instance}`;
     phase.value = 'ok';
@@ -55,16 +55,16 @@ onMounted(async () => {
         <Icon v-else name="users" :size="22" />
       </div>
 
-      <h1 v-if="phase === 'working'">Завершаем вход…</h1>
-      <h1 v-else-if="phase === 'ok'">Вход выполнен</h1>
-      <h1 v-else>Не получилось</h1>
+      <h1 v-if="phase === 'working'">Finishing sign-in…</h1>
+      <h1 v-else-if="phase === 'ok'">Signed in</h1>
+      <h1 v-else>That did not work</h1>
 
-      <p v-if="phase === 'working'" class="sub">Обмениваем код на сессию с инстансом.</p>
+      <p v-if="phase === 'working'" class="sub">Exchanging the code for a session with the instance.</p>
       <p v-else-if="phase === 'ok'" class="sub">{{ who }}</p>
       <p v-else class="sub">{{ error }}</p>
 
-      <button v-if="phase === 'ok'" class="primary" @click="emit('done', {} as Session)">Продолжить</button>
-      <button v-else-if="phase === 'error'" class="primary" @click="emit('cancel')">Вернуться ко входу</button>
+      <button v-if="phase === 'ok'" class="primary" @click="emit('done', {} as Session)">Continue</button>
+      <button v-else-if="phase === 'error'" class="primary" @click="emit('cancel')">Back to sign-in</button>
       <div v-else class="spinner" />
 
       <p class="diag">{{ diag }}</p>

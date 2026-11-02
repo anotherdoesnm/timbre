@@ -18,18 +18,18 @@ function send() {
         v-model="text"
         :disabled="disabled"
         rows="1"
-        :placeholder="disabled ? 'Канал зашифрован — на этом устройстве ключей нет' : `Написать в #${channelName}`"
+        :placeholder="disabled ? 'Encrypted channel — no keys on this device' : `Message #${channelName}`"
         @keydown.enter.exact.prevent="send"
       />
       <div class="bar">
         <div class="left">
-          <button :disabled="disabled" title="Прикрепить"><Icon name="plus" :size="18" /></button>
-          <button :disabled="disabled" title="Файл"><Icon name="clip" :size="18" /></button>
-          <button :disabled="disabled" title="Эмодзи"><Icon name="smile" :size="18" /></button>
+          <button :disabled="disabled" title="Attach"><Icon name="plus" :size="18" /></button>
+          <button :disabled="disabled" title="File"><Icon name="clip" :size="18" /></button>
+          <button :disabled="disabled" title="Emoji"><Icon name="smile" :size="18" /></button>
         </div>
         <div class="right">
-          <button :disabled="disabled" title="Голосовое"><Icon name="mic" :size="18" /></button>
-          <button class="send" :disabled="disabled || !text.trim()" title="Отправить" @click="send">
+          <button :disabled="disabled" title="Voice message"><Icon name="mic" :size="18" /></button>
+          <button class="send" :disabled="disabled || !text.trim()" title="Send" @click="send">
             <Icon name="send" :size="17" />
           </button>
         </div>

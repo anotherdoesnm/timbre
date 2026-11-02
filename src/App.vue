@@ -89,7 +89,7 @@ async function boot() {
         liveMessages.value[firstText.id] = await fetchMessages(s, firstText.id);
       }
     } else {
-      loadError.value = 'Серверы не видны этой сессии — показываю демо-данные.';
+      loadError.value = 'No servers are visible to this session — showing demo data.';
     }
   } catch (e) {
     loadError.value = e instanceof Error ? e.message : String(e);
@@ -173,7 +173,7 @@ watch([activeServer, activeChannel], () => {
       <Composer :channel-name="channel.name" :disabled="!!channel.encrypted" />
     </main>
     <main v-else class="chat empty">
-      <p>Каналов нет или они не видны этой сессии.</p>
+      <p>No channels, or none visible to this session.</p>
     </main>
     <MemberList v-if="membersOpen" />
   </div>
@@ -199,7 +199,10 @@ watch([activeServer, activeChannel], () => {
 /* Phone: one pane at a time. The rail keeps the servers, the list is a full screen, and
    opening a channel swaps in the chat with a back arrow in its header. */
 @media (max-width: 860px) {
-  .app {
+  /* Same specificity as `.app.with-members`, otherwise the desktop columns win and the chat
+     is squeezed into whatever the rail and the room list leave behind. */
+  .app,
+  .app.with-members {
     grid-template-columns: 1fr;
     grid-template-rows: auto 1fr;
   }

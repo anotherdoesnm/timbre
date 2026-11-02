@@ -96,7 +96,7 @@ export async function fetchMessages(session: Session, channelId: string): Promis
       id: String(m.id),
       author,
       time: at.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }),
-      text: m.encrypted ? 'Зашифрованное сообщение — ключей на этом устройстве нет' : String(m.content ?? ''),
+      text: m.encrypted ? 'Encrypted message — no keys on this device' : String(m.content ?? ''),
       grouped,
     } satisfies Message;
   });

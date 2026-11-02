@@ -3,7 +3,7 @@ import { computed, ref } from 'vue';
 import Icon from './Icon.vue';
 import { discoverInstance, refreshProviders, type InstanceInfo } from '../services/discover';
 import { navigateToSignIn } from '../services/auth';
-import { adoptSession, parseSessionBlob } from '../services/sessionImport';
+import { adoptSession, describeToken, parseSessionBlob } from '../services/sessionImport';
 
 const emit = defineEmits<{ (e: 'authenticated'): void }>();
 
@@ -23,7 +23,12 @@ function importSession() {
   if (!inst) return;
   const parsed = parseSessionBlob(blob.value);
   if (!parsed) {
-    importError.value = 'Не нашёл access_token — вставьте JSON из localStorage или фрагмент URL';
+    importError.value = 'No access_token found — paste the localStorage JSON or a callback URL fragment';
+    return;
+  }
+  const verdict = describeToken(parsed.access);
+  if (!verdict.ok) {
+    importError.value = `Not usable: ${verdict.reason} (${verdict.label})`;
     return;
   }
   adoptSession(inst, parsed.access, parsed.refresh);
@@ -74,8 +79,8 @@ async function startProvider(id: string) {
   } catch (e) {
     // A refused permission used to fail silently: no window, no error, a dead button.
     error.value = e instanceof Error && e.message === 'oauth-cancelled'
-      ? 'Вход отменён'
-      : `Не удалось открыть вход: ${e instanceof Error ? e.message : String(e)}`;
+      ? 'Sign-in cancelled'
+      : `Could not open sign-in: ${e instanceof Error ? e.message : String(e)}`;
   }
 }
 
@@ -94,10 +99,10 @@ function reset() {
       </div>
 
       <h1>Timbre</h1>
-      <p class="sub">Вход в Harmony. Введите адрес инстанса — Timbre сам найдёт его API и способы входа.</p>
+      <p class="sub">Sign in to Harmony. Enter an instance address — Timbre finds its API and sign-in methods on its own.</p>
 
       <form v-if="!instance" @submit.prevent="submit">
-        <label class="label" for="host">Инстанс</label>
+        <label class="label" for="host">Instance</label>
         <div class="field" :class="{ invalid: !!error }">
           <Icon name="search" :size="16" />
           <input
@@ -111,7 +116,7 @@ function reset() {
           />
         </div>
         <button class="primary" type="submit" :disabled="loading || !host.trim()">
-          {{ loading ? 'Проверяем…' : 'Продолжить' }}
+          {{ loading ? 'Checking…' : 'Continue' }}
         </button>
         <p v-if="error" class="error">{{ error }}</p>
       </form>
@@ -127,11 +132,11 @@ function reset() {
               · {{ instance.capabilities.length }} capabilities
             </div>
           </div>
-          <span v-if="instance.demo" class="chip">демо</span>
+          <span v-if="instance.demo" class="chip">demo</span>
         </div>
 
         <template v-if="providers.length">
-          <div class="divider"><span>продолжить через</span></div>
+          <div class="divider"><span>continue with</span></div>
           <button v-for="p in providers" :key="p.id" class="provider" @click="startProvider(p.id)">
             <span class="badge">{{ p.badge }}</span>
             <span class="provider-label">{{ p.label }}</span>
@@ -141,37 +146,37 @@ function reset() {
 
         <template v-else>
           <p v-if="instance.providersError" class="warn">
-            Не удалось получить способы входа ({{ instance.providersError }}). Инстанс, скорее всего, их
-            поддерживает — просто ответ не дошёл.
+            Could not read the sign-in methods ({{ instance.providersError }}). The instance most likely
+            supports them — the answer just did not arrive.
           </p>
-          <p v-else class="warn">Инстанс не сообщил ни одного способа входа — только пароль.</p>
+          <p v-else class="warn">This instance offers no sign-in methods — password only.</p>
           <button class="ghost" :disabled="retrying" @click="retryProviders">
-            {{ retrying ? 'Спрашиваем…' : 'Повторить' }}
+            {{ retrying ? 'Asking…' : 'Retry' }}
           </button>
         </template>
 
-        <div class="divider"><span>или</span></div>
+        <div class="divider"><span>or</span></div>
 
         <form v-if="showPassword" class="pw" @submit.prevent="emit('authenticated')">
-          <div class="field"><input v-model="email" placeholder="Почта" type="email" /></div>
-          <div class="field"><input v-model="password" placeholder="Пароль" type="password" /></div>
-          <button class="primary" type="submit" :disabled="!email || !password">Войти</button>
+          <div class="field"><input v-model="email" placeholder="Email" type="email" /></div>
+          <div class="field"><input v-model="password" placeholder="Password" type="password" /></div>
+          <button class="primary" type="submit" :disabled="!email || !password">Sign in</button>
         </form>
-        <button v-else class="text-btn" @click="showPassword = true">Войти по паролю</button>
+        <button v-else class="text-btn" @click="showPassword = true">Sign in with password</button>
 
-        <button class="text-btn muted" @click="reset">Другой инстанс</button>
+        <button class="text-btn muted" @click="reset">Another instance</button>
 
         <template v-if="showImport">
           <p class="hint">
-            Пока инстанс не разрешает наш <code>redirect_to</code>, сессию можно принести с собой:
-            открой инстанс в браузере, войди и скопируй
-            <code>sb-*-auth-token</code> из DevTools → Application → Local Storage.
+            Until the instance allows our <code>redirect_to</code>, bring a session with you: open the
+            instance in a browser, sign in, and copy <code>sb-*-auth-token</code> from
+            DevTools → Application → Local Storage.
           </p>
           <textarea v-model="blob" class="blob" rows="4" placeholder='{"access_token":"eyJ…","refresh_token":"…"}' />
           <p v-if="importError" class="warn">{{ importError }}</p>
-          <button class="ghost" @click="importSession">Войти с этой сессией</button>
+          <button class="ghost" @click="importSession">Use this session</button>
         </template>
-        <button v-else class="text-btn muted" @click="showImport = true">Уже есть сессия</button>
+        <button v-else class="text-btn muted" @click="showImport = true">I already have a session</button>
       </div>
 
       <footer class="legal">
@@ -180,7 +185,7 @@ function reset() {
           <span class="dot">·</span>
           <a href="https://github.com/y4my4my4m/harmony" target="_blank" rel="noreferrer">Powered by Harmony</a>
         </div>
-        <div class="note">независимый клиент, не связан с проектом</div>
+        <div class="note">independent client, not affiliated with the project</div>
       </footer>
     </div>
   </div>

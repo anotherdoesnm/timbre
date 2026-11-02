@@ -20,20 +20,20 @@ watch(
   <div class="list" ref="scroller">
     <div v-if="channel.encrypted" class="encrypted">
       <div class="enc-icon"><Icon name="lock" :size="26" /></div>
-      <h2>Зашифрованный канал</h2>
+      <h2>Encrypted channel</h2>
       <p>
-        Сообщения здесь зашифрованы per-channel. На этом устройстве ключей нет, поэтому показать
-        расшифрованный текст нельзя — и отправлять что-либо в этот канал тоже, чтобы не получился
-        plaintext в зашифрованном месте.
+        Messages here are encrypted per channel. This device holds no keys, so the decrypted text
+        cannot be shown — and nothing can be sent into this channel either, so that no plaintext
+        ever lands in an encrypted place.
       </p>
-      <button class="ghost">Подключить устройство</button>
+      <button class="ghost">Link this device</button>
     </div>
 
     <template v-else>
       <div class="intro">
         <div class="intro-icon"><Icon name="hash" :size="26" /></div>
-        <h2>Начало #{{ channel.name }}</h2>
-        <p>Это прототип скина. Данные — моки, Supabase не подключён.</p>
+        <h2>Start of #{{ channel.name }}</h2>
+        <p>Skin prototype. The data is a mock — no session is attached.</p>
       </div>
 
       <article v-for="m in messages" :key="m.id" class="msg" :class="{ grouped: m.grouped, mention: m.mention }">
@@ -46,15 +46,15 @@ watch(
         <div class="body">
           <header v-if="!m.grouped" class="meta">
             <span class="author">{{ m.author.name }}</span>
-            <span v-if="m.author.role" class="role" :class="m.author.role">{{ m.author.role === 'admin' ? 'админ' : 'модер' }}</span>
+            <span v-if="m.author.role" class="role" :class="m.author.role">{{ m.author.role === 'admin' ? 'admin' : 'mod' }}</span>
             <span class="time">{{ m.time }}</span>
           </header>
           <p class="text">{{ m.text }}</p>
         </div>
         <div class="tools">
-          <button title="Ответить"><Icon name="reply" :size="15" /></button>
-          <button title="Реакция"><Icon name="smile" :size="15" /></button>
-          <button title="Ещё"><Icon name="dots" :size="15" /></button>
+          <button title="Reply"><Icon name="reply" :size="15" /></button>
+          <button title="React"><Icon name="smile" :size="15" /></button>
+          <button title="More"><Icon name="dots" :size="15" /></button>
         </div>
       </article>
     </template>

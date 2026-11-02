@@ -8,7 +8,7 @@ const emit = defineEmits<{ (e: 'select', id: string): void }>();
 
 <template>
   <nav class="rail">
-    <button class="rail-btn home" title="Личные сообщения">
+    <button class="rail-btn home" title="Direct messages">
       <Icon name="inbox" :size="20" />
     </button>
     <div class="sep" />
@@ -25,7 +25,7 @@ const emit = defineEmits<{ (e: 'select', id: string): void }>();
       <span v-if="s.unread" class="dot" />
     </button>
     <div class="sep" />
-    <button class="rail-btn add" title="Добавить сервер">
+    <button class="rail-btn add" title="Add a server">
       <Icon name="plus" :size="18" />
     </button>
   </nav>
