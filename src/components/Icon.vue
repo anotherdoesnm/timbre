@@ -19,6 +19,8 @@ const paths: Record<string, string> = {
   dots: 'M6 12h.01M12 12h.01M18 12h.01',
   inbox: 'M3 12h5l2 3h4l2-3h5M3 12l3-7h12l3 7v6H3z',
   reply: 'M9 10 4 15l5 5M4 15h9a6 6 0 0 0 6-6V5',
+  close: 'M6 6l12 12M18 6 6 18',
+  check: 'M5 12.5 10 17.5 19 7',
 };
 </script>
 
