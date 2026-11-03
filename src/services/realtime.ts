@@ -1,18 +1,20 @@
 /**
  * Live updates over the instance's Realtime websocket.
  *
- * Harmony does not use Postgres CDC: triggers write rows into `realtime.messages` and Realtime
- * broadcasts them. Verified against a live instance — the topics are
+ * Harmony publishes through Realtime's *broadcast* path, not Postgres CDC: triggers write rows
+ * into `realtime.messages` and Realtime fans them out. Measured topics on a live instance:
  *
  *   channel-messages-<channelId>   event `message_event`   payload {op, new, old}
  *   server-structure:<serverId>    event `server_event`
  *   server-presence:<serverId>     presence
  *
- * A topic is joined as a *private* channel (`config.private = true`) with the user's JWT:
- * joined as a public one it answers `ok` and then delivers nothing, which took a probe to
- * discover. The protocol is Phoenix channels, so this is a small amount of JSON over one
- * socket rather than a library.
+ * The channel has to be opened with `config.private = true` and the user's token; opened as a
+ * public channel it subscribes and then delivers nothing. That is exactly what upstream does —
+ * `supabase.channel(topic, { config: { private: true } })` in their stores — and doing it by
+ * hand was only ever a stopgap: `@supabase/realtime-js` is the client behind supabase-js, and
+ * it already speaks this protocol, keeps the socket alive and rejoins after a drop.
  */
+import { RealtimeClient, type RealtimeChannel } from '@supabase/realtime-js';
 import type { Session } from './auth';
 
 export interface MessageRow {
@@ -30,107 +32,20 @@ export interface MessageEvent {
   record: MessageRow;
 }
 
-const HEARTBEAT_MS = 25_000;
-const RECONNECT_MS = [1_000, 2_000, 5_000, 10_000, 20_000];
-
-function socketUrl(session: Session): string {
-  const url = new URL(session.supabaseUrl);
-  const scheme = url.protocol === 'http:' ? 'ws:' : 'wss:';
-  return `${scheme}//${url.host}/realtime/v1/websocket?apikey=${encodeURIComponent(session.anonKey)}&vsn=1.0.0`;
-}
-
-interface Subscription {
+export interface Subscription {
   close(): void;
 }
 
-function subscribe(
-  session: Session,
-  topic: string,
-  event: string,
-  onMessage: (payload: Record<string, unknown>) => void
-): Subscription {
-  let ws: WebSocket | null = null;
-  let heartbeat: ReturnType<typeof setInterval> | null = null;
-  let retryTimer: ReturnType<typeof setTimeout> | null = null;
-  let attempt = 0;
-  let closed = false;
-  let ref = 0;
-
-  const cleanup = () => {
-    if (heartbeat) clearInterval(heartbeat);
-    heartbeat = null;
-    if (retryTimer) clearTimeout(retryTimer);
-    retryTimer = null;
-    if (ws) {
-      ws.onopen = ws.onmessage = ws.onerror = ws.onclose = null;
-      try {
-        ws.close();
-      } catch {
-        /* already gone */
-      }
-      ws = null;
-    }
-  };
-
-  const open = () => {
-    if (closed) return;
-    const socket = new WebSocket(socketUrl(session));
-    ws = socket;
-
-    socket.onopen = () => {
-      attempt = 0;
-      socket.send(
-        JSON.stringify({
-          topic: `realtime:${topic}`,
-          event: 'phx_join',
-          payload: { config: { private: true, broadcast: { self: true, ack: false } }, access_token: session.accessToken },
-          ref: String(++ref),
-          join_ref: String(ref),
-        })
-      );
-      heartbeat = setInterval(() => {
-        try {
-          socket.send(JSON.stringify({ topic: 'phoenix', event: 'heartbeat', payload: {}, ref: String(++ref) }));
-        } catch {
-          /* the close handler will reconnect */
-        }
-      }, HEARTBEAT_MS);
-    };
-
-    socket.onmessage = (raw) => {
-      let message: { event?: string; payload?: Record<string, unknown> };
-      try {
-        message = JSON.parse(String(raw.data));
-      } catch {
-        return;
-      }
-      if (message.event !== 'broadcast') return;
-      const payload = (message.payload ?? {}) as { event?: string; payload?: Record<string, unknown> };
-      if (payload.event !== event) return;
-      try {
-        onMessage(payload.payload ?? {});
-      } catch {
-        /* a broken handler must not kill the socket */
-      }
-    };
-
-    socket.onclose = () => {
-      if (heartbeat) clearInterval(heartbeat);
-      heartbeat = null;
-      if (closed) return;
-      const wait = RECONNECT_MS[Math.min(attempt++, RECONNECT_MS.length - 1)];
-      retryTimer = setTimeout(open, wait);
-    };
-  };
-
-  open();
-
-  return {
-    close() {
-      closed = true;
-      cleanup();
-    },
-  };
+function clientFor(session: Session): RealtimeClient {
+  const client = new RealtimeClient(`${session.supabaseUrl}/realtime/v1`, {
+    params: { apikey: session.anonKey },
+    // The socket authenticates with the user's JWT, which is what the row level policies on
+    // realtime.messages are checked against.
+    accessToken: async () => session.accessToken,
+    heartbeatIntervalMs: 25_000,
+  });
+  client.connect();
+  return client;
 }
 
 /** New, edited and deleted messages in one channel. */
@@ -139,10 +54,33 @@ export function subscribeChannelMessages(
   channelId: string,
   onEvent: (event: MessageEvent) => void
 ): Subscription {
-  return subscribe(session, `channel-messages-${channelId}`, 'message_event', (payload) => {
-    const op = payload.op === 'UPDATE' || payload.op === 'DELETE' ? payload.op : 'INSERT';
-    const record = (payload.new ?? payload.old) as MessageRow | undefined;
-    if (!record) return;
-    onEvent({ op, record });
+  const client = clientFor(session);
+  const channel: RealtimeChannel = client.channel(`channel-messages-${channelId}`, {
+    config: { private: true, broadcast: { self: true } },
   });
+
+  channel
+    .on('broadcast', { event: 'message_event' }, (message) => {
+      const payload = (message?.payload ?? {}) as { op?: string; new?: MessageRow; old?: MessageRow };
+      const record = payload.new ?? payload.old;
+      if (!record) return;
+      const op = payload.op === 'UPDATE' || payload.op === 'DELETE' ? payload.op : 'INSERT';
+      onEvent({ op, record });
+    })
+    .subscribe();
+
+  return {
+    close() {
+      try {
+        client.removeChannel(channel);
+      } catch {
+        /* already gone */
+      }
+      try {
+        client.disconnect();
+      } catch {
+        /* already gone */
+      }
+    },
+  };
 }
