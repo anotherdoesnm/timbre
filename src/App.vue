@@ -91,6 +91,26 @@ const replyTarget = ref<{ id: string; author: string; text: string } | null>(nul
 /** Attachments uploaded and waiting for the next send. */
 const attached = ref<UploadedFile[]>([]);
 const uploading = ref(false);
+// Offline state and the last message that failed to send. Keeping the text here (rather than
+// in the composer) means a failed send never eats what was typed.
+const online = ref(typeof navigator === 'undefined' ? true : navigator.onLine);
+const failedSend = ref<{ body: string; files: UploadedFile[]; replyTo: string | null } | null>(null);
+let lastLoad = Date.now();
+
+function refreshConnectivity(): void {
+  online.value = typeof navigator === 'undefined' ? true : navigator.onLine;
+}
+if (typeof window !== 'undefined') {
+  window.addEventListener('online', refreshConnectivity);
+  window.addEventListener('offline', refreshConnectivity);
+}
+
+async function retrySend(): Promise<void> {
+  const pending = failedSend.value;
+  if (!pending || sending.value) return;
+  failedSend.value = null;
+  await onSend(pending.body, pending.files, pending.replyTo);
+}
 
 async function onAttach(file: File): Promise<void> {
   const s = session.value;
@@ -326,8 +346,14 @@ onMounted(() => {
 // instead of waiting for the first request to fail.
 document.addEventListener('visibilitychange', () => {
   const s = session.value;
-  if (document.visibilityState === 'visible' && s && sessionExpired(s, 120_000) && s.refreshToken) {
+  if (document.visibilityState !== 'visible' || !s) return;
+  if (sessionExpired(s, 120_000) && s.refreshToken) {
     refreshSession(s).then((next) => (session.value = next)).catch(() => undefined);
+  }
+  refreshConnectivity();
+  // Signed attachment links expire after an hour; reloading the channel signs them again.
+  if (Date.now() - lastLoad > 45 * 60 * 1000 && live.value && activeChannel.value) {
+    openChannel(activeChannel.value).catch(() => undefined);
   }
 });
 
@@ -411,18 +437,25 @@ function pickChannel(id: string) {
   }
 }
 
-async function onSend(body: string) {
+async function onSend(body: string, filesArg?: UploadedFile[], replyArg?: string | null) {
   const s = session.value;
   const ch = channel.value;
   if (!s || !ch || !myProfileId.value) return;
   sending.value = true;
+  loadError.value = '';
+  const files = filesArg ?? attached.value;
+  const replyTo = replyArg !== undefined ? replyArg : replyTarget.value?.id ?? null;
   try {
-    await sendMessage(s, ch.id, myProfileId.value, body, replyTarget.value?.id ?? null, attached.value);
+    await sendMessage(s, ch.id, myProfileId.value, body, replyTo, files);
+    failedSend.value = null;
     replyTarget.value = null;
     attached.value = [];
     const page = await fetchMessages(s, ch.id);
     liveMessages.value[ch.id] = page.messages;
+    lastLoad = Date.now();
   } catch (e) {
+    // Keep what was typed: a dropped connection must not eat the message.
+    failedSend.value = { body, files, replyTo };
     loadError.value = e instanceof Error ? e.message : String(e);
   } finally {
     sending.value = false;
@@ -451,6 +484,12 @@ watch([activeServer, activeChannel], () => {
     @authenticated="enter"
   />
   <div v-else class="app" :class="{ 'with-members': membersOpen, mobile: mobilePane === 'chat' }">
+    <div v-if="!online || failedSend" class="offline">
+      <span v-if="!online">You are offline — messages will not send until the connection is back</span>
+      <span v-else>A message did not send</span>
+      <button v-if="failedSend" class="retry" @click="retrySend">Retry</button>
+      <button v-if="failedSend" class="dismiss" @click="failedSend = null">Dismiss</button>
+    </div>
     <ServerRail :servers="servers" :active-id="activeServer" @select="pickServer" />
     <RoomList
       :server-name="server?.name ?? ''"
@@ -534,6 +573,25 @@ watch([activeServer, activeChannel], () => {
   min-height: 0;
 }
 .app.with-members { grid-template-columns: var(--rail-width) var(--rooms-width) 1fr var(--members-width); }
+.offline {
+  position: fixed;
+  left: 50%;
+  top: 8px;
+  transform: translateX(-50%);
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-200);
+  max-width: calc(100% - 24px);
+  padding: var(--sp-200) var(--sp-300);
+  border-radius: var(--radius-md);
+  background: var(--critical-container);
+  color: var(--critical);
+  font-size: var(--fs-sm);
+  box-shadow: var(--shadow-1);
+}
+.offline .retry { color: var(--text); text-decoration: underline; }
+.offline .dismiss { color: var(--text-tertiary); }
 .chat { display: flex; flex-direction: column; min-width: 0; min-height: 0; background: var(--bg-container); }
 .banner {
   margin: 0;
