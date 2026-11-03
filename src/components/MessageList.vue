@@ -4,7 +4,16 @@ import Icon from './Icon.vue';
 import type { Channel, Message } from '../data/mock';
 import { parseSegments, safeHref, type Segment } from '../services/markdown';
 
-const props = defineProps<{ channel: Channel; messages: Message[]; live?: boolean }>();
+const props = defineProps<{
+  channel: Channel;
+  messages: Message[];
+  live?: boolean;
+  /** First unread message: the view opens here instead of at the bottom. */
+  unreadFromId?: string | null;
+  hasMore?: boolean;
+  loadingOlder?: boolean;
+}>();
+const emit = defineEmits<{ (e: 'load-older'): void }>();
 const scroller = ref<HTMLElement | null>(null);
 // On a phone there is no hover: the toolbar would sit on every message forever. A tap
 // selects one message and shows its toolbar.
@@ -24,18 +33,58 @@ const broken = ref<Record<string, true>>({});
 // Which one is shown is decided in CSS by the pointer, not by this file: on a phone only the
 // tapped message carries a toolbar, on a mouse the hovered one.
 
+// Where the channel should open: on the first unread message when there is one, otherwise at
+// the newest. A channel that jumps to the bottom has hidden everything the person came to read.
+async function scrollToStart(): Promise<void> {
+  await nextTick();
+  const el = scroller.value;
+  if (!el) return;
+  if (props.unreadFromId) {
+    const target = el.querySelector<HTMLElement>(`[data-mid="${props.unreadFromId}"]`);
+    if (target) {
+      el.scrollTop = Math.max(0, target.offsetTop - el.offsetTop - 48);
+      return;
+    }
+  }
+  el.scrollTo({ top: el.scrollHeight });
+}
+
 watch(
-  () => props.channel.id,
+  () => [props.channel.id, props.messages.length === 0 ? '' : props.channel.id],
+  scrollToStart,
+  { immediate: true }
+);
+
+// After a channel loads, the anchor may arrive one tick later; retry once it does.
+watch(
+  () => props.unreadFromId,
+  () => scrollToStart()
+);
+
+// Loading older messages must not throw the reader back to where they were: remember the
+// distance from the bottom before the page grows, restore it after.
+let anchorFromBottom: number | null = null;
+function onScroll(): void {
+  const el = scroller.value;
+  if (!el) return;
+  if (el.scrollTop < 200 && props.hasMore && !props.loadingOlder) {
+    anchorFromBottom = el.scrollHeight - el.scrollTop;
+    emit('load-older');
+  }
+}
+watch(
+  () => props.messages.length,
   async () => {
     await nextTick();
-    scroller.value?.scrollTo({ top: scroller.value.scrollHeight });
-  },
-  { immediate: true }
+    if (anchorFromBottom === null || !scroller.value) return;
+    scroller.value.scrollTop = scroller.value.scrollHeight - anchorFromBottom;
+    anchorFromBottom = null;
+  }
 );
 </script>
 
 <template>
-  <div class="list" ref="scroller" @click.self="selected = null">
+  <div class="list" ref="scroller" @click.self="selected = null" @scroll.passive="onScroll">
     <div v-if="channel.encrypted" class="encrypted">
       <div class="enc-icon"><Icon name="lock" :size="26" /></div>
       <h2>Encrypted channel</h2>
@@ -54,10 +103,11 @@ watch(
         <p v-if="!live">Skin prototype. The data is a mock — no session is attached.</p>
       </div>
 
+      <template v-for="m in messages" :key="m.id">
+        <div v-if="m.id === unreadFromId" class="unread-divider"><span>New messages</span></div>
       <article
-        v-for="m in messages"
-        :key="m.id"
         class="msg"
+        :data-mid="m.id"
         :class="{ grouped: m.grouped, mention: m.mention, system: m.system, selected: selected === m.id }"
         @click="selected = selected === m.id ? null : m.id"
       >
@@ -105,6 +155,9 @@ watch(
           <button title="More"><Icon name="dots" :size="15" /></button>
         </div>
       </article>
+      </template>
+      <div v-if="loadingOlder" class="older-hint">Loading earlier messages…</div>
+      <div v-else-if="hasMore === false && messages.length" class="older-hint">Start of the channel</div>
     </template>
   </div>
 </template>
@@ -180,6 +233,24 @@ watch(
   border-radius: var(--radius-xs);
   background: color-mix(in srgb, var(--primary-container) 55%, transparent);
   color: var(--primary-on-container);
+}
+.unread-divider {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-200);
+  margin: var(--sp-300) 0;
+  color: var(--critical);
+  font-size: var(--fs-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.unread-divider::before,
+.unread-divider::after { content: ''; flex: 1; height: 1px; background: var(--critical-container); }
+.older-hint {
+  padding: var(--sp-300) 0;
+  text-align: center;
+  color: var(--text-tertiary);
+  font-size: var(--fs-xs);
 }
 .shot { display: block; }
 .shot-missing {

@@ -12,7 +12,16 @@ import AuthScreen from './components/AuthScreen.vue';
 import AuthCallback from './components/AuthCallback.vue';
 import { channels as mockChannels, messages as mockMessages, servers as mockServers } from './data/mock';
 import { refreshSession, sessionAlive, sessionExpired, signOut, storedSession, type Session } from './services/auth';
-import { fetchChannels, fetchMe, fetchMessages, fetchServers, sendMessage } from './services/data';
+import {
+  fetchChannels,
+  fetchMe,
+  fetchMessages,
+  fetchServers,
+  fetchUnreadCounts,
+  markChannelRead,
+  sendMessage,
+  type UnreadState,
+} from './services/data';
 import { discoverHere, instanceHostFromLocation, type InstanceInfo } from './services/discover';
 import { subscribeChannelMessages } from './services/realtime';
 
@@ -66,6 +75,13 @@ const membersOpen = ref(true);
 // except a 32px arrow in the corner.
 const mobilePane = ref<'rooms' | 'chat'>('rooms');
 const sending = ref(false);
+// Unread state comes from the instance (`get_unread_counts`), not from counting locally: the
+// server knows where the read cursor is, including on other devices.
+const unread = ref<Record<string, UnreadState>>({});
+/** First unread message of the open channel — the view opens there. */
+const unreadAnchor = ref<string | null>(null);
+const cursors = ref<Record<string, { oldest: string | null; hasMore: boolean }>>({});
+const loadingOlder = ref(false);
 // Phone server switcher. The rail is desktop furniture: on a phone it costs a row of the
 // screen on every screen and scrolls sideways, which is what the strip did.
 const serversOpen = ref(false);
@@ -80,8 +96,12 @@ const servers = computed(() => {
 });
 const server = computed(() => servers.value.find((s) => s.id === activeServer.value) ?? servers.value[0]);
 const channels = computed(() => {
-  if (session.value) return live.value ? liveChannels.value[activeServer.value] ?? [] : [];
-  return mockChannels;
+  const list = session.value ? (live.value ? liveChannels.value[activeServer.value] ?? [] : []) : mockChannels;
+  if (!session.value) return list;
+  return list.map((c) => {
+    const state = unread.value[c.id];
+    return state ? { ...c, unread: state.unread, mention: state.mentions } : c;
+  });
 });
 const channel = computed(
   () => channels.value.find((c) => c.id === activeChannel.value) ?? channels.value[0] ?? null
@@ -92,6 +112,47 @@ const channelMessages = computed(() => {
   return mockMessages[channel.value.id] ?? [];
 });
 
+/**
+ * Loads a channel around the right place: the unread ones plus a screen of context above them,
+ * or the newest page when there is nothing unread. Opening at the bottom would hide exactly
+ * what the unread badge promised.
+ */
+async function openChannel(channelId: string): Promise<void> {
+  const s = session.value;
+  if (!s || !live.value || !channelId) return;
+  const state = unread.value[channelId];
+  const pending = state?.unread ?? 0;
+  const limit = pending > 0 ? Math.min(pending + 20, 120) : 50;
+  const page = await fetchMessages(s, channelId, { limit });
+  liveMessages.value[channelId] = page.messages;
+  cursors.value[channelId] = { oldest: page.oldest, hasMore: page.hasMore };
+  unreadAnchor.value =
+    pending > 0 ? page.messages[Math.max(0, page.messages.length - pending)]?.id ?? null : null;
+  if (pending > 0) {
+    const newest = page.messages[page.messages.length - 1];
+    void markChannelRead(s, channelId, newest?.id ?? null);
+    delete unread.value[channelId];
+  }
+}
+
+async function loadOlder(channelId: string): Promise<void> {
+  const s = session.value;
+  const cursor = cursors.value[channelId];
+  if (!s || !cursor?.hasMore || loadingOlder.value) return;
+  loadingOlder.value = true;
+  try {
+    const page = await fetchMessages(s, channelId, { limit: 50, before: cursor.oldest ?? undefined });
+    if (page.messages.length) {
+      liveMessages.value[channelId] = [...page.messages, ...(liveMessages.value[channelId] ?? [])];
+    }
+    cursors.value[channelId] = { oldest: page.oldest ?? cursor.oldest, hasMore: page.hasMore };
+  } catch {
+    /* keep what is on screen; the next scroll tries again */
+  } finally {
+    loadingOlder.value = false;
+  }
+}
+
 async function loadChannel(serverId: string, channelId: string) {
   const s = session.value;
   if (!s || !live.value) return;
@@ -99,7 +160,7 @@ async function loadChannel(serverId: string, channelId: string) {
     liveChannels.value[serverId] = await fetchChannels(s, serverId);
   }
   if (channelId && !liveMessages.value[channelId]) {
-    liveMessages.value[channelId] = await fetchMessages(s, channelId);
+    await openChannel(channelId);
   }
 }
 
@@ -170,12 +231,13 @@ async function boot() {
     if (list.length) {
       live.value = true;
       activeServer.value = list[0].id;
+      unread.value = await fetchUnreadCounts(s);
       const chans = await fetchChannels(s, list[0].id);
       liveChannels.value[list[0].id] = chans;
       const firstText = chans.find((c) => c.kind === 'text') ?? chans[0];
       if (firstText) {
         activeChannel.value = firstText.id;
-        liveMessages.value[firstText.id] = await fetchMessages(s, firstText.id);
+        await openChannel(firstText.id);
       }
     } else {
       loadError.value = 'No servers are visible to this session — showing demo data.';
@@ -248,7 +310,15 @@ function restartLive(): void {
   liveSub = subscribeChannelMessages(s, channelId, (event) => {
     if (!event.record || event.record.channel_id !== channelId) return;
     fetchMessages(s, channelId)
-      .then((list) => (liveMessages.value[channelId] = list))
+      .then((page) => {
+        const existing = liveMessages.value[channelId] ?? [];
+        const known = new Set(existing.map((m) => m.id));
+        const fresh = page.messages.filter((m) => !known.has(m.id));
+        if (fresh.length) liveMessages.value[channelId] = [...existing, ...fresh];
+        // Reading a channel marks it read; without this the badge grows while you watch it.
+        const newest = page.messages[page.messages.length - 1];
+        if (newest) void markChannelRead(s, channelId, newest.id);
+      })
       .catch(() => undefined);
   });
 }
@@ -288,9 +358,13 @@ function pickServer(id: string) {
 function pickChannel(id: string) {
   activeChannel.value = id;
   mobilePane.value = 'chat';
+  unreadAnchor.value = null;
   const s = session.value;
   if (s && live.value && !liveMessages.value[id]) {
-    fetchMessages(s, id).then((m) => (liveMessages.value[id] = m)).catch(() => undefined);
+    openChannel(id).catch(() => undefined);
+  } else if (s && unread.value[id]?.unread) {
+    // Already loaded, but there is new mail: reload around the unread ones.
+    openChannel(id).catch(() => undefined);
   }
 }
 
@@ -351,7 +425,15 @@ watch([activeServer, activeChannel], () => {
         @back="mobilePane = 'rooms'"
       />
       <p v-if="loadError" class="banner">{{ loadError }}</p>
-      <MessageList :channel="channel" :messages="channelMessages" :live="live" />
+      <MessageList
+        :channel="channel"
+        :messages="channelMessages"
+        :live="live"
+        :unread-from-id="unreadAnchor"
+        :has-more="cursors[channel.id]?.hasMore ?? false"
+        :loading-older="loadingOlder"
+        @load-older="loadOlder(channel.id)"
+      />
       <Composer :channel-name="channel.name" :disabled="!!channel.encrypted" :sending="sending" @send="onSend" />
     </main>
     <main v-else class="chat empty">
