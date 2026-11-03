@@ -8,9 +8,8 @@ const scroller = ref<HTMLElement | null>(null);
 // On a phone there is no hover: the toolbar would sit on every message forever. A tap
 // selects one message and shows its toolbar.
 const selected = ref<string | null>(null);
-// matchMedia, not a CSS media query alone: the webview reports hover capability reliably,
-// while the hover rule kept winning on Android.
-const touch = typeof matchMedia === 'function' && matchMedia('(hover: none)').matches;
+// Which one is shown is decided in CSS by the pointer, not by this file: on a phone only the
+// tapped message carries a toolbar, on a mouse the hovered one.
 
 watch(
   () => props.channel.id,
@@ -23,7 +22,7 @@ watch(
 </script>
 
 <template>
-  <div class="list" ref="scroller" :class="{ touch }">
+  <div class="list" ref="scroller" @click.self="selected = null">
     <div v-if="channel.encrypted" class="encrypted">
       <div class="enc-icon"><Icon name="lock" :size="26" /></div>
       <h2>Encrypted channel</h2>
@@ -101,7 +100,6 @@ watch(
   padding: var(--sp-100) var(--sp-200) var(--sp-100) var(--sp-300);
   border-radius: var(--radius-sm);
 }
-.msg:hover { background: var(--sf-hover); }
 .msg.grouped { margin-top: 0; padding-top: 0; padding-bottom: 0; }
 .msg.mention {
   background: color-mix(in srgb, var(--primary-container) 22%, transparent);
@@ -119,9 +117,7 @@ watch(
   font-size: var(--fs-sm);
 }
 .avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
-.time-hover { font-size: 10px; color: var(--text-tertiary); opacity: 0; padding-top: 5px; }
-.msg:hover .avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
-.time-hover { opacity: 1; }
+.time-hover { font-size: 10px; color: var(--text-tertiary); padding-top: 5px; }
 .body { min-width: 0; }
 .meta { display: flex; align-items: baseline; gap: var(--sp-200); margin-bottom: 1px; }
 .author { font-weight: 600; color: var(--text); }
@@ -158,16 +154,15 @@ watch(
   border: 1px solid var(--sfv-line);
   box-shadow: var(--shadow-1);
 }
-.msg:hover .images { display: flex; flex-wrap: wrap; gap: var(--sp-200); margin-top: var(--sp-200); }
-.images img {
-  max-width: min(320px, 100%);
-  max-height: 320px;
-  border-radius: var(--radius-md);
-  display: block;
+/* Desktop hovers, a phone taps: the toolbar belongs to one message either way. A duplicated
+   `.tools { display: flex }` from an earlier edit made every message carry one, and the
+   floating rows covered the text on a phone. */
+@media (hover: hover) and (pointer: fine) {
+  .msg:hover { background: var(--sf-hover); }
+  .msg:hover .tools { display: flex; }
 }
-.msg.system .text { color: var(--text-tertiary); font-size: var(--fs-sm); font-style: italic; }
-.msg.system .avatar-col { visibility: hidden; }
-.tools { display: flex; }
+.msg.selected { background: var(--sfv-container); }
+.msg.selected .tools { display: flex; }
 .tools button {
   width: 26px; height: 26px;
   display: grid; place-items: center;
