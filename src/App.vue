@@ -11,6 +11,7 @@ import AuthCallback from './components/AuthCallback.vue';
 import { channels as mockChannels, messages as mockMessages, servers as mockServers } from './data/mock';
 import { refreshSession, sessionExpired, storedSession, type Session } from './services/auth';
 import { fetchChannels, fetchMe, fetchMessages, fetchServers, sendMessage } from './services/data';
+import { discoverHere, instanceHostFromLocation, type InstanceInfo } from './services/discover';
 
 const hash = () => location.hash.replace('#', '');
 const initialSearch = new URLSearchParams(location.search.slice(1));
@@ -23,7 +24,12 @@ const fromSearch =
 // A stored session means the app belongs in the chat: showing the sign-in screen on every
 // cold start is what made it look like the session had been lost.
 const initialRoute = fromSearch ? 'auth/callback' : hash().split('?')[0];
-const route = ref(storedSession() && initialRoute !== 'auth/callback' ? 'chat' : initialRoute);
+// A build served by an instance belongs to that instance. Opening a session stored for a
+// *different* instance is how a leftover flagship login ended up inside this instance's chat:
+// on a self-hosted origin only that origin's own session counts.
+const selfHost = instanceHostFromLocation();
+const homeSession = selfHost ? storedSession(selfHost) : storedSession();
+const route = ref(homeSession && initialRoute !== 'auth/callback' ? 'chat' : initialRoute);
 const hashQuery = ref(fromSearch ? location.search.slice(1) : hash().split('?')[1] ?? '');
 window.addEventListener('hashchange', () => {
   route.value = hash().split('?')[0];
@@ -32,7 +38,9 @@ window.addEventListener('hashchange', () => {
 const demoMode = new URLSearchParams(location.search).get('demo') === '1';
 
 /* ---- session and live data ------------------------------------------------------------ */
-const session = ref<Session | null>(storedSession());
+const session = ref<Session | null>(homeSession);
+// Set when this build is served by an instance: the address step is then pointless.
+const autoInstance = ref<InstanceInfo | null>(null);
 const live = ref(false);
 const loading = ref(false);
 const loadError = ref('');
@@ -138,7 +146,15 @@ async function boot() {
   }
 }
 
-onMounted(boot);
+onMounted(() => {
+  boot();
+  // Served by an instance (Timbre as its web frontend) — resolve it from the page's own
+  // origin instead of asking for an address. A stored session, ?demo=1 and the Tauri shell
+  // keep the manual flow.
+  if (!session.value && !demoMode && route.value !== 'chat') {
+    discoverHere().then((inst) => (autoInstance.value = inst)).catch(() => undefined);
+  }
+});
 
 // Coming back to the app is the moment a stale token usually shows up: renew it there
 // instead of waiting for the first request to fail.
@@ -150,7 +166,7 @@ document.addEventListener('visibilitychange', () => {
 });
 
 function enter() {
-  session.value = storedSession();
+  session.value = selfHost ? storedSession(selfHost) : storedSession();
   location.hash = 'chat';
   mobilePane.value = 'rooms';
   boot();
@@ -214,7 +230,11 @@ watch([activeServer, activeChannel], () => {
     @done="enter"
     @cancel="location.hash = 'auth'"
   />
-  <AuthScreen v-else-if="route !== 'chat' || (!session && !demoMode)" @authenticated="enter" />
+  <AuthScreen
+    v-else-if="route !== 'chat' || (!session && !demoMode)"
+    :auto-instance="autoInstance"
+    @authenticated="enter"
+  />
   <div v-else class="app" :class="{ 'with-members': membersOpen, mobile: mobilePane === 'chat' }">
     <ServerRail :servers="servers" :active-id="activeServer" @select="pickServer" />
     <RoomList

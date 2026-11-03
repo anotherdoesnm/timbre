@@ -24,6 +24,8 @@ export interface InstanceInfo {
   providersError?: string;
   emailAuth?: boolean;
   demo?: boolean;
+  /** True when the instance is the origin this build is served from. */
+  selfHosted?: boolean;
 }
 
 export type DiscoveryFailure = {
@@ -53,6 +55,35 @@ export function normalizeHost(raw: string): string {
   const host = trimmed.toLowerCase();
   if (!/^[a-z0-9.-]+\.[a-z]{2,}$/.test(host)) throw new Error('bad host');
   return host;
+}
+
+/**
+ * Builds the instance object both discovery paths share, so a field added for one cannot be
+ * forgotten in the other.
+ */
+function instanceFromInfo(
+  body: Record<string, unknown>,
+  host: string,
+  providers: string[],
+  providersError?: string
+): InstanceInfo {
+  return {
+    origin: host,
+    name: typeof body.name === 'string' && body.name ? body.name : host,
+    domain: typeof body.domain === 'string' ? body.domain : undefined,
+    version: typeof body.version === 'string' ? body.version : undefined,
+    supabaseUrl: body.supabaseUrl as string,
+    supabaseAnonKey: body.supabaseAnonKey as string,
+    capabilities: Array.isArray(body.capabilities)
+      ? body.capabilities.filter((c): c is string => typeof c === 'string')
+      : [],
+    providers,
+    providersError,
+  };
+}
+
+function looksLikeHarmony(body: Record<string, unknown>): boolean {
+  return body.success === true && typeof body.supabaseUrl === 'string' && typeof body.supabaseAnonKey === 'string';
 }
 
 const DEMO_CAPABILITIES = [
@@ -153,26 +184,11 @@ export async function discoverInstance(rawHost: string, opts: { demo?: boolean }
       string,
       unknown
     >;
-    if (body.success !== true || typeof body.supabaseUrl !== 'string' || typeof body.supabaseAnonKey !== 'string') {
+    if (!looksLikeHarmony(body)) {
       return { ok: false, error: { kind: 'not-harmony', message: `${host} does not answer as Harmony` } };
     }
-    const { providers, error: providersError } = await fetchProviders(body.supabaseUrl, body.supabaseAnonKey);
-    return {
-      ok: true,
-      instance: {
-        origin: host,
-        name: typeof body.name === 'string' && body.name ? body.name : host,
-        domain: typeof body.domain === 'string' ? body.domain : undefined,
-        version: typeof body.version === 'string' ? body.version : undefined,
-        supabaseUrl: body.supabaseUrl,
-        supabaseAnonKey: body.supabaseAnonKey,
-        capabilities: Array.isArray(body.capabilities)
-          ? body.capabilities.filter((c): c is string => typeof c === 'string')
-          : [],
-        providers,
-        providersError,
-      },
-    };
+    const { providers, error: providersError } = await fetchProviders(body.supabaseUrl as string, body.supabaseAnonKey as string);
+    return { ok: true, instance: instanceFromInfo(body, host, providers, providersError) };
   } catch (e) {
     const err = e as { name?: string; status?: number; message?: string };
     if (err.name === 'AbortError') {
@@ -197,6 +213,42 @@ export async function discoverInstance(rawHost: string, opts: { demo?: boolean }
         message: `Could not reach the instance: ${host}`,
       },
     };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * The host whose build this is, if any.
+ *
+ * When Timbre replaces the official web frontend the instance *is* the origin in the address
+ * bar, and asking the user to type it is a bug. In the Tauri shell and on a dev server the
+ * origin belongs to the app, not to an instance, so those are excluded.
+ */
+export function instanceHostFromLocation(loc: Location = location): string | null {
+  if (loc.protocol === 'tauri:' || loc.protocol === 'file:') return null;
+  const host = loc.hostname.toLowerCase();
+  if (!host || host === 'localhost' || host === 'tauri.localhost' || /^[\d.]+$/.test(host)) return null;
+  return /^[a-z0-9.-]+\.[a-z]{2,}$/.test(host) ? host : null;
+}
+
+/**
+ * Resolves the instance this page is served from, over a same-origin request (no CORS, no
+ * proxy). Returns null when the page is not served by an instance — the caller then shows the
+ * address form as before.
+ */
+export async function discoverHere(): Promise<InstanceInfo | null> {
+  const host = instanceHostFromLocation();
+  if (!host) return null;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+  try {
+    const body = (await getJson('/api/federation/instance-info', controller.signal)) as Record<string, unknown>;
+    if (!looksLikeHarmony(body)) return null;
+    const { providers, error } = await fetchProviders(body.supabaseUrl as string, body.supabaseAnonKey as string);
+    return { ...instanceFromInfo(body, host, providers, error), selfHosted: true };
+  } catch {
+    return null;
   } finally {
     clearTimeout(timer);
   }
