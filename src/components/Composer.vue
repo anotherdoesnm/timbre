@@ -42,7 +42,7 @@ function send() {
 </template>
 
 <style scoped>
-.wrap { padding: 0 var(--sp-400) var(--sp-400); }
+.wrap { padding: 0 var(--sp-400) var(--sp-400); padding-bottom: calc(var(--sp-400) + env(safe-area-inset-bottom, 0px)); }
 .box {
   background: var(--sfv-container);
   border: 1px solid var(--sfv-line);

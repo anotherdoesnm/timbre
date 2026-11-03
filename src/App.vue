@@ -293,7 +293,7 @@ watch([activeServer, activeChannel], () => {
   min-height: 0;
 }
 .app.with-members { grid-template-columns: var(--rail-width) var(--rooms-width) 1fr var(--members-width); }
-.chat { display: flex; flex-direction: column; min-width: 0; background: var(--bg-container); }
+.chat { display: flex; flex-direction: column; min-width: 0; min-height: 0; background: var(--bg-container); }
 .banner {
   margin: 0;
   padding: var(--sp-200) var(--sp-400);

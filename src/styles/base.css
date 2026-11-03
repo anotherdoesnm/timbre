@@ -22,6 +22,12 @@ html, body, #app {
   margin: 0;
 }
 
+/* 100% follows the layout viewport, which on a phone is taller than what you can see while the
+   URL bar is out — the composer then sits below the fold. dvh tracks the visible height. */
+@supports (height: 100dvh) {
+  html, body, #app { height: 100dvh; }
+}
+
 body {
   background: var(--bg-container);
   color: var(--text);

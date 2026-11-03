@@ -70,6 +70,7 @@ const groups = computed(() => {
 <style scoped>
 .rooms {
   width: var(--rooms-width);
+  min-height: 0;
   display: flex;
   flex-direction: column;
   background: var(--sf-container);
@@ -116,7 +117,7 @@ const groups = computed(() => {
   color: var(--text);
   font-size: var(--fs-sm);
 }
-.scroll { flex: 1; overflow-y: auto; overflow-x: hidden; padding-bottom: var(--sp-300); }
+.scroll { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; padding-bottom: var(--sp-300); }
 @media (hover: hover) and (pointer: fine) { .scroll { scrollbar-gutter: stable; } }
 .group { margin-bottom: var(--sp-200); }
 .group-title {

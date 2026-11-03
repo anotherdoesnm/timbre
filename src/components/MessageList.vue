@@ -77,7 +77,7 @@ watch(
 </template>
 
 <style scoped>
-.list { flex: 1; overflow-y: auto; overflow-x: hidden; padding: var(--sp-300) var(--sp-400) var(--sp-500); }
+.list { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; padding: var(--sp-300) var(--sp-400) var(--sp-500); }
 @media (hover: hover) and (pointer: fine) { .list { scrollbar-gutter: stable; } }
 .intro { margin: var(--sp-600) 0 var(--sp-500); }
 .intro-icon {
