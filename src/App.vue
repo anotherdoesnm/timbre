@@ -42,6 +42,8 @@ const demoMode = new URLSearchParams(location.search).get('demo') === '1';
 const session = ref<Session | null>(homeSession);
 // Set when this build is served by an instance: the address step is then pointless.
 const autoInstance = ref<InstanceInfo | null>(null);
+// A session whose account never got a profile (onboarding closed after step one) resumes there.
+const resume = ref<{ session: Session; instance: InstanceInfo } | null>(null);
 // While the page is being asked whether it is an instance, the address form must not render:
 // showing it and then replacing it is the flash this used to have. On a dev server or in the
 // shell the answer is known synchronously, so nothing is ever held back there.
@@ -125,6 +127,25 @@ async function boot() {
   loadError.value = '';
   try {
     const profile = await fetchMe(s);
+    if (!profile) {
+      // The auth user exists but the profile does not: this is a half-finished sign-up, not a
+      // usable account. Finishing it happens on the auth screen, at the username step.
+      resume.value = {
+        session: s,
+        instance: {
+          origin: s.instance,
+          name: s.instance,
+          supabaseUrl: s.supabaseUrl,
+          supabaseAnonKey: s.anonKey,
+          capabilities: [],
+          providers: [],
+          selfHosted: selfHost === s.instance,
+        },
+      };
+      route.value = 'auth';
+      loading.value = false;
+      return;
+    }
     myProfileId.value = profile ? String(profile.id) : null;
     if (profile) {
       me.value = {
@@ -195,6 +216,7 @@ document.addEventListener('visibilitychange', () => {
 });
 
 function enter() {
+  resume.value = null;
   session.value = selfHost ? storedSession(selfHost) : storedSession();
   location.hash = 'chat';
   mobilePane.value = 'rooms';
@@ -263,6 +285,7 @@ watch([activeServer, activeChannel], () => {
     v-else-if="route !== 'chat' || (!session && !demoMode)"
     :auto-instance="autoInstance"
     :probing="probing"
+    :resume="resume"
     @authenticated="enter"
   />
   <div v-else class="app" :class="{ 'with-members': membersOpen, mobile: mobilePane === 'chat' }">
