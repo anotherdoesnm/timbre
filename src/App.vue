@@ -41,6 +41,10 @@ const demoMode = new URLSearchParams(location.search).get('demo') === '1';
 const session = ref<Session | null>(homeSession);
 // Set when this build is served by an instance: the address step is then pointless.
 const autoInstance = ref<InstanceInfo | null>(null);
+// While the page is being asked whether it is an instance, the address form must not render:
+// showing it and then replacing it is the flash this used to have. On a dev server or in the
+// shell the answer is known synchronously, so nothing is ever held back there.
+const probing = ref(Boolean(selfHost) && !homeSession && !demoMode);
 const live = ref(false);
 const loading = ref(false);
 const loadError = ref('');
@@ -152,7 +156,10 @@ onMounted(() => {
   // origin instead of asking for an address. A stored session, ?demo=1 and the Tauri shell
   // keep the manual flow.
   if (!session.value && !demoMode && route.value !== 'chat') {
-    discoverHere().then((inst) => (autoInstance.value = inst)).catch(() => undefined);
+    discoverHere()
+      .then((inst) => (autoInstance.value = inst))
+      .catch(() => undefined)
+      .finally(() => (probing.value = false));
   }
 });
 
@@ -233,6 +240,7 @@ watch([activeServer, activeChannel], () => {
   <AuthScreen
     v-else-if="route !== 'chat' || (!session && !demoMode)"
     :auto-instance="autoInstance"
+    :probing="probing"
     @authenticated="enter"
   />
   <div v-else class="app" :class="{ 'with-members': membersOpen, mobile: mobilePane === 'chat' }">

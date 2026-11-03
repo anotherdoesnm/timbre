@@ -5,7 +5,10 @@ import { discoverInstance, refreshProviders, type InstanceInfo } from '../servic
 import { lastSignIn, navigateToSignIn, signInWithPassword } from '../services/auth';
 import { adoptSession, describeToken, parseSessionBlob } from '../services/sessionImport';
 
-const props = withDefaults(defineProps<{ autoInstance?: InstanceInfo | null }>(), { autoInstance: null });
+const props = withDefaults(defineProps<{ autoInstance?: InstanceInfo | null; probing?: boolean }>(), {
+  autoInstance: null,
+  probing: false,
+});
 const emit = defineEmits<{ (e: 'authenticated'): void }>();
 
 const demo = new URLSearchParams(location.search).get('demo') === '1';
@@ -28,13 +31,13 @@ const importError = ref('');
 const pwError = ref('');
 const pwLoading = ref(false);
 
-function adopt(inst: InstanceInfo) {
+function adopt(inst: InstanceInfo, opts: { auto?: boolean } = {}) {
   instance.value = inst;
   host.value = inst.origin;
-  auto.value = inst.selfHosted === true;
-  // No providers means the only way in is a password: do not make the user press a button
-  // that only reveals a form.
-  if (!inst.providers.length) showPassword.value = true;
+  auto.value = opts.auto === true && inst.selfHosted === true;
+  // With no providers a password is the only way in, so the form is the screen — a button
+  // that exists only to reveal it, and an "or" with nothing on the other side, is noise.
+  showPassword.value = !inst.providers.length;
 }
 
 // App.vue resolves the instance this page is served from before rendering this screen; it
@@ -42,7 +45,7 @@ function adopt(inst: InstanceInfo) {
 watch(
   () => props.autoInstance,
   (inst) => {
-    if (inst && !instance.value && !host.value) adopt(inst);
+    if (inst && !instance.value && !host.value) adopt(inst, { auto: true });
   },
   { immediate: true }
 );
@@ -85,7 +88,7 @@ async function submit() {
   loading.value = true;
   const result = await discoverInstance(host.value, { demo });
   loading.value = false;
-  if (result.ok) instance.value = result.instance;
+  if (result.ok) adopt(result.instance);
   else error.value = result.error.message;
 }
 
@@ -145,13 +148,21 @@ function reset() {
       </div>
 
       <h1>Timbre</h1>
-      <p v-if="auto" class="sub">
+      <!-- A skeleton, not a message: the same-origin lookup takes a fraction of a second and
+           a line of text would read as a second flash. -->
+      <div v-if="probing" class="probing" aria-hidden="true">
+        <span class="skel sub-line" />
+        <span class="skel card-line" />
+        <span class="skel field-line" />
+        <span class="skel field-line" />
+      </div>
+      <p v-else-if="auto" class="sub">
         This build is served by the instance below, so there is no address to type.
         <button class="inline-link" @click="reset">Use another one</button>
       </p>
       <p v-else class="sub">Sign in to Harmony. Enter an instance address — Timbre finds its API and sign-in methods on its own.</p>
 
-      <form v-if="!instance" @submit.prevent="submit">
+      <form v-if="!instance && !probing" @submit.prevent="submit">
         <label class="label" for="host">Instance</label>
         <div class="field" :class="{ invalid: !!error }">
           <Icon name="search" :size="16" />
@@ -192,20 +203,21 @@ function reset() {
             <span class="provider-label">{{ p.label }}</span>
             <Icon name="chevron" :size="16" class="chev" />
           </button>
+          <div class="divider"><span>or</span></div>
         </template>
 
-        <template v-else>
-          <p v-if="instance.providersError" class="warn">
+        <!-- Only a real failure deserves an explanation and a retry. An instance that simply
+             has no OAuth configured goes straight to the password form. -->
+        <template v-else-if="instance.providersError">
+          <p class="warn">
             Could not read the sign-in methods ({{ instance.providersError }}). The instance most likely
-            supports them — the answer just did not arrive.
+            offers some — the answer just did not arrive.
           </p>
-          <p v-else class="warn">This instance offers no sign-in methods — password only.</p>
           <button class="ghost" :disabled="retrying" @click="retryProviders">
             {{ retrying ? 'Asking…' : 'Retry' }}
           </button>
+          <div class="divider"><span>or</span></div>
         </template>
-
-        <div class="divider"><span>or</span></div>
 
         <form v-if="showPassword" class="pw" @submit.prevent="usePassword">
           <div class="field"><input v-model="email" placeholder="Email" type="email" autocomplete="username" /></div>
@@ -289,6 +301,14 @@ h1 { margin: 0 0 var(--sp-100); font-size: 21px; letter-spacing: -0.01em; }
   text-underline-offset: 2px;
 }
 .inline-link:hover { color: var(--primary-hover); }
+
+.probing { display: grid; gap: var(--sp-200); margin-bottom: var(--sp-500); }
+.skel { display: block; border-radius: var(--radius-md); background: var(--sfv-container); animation: probe-pulse 1.1s ease-in-out infinite; }
+.skel.sub-line { width: 72%; height: 14px; }
+.skel.card-line { height: 64px; margin-top: var(--sp-200); }
+.skel.field-line { height: 44px; }
+@keyframes probe-pulse { 0%, 100% { opacity: 0.55; } 50% { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .skel { animation: none; } }
 
 .label {
   display: block;
