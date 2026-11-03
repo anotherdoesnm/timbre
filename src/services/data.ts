@@ -53,6 +53,30 @@ export function renderContentParts(content: unknown): RenderedContent {
   return { text: texts.join(''), images };
 }
 
+export interface FilePart {
+  path: string;
+  name: string;
+  contentType: string;
+  size?: number;
+}
+
+export function fileParts(content: unknown): FilePart[] {
+  const parts = Array.isArray(content) ? content : [];
+  const out: FilePart[] = [];
+  for (const part of parts) {
+    if (!part || typeof part !== 'object') continue;
+    const o = part as Record<string, unknown>;
+    if (o.type !== 'file' || typeof o.path !== 'string') continue;
+    out.push({
+      path: o.path,
+      name: typeof o.name === 'string' ? o.name : (o.path.split('/').pop() ?? 'file'),
+      contentType: typeof o.contentType === 'string' ? o.contentType : 'application/octet-stream',
+      size: typeof o.size === 'number' ? o.size : undefined,
+    });
+  }
+  return out;
+}
+
 export function renderContent(content: unknown): string {
   const fromPart = (part: unknown): string => {
     if (typeof part === 'string') return part;
@@ -160,7 +184,8 @@ export async function sendMessage(
   channelId: string,
   userId: string,
   content: string,
-  replyToId?: string | null
+  replyToId?: string | null,
+  files: UploadedFile[] = []
 ): Promise<void> {
   const res = await fetch(`${session.supabaseUrl}/rest/v1/messages`, {
     method: 'POST',
@@ -175,7 +200,17 @@ export async function sendMessage(
     body: JSON.stringify({
       channel_id: channelId,
       user_id: userId,
-      content: [{ type: 'text', text: content }],
+      content: [
+        ...(content ? [{ type: 'text', text: content }] : []),
+        ...files.map((f) => ({
+          type: 'file',
+          path: f.path,
+          name: f.name,
+          size: f.size,
+          contentType: f.contentType,
+        })),
+      ],
+      ...(files.length ? { media_paths: files.map((f) => f.path) } : {}),
       ...(replyToId ? { reply_to: replyToId } : {}),
     }),
   });
@@ -183,6 +218,69 @@ export async function sendMessage(
     const body = await res.text().catch(() => '');
     throw new Error(`send: ${res.status} ${body.slice(0, 200)}`);
   }
+}
+
+export interface UploadedFile {
+  path: string;
+  name: string;
+  size: number;
+  contentType: string;
+}
+
+/** Attachments live in the instance's `message_media` bucket, at c/<channel>/<profile>/<uuid>.<ext>. */
+export async function uploadAttachment(
+  session: Session,
+  channelId: string,
+  profileId: string,
+  file: File
+): Promise<UploadedFile> {
+  const ext = (file.name.split('.').pop() ?? 'bin').toLowerCase().replace(/[^a-z0-9]/g, '') || 'bin';
+  const path = `c/${channelId}/${profileId}/${crypto.randomUUID()}.${ext}`;
+  const res = await fetch(`${session.supabaseUrl}/storage/v1/object/message_media/${path}`, {
+    method: 'POST',
+    headers: {
+      apikey: session.anonKey,
+      Authorization: `Bearer ${session.accessToken}`,
+      'Content-Type': file.type || 'application/octet-stream',
+      'x-upsert': 'false',
+    },
+    body: file,
+  });
+  if (!res.ok) {
+    const body = await res.text().catch(() => '');
+    throw new Error(`upload: ${res.status} ${body.slice(0, 160)}`);
+  }
+  return { path, name: file.name, size: file.size, contentType: file.type || 'application/octet-stream' };
+}
+
+/**
+ * Storage links are signed and expire. They are fetched per path; an expired URL shows a
+ * placeholder rather than breaking the message.
+ */
+export async function signMedia(session: Session, paths: string[]): Promise<Record<string, string>> {
+  const unique = [...new Set(paths.filter(Boolean))];
+  const out: Record<string, string> = {};
+  await Promise.all(
+    unique.map(async (path) => {
+      try {
+        const res = await fetch(`${session.supabaseUrl}/storage/v1/object/sign/message_media/${path}`, {
+          method: 'POST',
+          headers: {
+            apikey: session.anonKey,
+            Authorization: `Bearer ${session.accessToken}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ expiresIn: 3600 }),
+        });
+        if (!res.ok) return;
+        const body = (await res.json()) as { signedURL?: string };
+        if (body.signedURL) out[path] = `${session.supabaseUrl}/storage/v1${body.signedURL}`;
+      } catch {
+        /* an unsigned attachment renders as an unavailable chip */
+      }
+    })
+  );
+  return out;
 }
 
 export interface MessagePage {
@@ -287,7 +385,7 @@ export async function fetchMessages(
 
   let prevAuthor = '';
   let prevTime = 0;
-  const messages = visible.map((m) => {
+  const messages: Message[] = visible.map((m) => {
     const system = m.is_system === true;
     const author = toAuthor(byId.get(String(m.user_id)) ?? { username: system ? 'system' : 'unknown' });
     const at = new Date(String(m.created_at));
@@ -307,8 +405,35 @@ export async function fetchMessages(
       system,
       grouped: system ? false : grouped,
       replyTo: quoteOf(m),
-    } satisfies Message;
+    };
   });
+
+  // Attachments: images become normal images, everything else a download chip. The bucket is
+  // private, so every path needs its own signed URL — one call per path, in parallel.
+  const filePathByMessage = new Map<string, FilePart[]>();
+  for (const m of visible) {
+    const parts = fileParts(m.content);
+    if (parts.length) filePathByMessage.set(String(m.id), parts);
+  }
+  if (filePathByMessage.size) {
+    const signed = await signMedia(
+      session,
+      [...filePathByMessage.values()].flat().map((p) => p.path)
+    );
+    for (const message of messages) {
+      const parts = filePathByMessage.get(message.id);
+      if (!parts?.length) continue;
+      const images: string[] = [];
+      const files: { name: string; url?: string }[] = [];
+      for (const part of parts) {
+        const url = signed[part.path];
+        if (part.contentType.startsWith('image/') && url) images.push(url);
+        else files.push({ name: part.name, url });
+      }
+      if (images.length) message.images = [...(message.images ?? []), ...images];
+      if (files.length) message.files = files;
+    }
+  }
 
   return {
     messages,

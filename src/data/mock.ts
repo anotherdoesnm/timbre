@@ -23,6 +23,8 @@ export interface Message {
   replyTo?: { id: string; author: string; text: string };
   /** Aggregated reactions: one chip per emoji. */
   reactions?: { emoji: string; count: number; mine: boolean }[];
+  /** Non-image attachments, with a signed link when one could be made. */
+  files?: { name: string; url?: string }[];
 }
 
 export interface Channel {
