@@ -19,6 +19,8 @@ export interface Message {
   images?: string[];
   /** "X joined the server" and friends: no author, no avatar. */
   system?: boolean;
+  /** Quoted parent, when this message is a reply. */
+  replyTo?: { id: string; author: string; text: string };
 }
 
 export interface Channel {

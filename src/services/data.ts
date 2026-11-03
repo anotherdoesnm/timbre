@@ -159,7 +159,8 @@ export async function sendMessage(
   session: Session,
   channelId: string,
   userId: string,
-  content: string
+  content: string,
+  replyToId?: string | null
 ): Promise<void> {
   const res = await fetch(`${session.supabaseUrl}/rest/v1/messages`, {
     method: 'POST',
@@ -175,6 +176,7 @@ export async function sendMessage(
       channel_id: channelId,
       user_id: userId,
       content: [{ type: 'text', text: content }],
+      ...(replyToId ? { reply_to: replyToId } : {}),
     }),
   });
   if (!res.ok) {
@@ -210,7 +212,7 @@ export async function fetchMessages(
       '&is_deleted=eq.false' +
       `&order=created_at.desc&limit=${limit}` +
       (opts.before ? `&created_at=lt.${encodeURIComponent(opts.before)}` : '') +
-      '&select=id,created_at,content,encrypted,user_id,is_system,metadata'
+      '&select=id,created_at,content,encrypted,user_id,is_system,metadata,reply_to'
   );
   rows.reverse();
 
@@ -247,9 +249,45 @@ export async function fetchMessages(
     if (p.auth_user_id) byId.set(String(p.auth_user_id), p);
   }
 
+  // A reply carries `reply_to`; the parent is usually in the same page, but not when it is
+  // older than the page — so missing ones are fetched once, by id, in a single query.
+  const parentIds = [
+    ...new Set(
+      rows.map((m) => (typeof m.reply_to === 'string' ? m.reply_to : null)).filter((id): id is string => !!id)
+    ),
+  ];
+  const missing = parentIds.filter((id) => !rows.some((r) => String(r.id) === id));
+  const parentsOnly = new Set<string>();
+  if (missing.length) {
+    const extra = await rest<Row[]>(
+      session,
+      'messages',
+      `id=in.(${missing.map(encodeURIComponent).join(',')})&select=id,content,user_id`
+    ).catch(() => [] as Row[]);
+    for (const parent of extra) {
+      parentsOnly.add(String(parent.id));
+      rows.push(parent);
+    }
+  }
+  const parents = new Map<string, Row>();
+  for (const row of rows) parents.set(String(row.id), row);
+
+  const quoteOf = (m: Row): Message['replyTo'] | undefined => {
+    const id = typeof m.reply_to === 'string' ? m.reply_to : null;
+    if (!id) return undefined;
+    const parent = parents.get(id);
+    if (!parent) return { id, author: 'unknown', text: '(message not available)' };
+    const parts = renderContentParts(parent.content);
+    const author = toAuthor(byId.get(String(parent.user_id)) ?? { username: 'unknown' });
+    return { id, author: author.name, text: parts.text.slice(0, 160) };
+  };
+
+  // Parents added above are only there for quoting; they are not part of the page.
+  const visible = rows.filter((m) => !parentsOnly.has(String(m.id)));
+
   let prevAuthor = '';
   let prevTime = 0;
-  const messages = rows.map((m) => {
+  const messages = visible.map((m) => {
     const system = m.is_system === true;
     const author = toAuthor(byId.get(String(m.user_id)) ?? { username: system ? 'system' : 'unknown' });
     const at = new Date(String(m.created_at));
@@ -268,14 +306,15 @@ export async function fetchMessages(
       images: parts.images,
       system,
       grouped: system ? false : grouped,
+      replyTo: quoteOf(m),
     } satisfies Message;
   });
 
   return {
     messages,
-    oldest: rows.length ? String(rows[0].created_at) : null,
+    oldest: visible.length ? String(visible[0].created_at) : null,
     // A full page usually means there is more behind it; a short one is the start of history.
-    hasMore: rows.length === limit,
+    hasMore: visible.length === limit,
   };
 }
 
