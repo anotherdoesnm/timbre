@@ -286,7 +286,12 @@ watch([activeServer, activeChannel], () => {
 
 <style scoped>
 .app {
-  height: 100%;
+  /* Pinned to the viewport rather than sized with 100%: on a phone the layout viewport is not
+     the same thing as the visible area (URL bar, keyboard), and sizing by height left a strip
+     of empty background under the composer. Fixed to inset 0 always ends where the visible
+     area ends; with interactive-widget=resizes-content the keyboard moves that edge up. */
+  position: fixed;
+  inset: 0;
   overflow: hidden;
   display: grid;
   grid-template-columns: var(--rail-width) var(--rooms-width) 1fr;
