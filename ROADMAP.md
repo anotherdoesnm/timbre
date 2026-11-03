@@ -44,6 +44,9 @@ Updated 2026-11-03.
    appears only after reopening the channel.
 2. **Message rendering**: markdown, links, mentions, custom emoji (`:dance:` currently shows
    literally), replies, edits, reactions.
+   Links, inline code, bold/italic and @mentions now render as elements from a tokeniser (no
+   `v-html`), and attachments open full size or say the signed link expired. Still missing:
+   replies, edits, reactions, custom emoji.
 3. **Unread state, notification levels, search** (`get_message_page` RPC for pagination).
 4. **Settings screen**: switch instance, sign out, choose theme, toggle reduced motion.
 5. **E2EE**: encrypted channels are a placeholder today; the plan is to reuse upstream's
