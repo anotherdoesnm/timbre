@@ -47,7 +47,10 @@ Updated 2026-11-03.
    Links, inline code, bold/italic and @mentions now render as elements from a tokeniser (no
    `v-html`), and attachments open full size or say the signed link expired. Still missing:
    replies, edits, reactions, custom emoji.
-3. **Unread state, notification levels, search** (`get_message_page` RPC for pagination).
+3. **Unread state, notification levels, search**: unread counts and the read cursor now come
+   from `get_unread_counts()` / `mark_channel_as_read()`, channels open at the first unread
+   message with a divider, and history pages backwards from there. Still missing: per-channel
+   notification levels, and search (`get_message_page` is already the pagination path).
 4. **Settings screen**: switch instance, sign out, choose theme, toggle reduced motion.
 5. **E2EE**: encrypted channels are a placeholder today; the plan is to reuse upstream's
    `src/services/encryption/` rather than write one.
