@@ -22,7 +22,9 @@ import {
   markChannelRead,
   toggleReaction,
   sendMessage,
+  uploadAttachment,
   type UnreadState,
+  type UploadedFile,
 } from './services/data';
 import { discoverHere, instanceHostFromLocation, type InstanceInfo } from './services/discover';
 import { subscribeChannelMessages } from './services/realtime';
@@ -86,6 +88,24 @@ const cursors = ref<Record<string, { oldest: string | null; hasMore: boolean }>>
 const loadingOlder = ref(false);
 /** The message being replied to; cleared on send or on cancel. */
 const replyTarget = ref<{ id: string; author: string; text: string } | null>(null);
+/** Attachments uploaded and waiting for the next send. */
+const attached = ref<UploadedFile[]>([]);
+const uploading = ref(false);
+
+async function onAttach(file: File): Promise<void> {
+  const s = session.value;
+  const ch = channel.value;
+  if (!s || !ch || !myProfileId.value) return;
+  uploading.value = true;
+  try {
+    const uploaded = await uploadAttachment(s, ch.id, myProfileId.value, file);
+    attached.value = [...attached.value, uploaded];
+  } catch (e) {
+    loadError.value = e instanceof Error ? e.message : String(e);
+  } finally {
+    uploading.value = false;
+  }
+}
 // Phone server switcher. The rail is desktop furniture: on a phone it costs a row of the
 // screen on every screen and scrolls sideways, which is what the strip did.
 const serversOpen = ref(false);
@@ -397,8 +417,9 @@ async function onSend(body: string) {
   if (!s || !ch || !myProfileId.value) return;
   sending.value = true;
   try {
-    await sendMessage(s, ch.id, myProfileId.value, body, replyTarget.value?.id ?? null);
+    await sendMessage(s, ch.id, myProfileId.value, body, replyTarget.value?.id ?? null, attached.value);
     replyTarget.value = null;
+    attached.value = [];
     const page = await fetchMessages(s, ch.id);
     liveMessages.value[ch.id] = page.messages;
   } catch (e) {
@@ -466,8 +487,12 @@ watch([activeServer, activeChannel], () => {
         :disabled="!!channel.encrypted"
         :sending="sending"
         :reply-to="replyTarget"
+        :attached="attached"
+        :uploading="uploading"
         @send="onSend"
         @cancel-reply="replyTarget = null"
+        @attach="onAttach"
+        @remove-attachment="(p) => (attached = attached.filter((f) => f.path !== p))"
       />
     </main>
     <main v-else class="chat empty">

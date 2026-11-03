@@ -163,6 +163,19 @@ watch(
               <template v-else>{{ seg.text }}</template>
             </template>
           </p>
+          <div v-if="m.files?.length" class="files">
+            <a
+              v-for="f in m.files"
+              :key="f.name"
+              class="file-chip"
+              :href="f.url || undefined"
+              target="_blank"
+              rel="noreferrer noopener"
+            >
+              <Icon name="clip" :size="14" />
+              <span>{{ f.name }}</span>
+            </a>
+          </div>
           <div v-if="m.reactions?.length" class="chips">
             <button
               v-for="r in m.reactions"
@@ -300,6 +313,21 @@ watch(
 }
 .picker button:hover { background: var(--sfv-hover); }
 .picker button.mine { background: color-mix(in srgb, var(--primary-container) 55%, transparent); }
+.files { display: flex; flex-wrap: wrap; gap: var(--sp-200); margin-top: var(--sp-200); }
+.file-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-100);
+  max-width: 260px;
+  padding: var(--sp-100) var(--sp-200);
+  border: 1px solid var(--sfv-line);
+  border-radius: var(--radius-md);
+  background: var(--sfv-container);
+  color: var(--text);
+  font-size: var(--fs-sm);
+  text-decoration: none;
+}
+.file-chip span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .chips { display: flex; flex-wrap: wrap; gap: var(--sp-100); margin-top: var(--sp-200); }
 .reaction {
   display: inline-flex;

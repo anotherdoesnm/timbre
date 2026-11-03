@@ -7,13 +7,30 @@ const props = defineProps<{
   channelName: string;
   sending?: boolean;
   replyTo?: { author: string; text: string } | null;
+  attached?: { path: string; name: string }[];
+  uploading?: boolean;
 }>();
-const emit = defineEmits<{ (e: 'send', text: string): void; (e: 'cancel-reply'): void }>();
+const emit = defineEmits<{
+  (e: 'send', text: string): void;
+  (e: 'cancel-reply'): void;
+  (e: 'attach', file: File): void;
+  (e: 'remove-attachment', path: string): void;
+}>();
 const text = ref('');
+const fileInput = ref<HTMLInputElement | null>(null);
+
+function pickFile(event: Event): void {
+  const input = event.target as HTMLInputElement;
+  const file = input.files?.[0];
+  if (file) emit('attach', file);
+  // Same file twice in a row still fires a change event.
+  input.value = '';
+}
 
 function send() {
   const body = text.value.trim();
-  if (props.disabled || !body || props.sending) return;
+  if (props.disabled || props.sending || props.uploading) return;
+  if (!body && !props.attached?.length) return;
   emit('send', body);
   text.value = '';
 }
@@ -30,6 +47,16 @@ function send() {
           <Icon name="close" :size="14" />
         </button>
       </div>
+      <div v-if="attached?.length || uploading" class="attached">
+        <span v-for="f in attached" :key="f.path" class="attached-chip">
+          <Icon name="clip" :size="13" />
+          <span class="attached-name">{{ f.name }}</span>
+          <button title="Remove" @click="emit('remove-attachment', f.path)">
+            <Icon name="close" :size="12" />
+          </button>
+        </span>
+        <span v-if="uploading" class="attached-chip">Uploading…</span>
+      </div>
       <textarea
         v-model="text"
         :disabled="disabled"
@@ -39,13 +66,21 @@ function send() {
       />
       <div class="bar">
         <div class="left">
-          <button :disabled="disabled" title="Attach"><Icon name="plus" :size="18" /></button>
-          <button :disabled="disabled" title="File"><Icon name="clip" :size="18" /></button>
+          <button :disabled="disabled" title="More"><Icon name="plus" :size="18" /></button>
+          <button :disabled="disabled" title="Attach a file" @click="fileInput?.click()">
+            <Icon name="clip" :size="18" />
+          </button>
+          <input ref="fileInput" type="file" hidden @change="pickFile" />
           <button :disabled="disabled" title="Emoji"><Icon name="smile" :size="18" /></button>
         </div>
         <div class="right">
           <button :disabled="disabled" title="Voice message"><Icon name="mic" :size="18" /></button>
-          <button class="send" :disabled="disabled || sending || !text.trim()" title="Send" @click="send">
+          <button
+            class="send"
+            :disabled="disabled || sending || uploading || (!text.trim() && !attached?.length)"
+            title="Send"
+            @click="send"
+          >
             <Icon name="send" :size="17" />
           </button>
         </div>
@@ -83,6 +118,21 @@ textarea {
   padding: var(--sp-100) var(--sp-200);
 }
 textarea::placeholder { color: var(--text-tertiary); }
+.attached { display: flex; flex-wrap: wrap; gap: var(--sp-100); margin: var(--sp-100) var(--sp-200) 0; }
+.attached-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  padding: 2px 8px;
+  border: 1px solid var(--sfv-line);
+  border-radius: var(--radius-round);
+  background: var(--sfv-active);
+  color: var(--text-secondary);
+  font-size: var(--fs-sm);
+}
+.attached-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 160px; }
+.attached-chip button { width: 16px; height: 16px; color: var(--text-tertiary); }
 .reply-bar {
   display: flex;
   align-items: center;
