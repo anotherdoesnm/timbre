@@ -34,6 +34,17 @@ function segments(m: Message): Segment[] {
 }
 // A signed attachment URL can be expired or forbidden; a broken image icon tells nobody why.
 const broken = ref<Record<string, true>>({});
+// A short list rather than a full emoji keyboard: the instance has its own emoji table, and
+// wiring that (with search and custom uploads) is its own step.
+const QUICK_EMOJI = ['👍', '❤️', '😂', '🎉', '🔥', '👀', '🙏', '✅', '😅', '🤔', '😮', '💀'];
+const pickerFor = ref<string | null>(null);
+function mine(m: Message, emoji: string): boolean {
+  return !!m.reactions?.find((r) => r.emoji === emoji)?.mine;
+}
+function pick(m: Message, emoji: string): void {
+  pickerFor.value = null;
+  emit('react', m, emoji, mine(m, emoji));
+}
 // Which one is shown is decided in CSS by the pointer, not by this file: on a phone only the
 // tapped message carries a toolbar, on a mouse the hovered one.
 
@@ -88,7 +99,7 @@ watch(
 </script>
 
 <template>
-  <div class="list" ref="scroller" @click.self="selected = null" @scroll.passive="onScroll">
+  <div class="list" ref="scroller" @click.self="selected = null; pickerFor = null" @scroll.passive="onScroll">
     <div v-if="channel.encrypted" class="encrypted">
       <div class="enc-icon"><Icon name="lock" :size="26" /></div>
       <h2>Encrypted channel</h2>
@@ -173,9 +184,16 @@ watch(
             </template>
           </div>
         </div>
+        <div v-if="pickerFor === m.id" class="picker">
+          <button v-for="e in QUICK_EMOJI" :key="e" :class="{ mine: mine(m, e) }" @click.stop="pick(m, e)">
+            {{ e }}
+          </button>
+        </div>
         <div class="tools">
           <button title="Reply" @click.stop="emit('reply', m)"><Icon name="reply" :size="15" /></button>
-          <button title="React 👍" @click.stop="emit('react', m, '👍', !!m.reactions?.find((r) => r.emoji === '👍')?.mine)"><Icon name="smile" :size="15" /></button>
+          <button title="Add a reaction" @click.stop="pickerFor = pickerFor === m.id ? null : m.id">
+            <Icon name="smile" :size="15" />
+          </button>
           <button title="More"><Icon name="dots" :size="15" /></button>
         </div>
       </article>
@@ -256,6 +274,32 @@ watch(
   background: color-mix(in srgb, var(--primary-container) 55%, transparent);
   color: var(--primary-on-container);
 }
+.picker {
+  position: absolute;
+  right: var(--sp-300);
+  top: -46px;
+  z-index: 5;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  max-width: 260px;
+  padding: 4px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--sfv-line);
+  background: var(--sfv-active);
+  box-shadow: var(--shadow-1);
+}
+.picker button {
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--radius-xs);
+  font-size: 16px;
+  line-height: 1;
+}
+.picker button:hover { background: var(--sfv-hover); }
+.picker button.mine { background: color-mix(in srgb, var(--primary-container) 55%, transparent); }
 .chips { display: flex; flex-wrap: wrap; gap: var(--sp-100); margin-top: var(--sp-200); }
 .reaction {
   display: inline-flex;

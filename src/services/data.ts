@@ -390,7 +390,9 @@ export async function toggleReaction(
     },
     body: JSON.stringify({ message_id: messageId, channel_id: channelId, user_id: userId, custom_emoji_content: emoji }),
   });
-  if (!res.ok) {
+  // 409 here is reactions_message_user_emoji_key: the reaction is already there, which is
+  // exactly what was asked for. A stale chip must not produce a red banner.
+  if (!res.ok && res.status !== 409) {
     const body = await res.text().catch(() => '');
     throw new Error(`reaction: ${res.status} ${body.slice(0, 120)}`);
   }
