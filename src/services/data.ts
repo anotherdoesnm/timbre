@@ -318,6 +318,84 @@ export async function fetchMessages(
   };
 }
 
+export interface ReactionSummary {
+  emoji: string;
+  count: number;
+  mine: boolean;
+}
+
+/**
+ * Reactions for a page of messages, in one call (`get_batch_message_reactions`), not one per
+ * message. The instance stores native emoji in `custom_emoji_content` and custom ones in
+ * `emoji_name`/`emoji_url`; both collapse to a single string here.
+ */
+export async function fetchReactions(
+  session: Session,
+  messageIds: string[]
+): Promise<Record<string, ReactionSummary[]>> {
+  if (!messageIds.length) return {};
+  let rows: {
+    message_id: string;
+    emoji_name: string | null;
+    custom_emoji_content: string | null;
+    reaction_count: number | null;
+    current_user_reacted: boolean | null;
+  }[] = [];
+  try {
+    rows = await rpc(session, 'get_batch_message_reactions', { message_ids: messageIds });
+  } catch {
+    return {};
+  }
+  const out: Record<string, ReactionSummary[]> = {};
+  for (const row of rows) {
+    const emoji = row.custom_emoji_content || row.emoji_name || '';
+    if (!emoji || !row.message_id) continue;
+    (out[row.message_id] ??= []).push({
+      emoji,
+      count: Number(row.reaction_count ?? 0),
+      mine: row.current_user_reacted === true,
+    });
+  }
+  return out;
+}
+
+/** Adds the reaction if it is not there yet, removes it otherwise. */
+export async function toggleReaction(
+  session: Session,
+  messageId: string,
+  channelId: string,
+  userId: string,
+  emoji: string,
+  remove: boolean
+): Promise<void> {
+  if (remove) {
+    const query =
+      `message_id=eq.${encodeURIComponent(messageId)}` +
+      `&user_id=eq.${encodeURIComponent(userId)}` +
+      `&custom_emoji_content=eq.${encodeURIComponent(emoji)}`;
+    const res = await fetch(`${session.supabaseUrl}/rest/v1/reactions?${query}`, {
+      method: 'DELETE',
+      headers: { apikey: session.anonKey, Authorization: `Bearer ${session.accessToken}` },
+    });
+    if (!res.ok) throw new Error(`reaction: ${res.status}`);
+    return;
+  }
+  const res = await fetch(`${session.supabaseUrl}/rest/v1/reactions`, {
+    method: 'POST',
+    headers: {
+      apikey: session.anonKey,
+      Authorization: `Bearer ${session.accessToken}`,
+      'Content-Type': 'application/json',
+      Prefer: 'return=minimal',
+    },
+    body: JSON.stringify({ message_id: messageId, channel_id: channelId, user_id: userId, custom_emoji_content: emoji }),
+  });
+  if (!res.ok) {
+    const body = await res.text().catch(() => '');
+    throw new Error(`reaction: ${res.status} ${body.slice(0, 120)}`);
+  }
+}
+
 export interface UnreadState {
   channelId: string;
   unread: number;

@@ -21,6 +21,8 @@ export interface Message {
   system?: boolean;
   /** Quoted parent, when this message is a reply. */
   replyTo?: { id: string; author: string; text: string };
+  /** Aggregated reactions: one chip per emoji. */
+  reactions?: { emoji: string; count: number; mine: boolean }[];
 }
 
 export interface Channel {
