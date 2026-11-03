@@ -1,11 +1,15 @@
-# Timbre — клиент Harmony
+# Timbre — a Harmony client
 
-> Имя: **Timbre** (тембр — та же нота, другая окраска). «Harmony» — платформа, поэтому в
-> названии клиента его нет: этого требует TRADEMARK апстрима, а видимая строка
-> «Powered by Harmony» остаётся.
+> The name is **Timbre**: a different colour on the same note. “Harmony” is the platform, so it
+> is not part of the product name (upstream TRADEMARK); the visible “Powered by Harmony” line
+> stays.
 
-Статический скелет клиента: раскладка и палитра в духе Cinny, данные — моки, Supabase не подключён.
-Это проверка «попадаем ли в ощущение», а не работающий клиент.
+A Vue 3 client for Harmony instances, skinned in the spirit of Cinny. It talks to a real instance
+over the same public API the official web app uses: discovery, sign-in, servers, channels,
+messages, sending. No Supabase SDK — plain `fetch` against GoTrue and PostgREST.
+
+**Live test instance:** <https://timbre.doesnmlab.xyz> — a Harmony 1.9.2 instance whose web
+frontend *is* this build. The instance is for testing Timbre, not for real conversations.
 
 ```bash
 npm install
@@ -13,114 +17,128 @@ npm run dev      # http://localhost:5173
 npm run build
 ```
 
-## Что внутри
+## What works
 
-| Файл | Что делает |
+- **Discovery.** `GET /api/federation/instance-info` gives the name, version, Supabase URL and
+  anon key; `GET /auth/v1/settings` gives the enabled providers. Four failure modes are
+  distinguished: timeout, HTTP error, “responded but is not Harmony”, network/CORS.
+- **Sign-in.** Email + password (works on every instance), OAuth through PKCE (desktop popup,
+  phone redirect), and importing a session from the official web app (`localStorage` blob).
+- **Sessions.** Stored per instance, JWT expiry respected, refreshed on start and on resume, and
+  never discarded because a refresh happened to fail.
+- **Live data.** Profile, servers from `user_servers` (deduplicated), channels grouped by
+  `channel_categories`, messages with authors resolved through `user_id` **or**
+  `metadata.subject_id`, attachments from the jsonb content parts.
+- **Sending.** `content` is written as an array of parts — the database enforces
+  `messages_content_is_array` — and API errors are shown, not swallowed.
+- **Mobile layout.** One pane at a time, a horizontal server strip, tap-to-reveal message
+  toolbar.
+- **Shells.** Tauri 2 for Android (arm64 debug APK, ~19 MiB) and desktop (AppImage, Windows NSIS).
+
+## Layout
+
+| File | What it does |
 |---|---|
-| `src/styles/tokens.css` | палитра Cinny dark (`src/colors.css.ts`), радиусы, отступы, ширины панелей |
-| `src/data/mock.ts` | серверы (реальные публичные с har.mony.lol), каналы, сообщения, участники |
-| `src/components/ServerRail.vue` | рейл серверов 64 px, индикатор активного, точка непрочитанного |
-| `src/components/RoomList.vue` | список каналов по категориям, бейджи упоминаний, замок у зашифрованных |
-| `src/components/ChatHeader.vue` | шапка 48 px, топик, переключатель участников |
-| `src/components/MessageList.vue` | группировка сообщений, hover-тулбар, пустое состояние для E2EE-канала |
-| `src/components/Composer.vue` | поле ввода с тулбаром, `disabled` в зашифрованном канале |
-| `src/components/MemberList.vue` | правая панель, роли, отошедшие, офлайн |
-| `src/components/AuthScreen.vue` | вход: адрес инстанса → карточка инстанса → провайдеры / пароль |
-| `src/services/discover.ts` | `GET /api/federation/instance-info` + `/auth/v1/settings`, четыре класса ошибок |
+| `src/App.vue` | routes, boot/refresh, mobile pane, send handler |
+| `src/services/discover.ts` | `instance-info` + provider list, error kinds |
+| `src/services/auth.ts` | GoTrue: PKCE start/finish, password grant, refresh, stored sessions |
+| `src/services/pkce.ts` | verifier/challenge, state |
+| `src/services/tauriOAuth.ts` | popup flow in the desktop shell |
+| `src/services/sessionImport.ts` | parse and adopt a session copied from the web app |
+| `src/services/api.ts`, `data.ts` | PostgREST reads, message rendering, sends |
+| `src/components/AuthScreen.vue` | instance address → instance card → providers / password |
+| `src/components/{ServerRail,RoomList,ChatHeader,MessageList,Composer,MemberList}.vue` | the shell |
+| `src/styles/tokens.css` | Cinny dark palette, radii, spacing, panel widths |
+| `src/data/mock.ts` | demo data for `?demo=1` and screenshots |
 
-Зашифрованные каналы (`design`, `mod-chat`) показывают заглушку и выключенный композер — это то
-правило «никакого даунгрейда», а не временная недоделка.
+## Routes
 
-Полный список сделанного и планов — [`ROADMAP.md`](ROADMAP.md).
+`#auth` (default) — sign-in; `#chat` — the chat shell; `#auth/callback` — where GoTrue returns.
+`?demo=1` swaps in a canned `instance-info` response and marks the card as demo, so screenshots
+work without a network. `?demo=1#chat` renders the shell with mock data.
 
-## Идентификаторы
+A stored session goes straight to `#chat`; without one the app opens `#auth`.
 
-| Что | Значение |
+## Builds
+
+| Workflow | What it produces |
 |---|---|
-| Имя продукта | **Timbre** |
-| npm-пакет | `timbre` |
-| Tauri bundle identifier | `xyz.doesnmlab.timbre` |
-| Кто платформа | Harmony (не входит в имя клиента — TRADEMARK апстрима) |
+| `.forgejo/workflows/apk.yml` | arm64 debug APK, on request or on a tag |
+| `.forgejo/workflows/desktop.yml` | AppImage and Windows NSIS installer, on request or on a tag |
 
-## Происхождение токенов
+Artifacts land on `https://builds.doesnmlab.xyz/upload/{apk,desktop}/<sha>/…` and a webhook
+announces the build. CI is manual on purpose: a full APK takes about ten minutes, so several
+fixes are batched into one commit before dispatching.
 
-Значения цветов взяты из Cinny (AGPL-3.0): `src/colors.css.ts` → `darkTheme`, шкала `folds`.
-Имена переписаны в обычные CSS-переменные, чтобы SFC могли их использовать без `vanilla-extract`.
-Если рестайл пойдёт в релиз — это производная работа, исходники публикуются под AGPL.
+`src-tauri/debug.keystore` is committed on purpose: without it every fresh CI VM generates a new
+debug key and Android refuses to install over the previous build.
 
-## Скриншоты
+## Tauri
 
-`shots/chat-general.png` — канал `# general`, `shots/chat-encrypted.png` — зашифрованный `# design`,
-`shots/auth-idle.png` — вход (пусто), `shots/auth-instance.png` — инстанс найден (`?demo=1`),
-`shots/auth-error.png` — ошибка, `shots/auth-callback.png` — возврат с OAuth (`?demo=1`),
-`shots/auth-live.png` — реальный ответ har.mony.lol через dev-прокси (без моков).
-Снято headless-Chromium'ом через `scripts/screenshot.mjs` (1440x900, DPR 2).
-
-Восстановить тулчейн в этой песочнице (Chrome for Testing качается в `.pw`, системных
-библиотек нет — они распаковываются из deb'ов в `.libs`):
+`src-tauri/` is the shell; `identifier` is `xyz.doesnmlab.timbre` and the frontend comes from
+`dist`.
 
 ```bash
-export PLAYWRIGHT_BROWSERS_PATH=$PWD/.pw LD_LIBRARY_PATH=$PWD/.libs/root/usr/lib/x86_64-linux-gnu
-npx playwright install chromium
-mkdir -p .libs && cd .libs && apt-get download libglib2.0-0 libnss3 libxi6 libwayland-server0 # + остальные
-for f in *.deb; do dpkg-deb -x "$f" root/; done
+npm run build
+npx tauri android init --ci      # once; generates src-tauri/gen/android
+npx tauri android build --apk --debug --target aarch64
+npx tauri build                  # desktop; needs libwebkit2gtk-4.1-dev and rust
 ```
 
-Шрифт — Inter (variable, latin + cyrillic) в `public/fonts/`, локально, без CDN.
+OAuth inside the shell runs in a popup webview so the main window never navigates: the popup
+returns to `/auth/callback`, the session lands in shared storage, and the popup emits
+`timbre:oauth-complete` and closes.
 
-## Dev-прокси (CORS)
+## Dev proxy (CORS)
 
-Инстанс не отдаёт `Access-Control-Allow-Origin` ни на `instance-info`, ни на `config.json`,
-поэтому браузер с `localhost:5173` не может его опросить. Для разработки в `vite.config.ts`
-поднят посредник:
+An instance sends no `Access-Control-Allow-Origin` for `instance-info` or `config.json`, so a
+browser on `localhost:5173` cannot query it. `vite.config.ts` adds a dev-only relay
+(`apply: 'serve'`), which also forwards the `apikey` header GoTrue wants:
 
 ```
 /__instance/har.mony.lol/api/federation/instance-info   →  https://har.mony.lol/api/federation/instance-info
 /__instance/db.mony.lol/auth/v1/settings                →  https://db.mony.lol/auth/v1/settings
 ```
 
-Он работает только в `vite dev` (`apply: 'serve'`), пробрасывает заголовки (нужен `apikey` для GoTrue)
-и не попадает в сборку. В проде запрос идёт напрямую — из Tauri это нормально, из браузера нужен
-релей или CORS на инстансе.
+In production the request goes direct — fine from Tauri, and fine from a browser when the client
+is served from the instance's own origin, which is what `timbre.doesnmlab.xyz` does.
 
-## Маршруты
+## Identifiers
 
-`#auth` (по умолчанию) — экран входа, `#chat` — оболочка чата. `?demo=1` подставляет
-заготовленный ответ `instance-info` и помечает карточку инстанса плашкой «демо».
+| What | Value |
+|---|---|
+| Product name | **Timbre** |
+| npm package | `timbre` (private) |
+| Tauri bundle identifier | `xyz.doesnmlab.timbre` |
+| Platform | Harmony (not part of the product name — upstream TRADEMARK) |
 
-Без `?demo=1` делается настоящий запрос. Из браузера на чужом origin он сейчас падает:
-`instance-info` не отдаёт `Access-Control-Allow-Origin`, и это ровно то состояние, что
-на `screenshot-5.png`. В Tauri (запрос через Rust) или за релеем — проходит.
+## Design tokens
 
-## Tauri
+Colours come from Cinny (AGPL-3.0): `src/colors.css.ts` → `darkTheme`, the `folds` scale. They are
+rewritten as plain CSS variables so the SFCs can use them without `vanilla-extract`. If this skin
+ships, it is a derivative work and the sources stay AGPL.
 
-`src-tauri/` — каркас оболочки: `identifier` = `xyz.doesnmlab.timbre`, фронт берётся из `dist`.
+Font: Inter (variable, latin + cyrillic) in `public/fonts/` — local, no CDN.
+
+## Screenshots
+
+`shots/chat-general.png` — `# general`, `shots/chat-encrypted.png` — the encrypted `# design`,
+`shots/auth-idle.png` — empty sign-in, `shots/auth-instance.png` — instance resolved (`?demo=1`),
+`shots/auth-error.png` — failure, `shots/auth-callback.png` — OAuth return (`?demo=1`),
+`shots/auth-live.png` — a real `har.mony.lol` reply through the dev proxy.
+
+Taken with headless Chromium via `scripts/screenshot.mjs` (1440×900, DPR 2) and
+`scripts/shot-phone.mjs` (390×844). Restoring the toolchain in a bare sandbox:
 
 ```bash
-npm run build
-npx tauri android init --ci      # один раз, генерирует src-tauri/gen/android
-npx tauri android build --apk --debug --target aarch64
-npx tauri build                  # десктоп, нужен libwebkit2gtk-4.1-dev и rust
+export PLAYWRIGHT_BROWSERS_PATH=$PWD/.pw LD_LIBRARY_PATH=$PWD/.libs/root/usr/lib/x86_64-linux-gnu
+npx playwright install chromium
+mkdir -p .libs && cd .libs && apt-get download libglib2.0-0 libnss3 libxi6 libwayland-server0 # + the rest
+for f in *.deb; do dpkg-deb -x "$f" root/; done
 ```
 
-Почему Tauri вообще нужен: в браузере на чужом origin логин через OAuth не работает —
-`redirect_to` не в allowlist инстанса, и GoTrue уводит на SITE_URL. Внутри Tauri origin
-свой (`tauri://localhost` / `http://tauri.localhost`), и официальный десктоп входит точно
-так же, поэтому запись в списке уже есть.
+## What is not there yet
 
-OAuth в оболочке идёт через попап-окно (`src/services/tauriOAuth.ts`): главное окно не
-навигируется, попап возвращается на `/auth/callback`, сессия ложится в общее хранилище,
-попап шлёт `timbre:oauth-complete` и закрывается.
-
-Сборка APK — `.forgejo/workflows/apk.yml`, раннер с меткой `android` (runnerd).
-`src-tauri/debug.keystore` лежит в репозитории намеренно: без него свежая VM генерирует
-новый debug-ключ на каждый ран, и Android отказывается ставить сборку поверх предыдущей. Rust и
-конфиг Tauri в этом репозитории **ещё не компилировались** — первый прогон в CI и есть
-проверка.
-
-## Дальше
-
-1. OAuth-флоу: popup в Tauri, `redirect_to` = `${origin}/auth/callback`; для веба нужен
-   `ADDITIONAL_REDIRECT_URLS` на инстансе.
-2. Подменить моки на стор из форка (сохранив `script`, заменив `template`/`style`).
-3. Ленивая инициализация Supabase вместо модульной.
+See [`ROADMAP.md`](ROADMAP.md): no realtime updates, no markdown/replies/reactions, no in-client
+registration, no unread state or settings screen, and E2EE channels are a placeholder by design
+(no downgrade) with upstream's `src/services/encryption/` as the plan.

@@ -1,7 +1,7 @@
 # Timbre — roadmap
 
 Where the client stands, what is next, and what is blocked elsewhere.
-Updated 2026-11-02.
+Updated 2026-11-03.
 
 ## Done
 
@@ -19,8 +19,12 @@ Updated 2026-11-02.
 - Sending: `content` must be an array of parts (`messages_content_is_array`); errors surface.
 - Builds: arm64 debug APK (19 MiB, stripped), AppImage, Windows NSIS installer; published to
   `builds.doesnmlab.xyz` and announced by a channel webhook. CI runs on request or on a tag.
+- **Test instance**: `https://timbre.doesnmlab.xyz` — Harmony 1.9.2 on a 2 GiB LXC, federation
+  off, and this build is served as its web frontend (replacing the official one in the
+  `harmony-web` container). Same-origin means no CORS, no OAuth allowlist problem, and the
+  client can be exercised end to end against a real backend.
 
-## Observed in build 1c01cd1 (being fixed now)
+## Fixed after build 1c01cd1 (not in a build yet)
 
 - Flash of mock data before live data. **Fixed**: with a session the shell renders nothing
   until real data arrives.
@@ -62,5 +66,16 @@ Updated 2026-11-02.
   from the operator settles it.
 - `messages.user_id` sometimes points at `profiles.id`, sometimes at the auth user id — our
   queries handle both; is one of them deprecated?
-- Self-hosted instance for a live "Timbre instead of the official web" test: 2 GiB LXC on the
-  homelab, no CPU pins, federation off. Not started (RAM was the concern; zram optional).
+
+## Housekeeping on the test instance
+
+- The LXC rootfs is at 97 % (9.0 G of 9.8 G). Two installer steps fail on free space and any
+  image write is one `docker pull` away from failing. Needs `pct resize 170 rootfs +8G` on the
+  node, which only the operator can run.
+- Deploying a new build into the running instance: `npm run build`, tar `dist`, copy it into the
+  `harmony-web` container's `/usr/share/nginx/html` (keep the instance's own `config.json`), no
+  restart needed — Caddy serves the container as-is. Ship the tarball through stdin
+  (`ssh node 'pct exec 170 -- sh -c "base64 -d > /root/d.tgz"' < d.b64`): a base64 argument on
+  the command line overruns `ARG_MAX` long before the tarball is large.
+- Nothing has been built since `1c01cd1`; the next APK dispatch carries the four fixes above,
+  the English strings and the served-frontend change.
