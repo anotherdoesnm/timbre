@@ -6,6 +6,7 @@ import { parseSegments, safeHref, type Segment } from '../services/markdown';
 
 const props = defineProps<{
   channel: Channel;
+  myId?: string | null;
   messages: Message[];
   live?: boolean;
   /** First unread message: the view opens here instead of at the bottom. */
@@ -17,6 +18,8 @@ const emit = defineEmits<{
   (e: 'load-older'): void;
   (e: 'reply', m: Message): void;
   (e: 'react', m: Message, emoji: string, mine: boolean): void;
+  (e: 'edit', m: Message): void;
+  (e: 'delete', m: Message): void;
 }>();
 const scroller = ref<HTMLElement | null>(null);
 // On a phone there is no hover: the toolbar would sit on every message forever. A tap
@@ -38,6 +41,10 @@ const broken = ref<Record<string, true>>({});
 // wiring that (with search and custom uploads) is its own step.
 const QUICK_EMOJI = ['👍', '❤️', '😂', '🎉', '🔥', '👀', '🙏', '✅', '😅', '🤔', '😮', '💀'];
 const pickerFor = ref<string | null>(null);
+const menuFor = ref<string | null>(null);
+function isMine(m: Message): boolean {
+  return !!props.myId && m.author.id === props.myId;
+}
 function mine(m: Message, emoji: string): boolean {
   return !!m.reactions?.find((r) => r.emoji === emoji)?.mine;
 }
@@ -99,7 +106,7 @@ watch(
 </script>
 
 <template>
-  <div class="list" ref="scroller" @click.self="selected = null; pickerFor = null" @scroll.passive="onScroll">
+  <div class="list" ref="scroller" @click.self="selected = null; pickerFor = null; menuFor = null" @scroll.passive="onScroll">
     <div v-if="channel.encrypted" class="encrypted">
       <div class="enc-icon"><Icon name="lock" :size="26" /></div>
       <h2>Encrypted channel</h2>
@@ -146,6 +153,7 @@ watch(
             <span class="author">{{ m.author.name }}</span>
             <span v-if="m.author.role" class="role" :class="m.author.role">{{ m.author.role === 'admin' ? 'admin' : 'mod' }}</span>
             <span class="time">{{ m.time }}</span>
+            <span v-if="m.edited" class="edited">(edited)</span>
           </header>
           <p v-if="m.text" class="text">
             <template v-for="(seg, i) in segments(m)" :key="i">
@@ -197,6 +205,10 @@ watch(
             </template>
           </div>
         </div>
+        <div v-if="menuFor === m.id" class="picker menu">
+          <button @click.stop="menuFor = null; emit('edit', m)">Edit</button>
+          <button class="danger" @click.stop="menuFor = null; emit('delete', m)">Delete</button>
+        </div>
         <div v-if="pickerFor === m.id" class="picker">
           <button v-for="e in QUICK_EMOJI" :key="e" :class="{ mine: mine(m, e) }" @click.stop="pick(m, e)">
             {{ e }}
@@ -207,7 +219,9 @@ watch(
           <button title="Add a reaction" @click.stop="pickerFor = pickerFor === m.id ? null : m.id">
             <Icon name="smile" :size="15" />
           </button>
-          <button title="More"><Icon name="dots" :size="15" /></button>
+          <button v-if="isMine(m)" title="More" @click.stop="menuFor = menuFor === m.id ? null : m.id; pickerFor = null">
+            <Icon name="dots" :size="15" />
+          </button>
         </div>
       </article>
       </template>
@@ -287,6 +301,23 @@ watch(
   background: color-mix(in srgb, var(--primary-container) 55%, transparent);
   color: var(--primary-on-container);
 }
+.picker.menu {
+  top: -10px;
+  flex-direction: column;
+  flex-wrap: nowrap;
+  max-width: 140px;
+  padding: 3px;
+}
+.picker.menu button {
+  width: 100%;
+  height: 30px;
+  justify-content: flex-start;
+  padding: 0 var(--sp-200);
+  font-size: var(--fs-sm);
+  color: var(--text);
+}
+.picker.menu button.danger { color: var(--critical); }
+.edited { color: var(--text-tertiary); font-size: var(--fs-xs); }
 .picker {
   position: absolute;
   right: var(--sp-300);

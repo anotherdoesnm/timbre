@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from 'vue';
+import { ref, watch } from 'vue';
 import Icon from './Icon.vue';
 
 const props = defineProps<{
@@ -8,16 +8,39 @@ const props = defineProps<{
   sending?: boolean;
   replyTo?: { author: string; text: string } | null;
   attached?: { path: string; name: string }[];
-  uploading?: boolean;
+  /** When set, the composer edits this message instead of sending a new one. */
+  editing?: { id: string; text: string } | null;
 }>();
 const emit = defineEmits<{
   (e: 'send', text: string): void;
   (e: 'cancel-reply'): void;
   (e: 'attach', file: File): void;
   (e: 'remove-attachment', path: string): void;
+  (e: 'save-edit', text: string): void;
+  (e: 'cancel-edit'): void;
 }>();
 const text = ref('');
 const fileInput = ref<HTMLInputElement | null>(null);
+
+// Editing fills the box with the current text once and leaves it alone afterwards, so typing
+// is not overwritten by a re-render.
+watch(
+  () => props.editing?.id ?? null,
+  () => {
+    text.value = props.editing?.text ?? '';
+  },
+  { immediate: true }
+);
+
+function submit(): void {
+  if (props.editing) {
+    const body = text.value.trim();
+    if (!body) return;
+    emit('save-edit', body);
+    return;
+  }
+  send();
+}
 
 function pickFile(event: Event): void {
   const input = event.target as HTMLInputElement;
@@ -47,6 +70,10 @@ function send() {
           <Icon name="close" :size="14" />
         </button>
       </div>
+      <div v-if="editing" class="edit-bar">
+        <span>Editing message</span>
+        <button title="Cancel" @click="emit('cancel-edit')"><Icon name="close" :size="12" /></button>
+      </div>
       <div v-if="attached?.length || uploading" class="attached">
         <span v-for="f in attached" :key="f.path" class="attached-chip">
           <Icon name="clip" :size="13" />
@@ -62,7 +89,7 @@ function send() {
         :disabled="disabled"
         rows="1"
         :placeholder="disabled ? 'Encrypted channel — no keys on this device' : `Message #${channelName}`"
-        @keydown.enter.exact.prevent="send"
+        @keydown.enter.exact.prevent="submit"
       />
       <div class="bar">
         <div class="left">
@@ -78,8 +105,8 @@ function send() {
           <button
             class="send"
             :disabled="disabled || sending || uploading || (!text.trim() && !attached?.length)"
-            title="Send"
-            @click="send"
+            :title="editing ? 'Save edit' : 'Send'"
+            @click="submit"
           >
             <Icon name="send" :size="17" />
           </button>
@@ -118,6 +145,19 @@ textarea {
   padding: var(--sp-100) var(--sp-200);
 }
 textarea::placeholder { color: var(--text-tertiary); }
+.edit-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: var(--sp-100) var(--sp-200) 0;
+  padding: var(--sp-100) var(--sp-200);
+  border-left: 2px solid var(--primary-main);
+  border-radius: var(--radius-xs);
+  background: var(--sfv-active);
+  color: var(--text-secondary);
+  font-size: var(--fs-sm);
+}
+.edit-bar button { width: 20px; height: 20px; color: var(--text-tertiary); }
 .attached { display: flex; flex-wrap: wrap; gap: var(--sp-100); margin: var(--sp-100) var(--sp-200) 0; }
 .attached-chip {
   display: inline-flex;

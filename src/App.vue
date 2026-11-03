@@ -18,6 +18,8 @@ import {
   fetchMessages,
   fetchServers,
   fetchReactions,
+  deleteMessage,
+  editMessage,
   fetchUnreadCounts,
   markChannelRead,
   toggleReaction,
@@ -96,6 +98,36 @@ const uploading = ref(false);
 const online = ref(typeof navigator === 'undefined' ? true : navigator.onLine);
 const failedSend = ref<{ body: string; files: UploadedFile[]; replyTo: string | null } | null>(null);
 let lastLoad = Date.now();
+/** Message being edited in the composer. */
+const editing = ref<{ id: string; text: string } | null>(null);
+
+async function onSaveEdit(text: string): Promise<void> {
+  const s = session.value;
+  const ch = channel.value;
+  const target = editing.value;
+  if (!s || !ch || !target) return;
+  try {
+    await editMessage(s, target.id, text);
+    editing.value = null;
+    const page = await fetchMessages(s, ch.id);
+    liveMessages.value[ch.id] = page.messages;
+  } catch (e) {
+    loadError.value = e instanceof Error ? e.message : String(e);
+  }
+}
+
+async function onDeleteMessage(m: { id: string }): Promise<void> {
+  const s = session.value;
+  const ch = channel.value;
+  if (!s || !ch) return;
+  try {
+    await deleteMessage(s, m.id);
+    const page = await fetchMessages(s, ch.id);
+    liveMessages.value[ch.id] = page.messages;
+  } catch (e) {
+    loadError.value = e instanceof Error ? e.message : String(e);
+  }
+}
 
 function refreshConnectivity(): void {
   online.value = typeof navigator === 'undefined' ? true : navigator.onLine;
@@ -518,7 +550,10 @@ watch([activeServer, activeChannel], () => {
         :has-more="cursors[channel.id]?.hasMore ?? false"
         :loading-older="loadingOlder"
         @load-older="loadOlder(channel.id)"
+        :my-id="myProfileId"
         @reply="(m) => (replyTarget = { id: m.id, author: m.author.name, text: m.text.slice(0, 120) })"
+        @edit="(m) => (editing = { id: m.id, text: m.text })"
+        @delete="onDeleteMessage"
         @react="onReact"
       />
       <Composer
@@ -528,7 +563,10 @@ watch([activeServer, activeChannel], () => {
         :reply-to="replyTarget"
         :attached="attached"
         :uploading="uploading"
+        :editing="editing"
         @send="onSend"
+        @save-edit="onSaveEdit"
+        @cancel-edit="editing = null"
         @cancel-reply="replyTarget = null"
         @attach="onAttach"
         @remove-attachment="(p) => (attached = attached.filter((f) => f.path !== p))"
