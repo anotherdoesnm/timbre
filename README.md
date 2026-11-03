@@ -24,6 +24,9 @@ npm run build
   distinguished: timeout, HTTP error, “responded but is not Harmony”, network/CORS.
 - **Sign-in.** Email + password (works on every instance), OAuth through PKCE (desktop popup,
   phone redirect), and importing a session from the official web app (`localStorage` blob).
+- **Sign-up.** Email + username + password on the instance itself: the client creates the auth
+  user, writes the profile row the policies expect, and joins the busiest public server so the
+  account starts in a chat.
 - **Sessions.** Stored per instance, JWT expiry respected, refreshed on start and on resume, and
   never discarded because a refresh happened to fail.
 - **Live data.** Profile, servers from `user_servers` (deduplicated), channels grouped by

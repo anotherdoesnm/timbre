@@ -23,6 +23,10 @@ Updated 2026-11-03.
   off, and this build is served as its web frontend (replacing the official one in the
   `harmony-web` container). Same-origin means no CORS, no OAuth allowlist problem, and the
   client can be exercised end to end against a real backend.
+- **In-client registration**: email + username + password, straight to the instance. GoTrue's
+  signup only makes the auth user, so the client also writes the `profiles` row (RLS wants
+  `auth_user_id = auth.uid()`) and calls `join_public_server()` for the busiest public server —
+  a new account lands in a chat instead of an empty screen. Nothing here needs an operator.
 
 ## Fixed after build 1c01cd1 (not in a build yet)
 
@@ -40,16 +44,13 @@ Updated 2026-11-03.
    appears only after reopening the channel.
 2. **Message rendering**: markdown, links, mentions, custom emoji (`:dance:` currently shows
    literally), replies, edits, reactions.
-3. **In-client registration and onboarding**: sign up with an email (one-time mailboxes
-   included in the flow), confirm it, pick a username — both steps still send the user to the
-   web app.
-4. **Unread state, notification levels, search** (`get_message_page` RPC for pagination).
-5. **Settings screen**: switch instance, sign out, choose theme, toggle reduced motion.
-6. **E2EE**: encrypted channels are a placeholder today; the plan is to reuse upstream's
+3. **Unread state, notification levels, search** (`get_message_page` RPC for pagination).
+4. **Settings screen**: switch instance, sign out, choose theme, toggle reduced motion.
+5. **E2EE**: encrypted channels are a placeholder today; the plan is to reuse upstream's
    `src/services/encryption/` rather than write one.
-7. **Polish**: signed attachment URLs expire, so old images will break until re-signed; date
+6. **Polish**: signed attachment URLs expire, so old images will break until re-signed; date
    separators; long-press context menu; keyboard shortcuts on desktop.
-8. **Android keyboard and viewport**: the layout now survives the on-screen keyboard
+7. **Android keyboard and viewport**: the layout now survives the on-screen keyboard
    (`100dvh`, `min-height: 0` on every flex and grid child, `interactive-widget=resizes-content`),
    but the Tauri shell additionally needs `windowSoftInputMode="adjustResize"` — see README.
    Check it on a real device once the APK with these fixes is built.
