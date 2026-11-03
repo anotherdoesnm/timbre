@@ -49,6 +49,10 @@ Updated 2026-11-03.
    `src/services/encryption/` rather than write one.
 7. **Polish**: signed attachment URLs expire, so old images will break until re-signed; date
    separators; long-press context menu; keyboard shortcuts on desktop.
+8. **Android keyboard and viewport**: the layout now survives the on-screen keyboard
+   (`100dvh`, `min-height: 0` on every flex and grid child, `interactive-widget=resizes-content`),
+   but the Tauri shell additionally needs `windowSoftInputMode="adjustResize"` — see README.
+   Check it on a real device once the APK with these fixes is built.
 
 ## Blocked elsewhere
 

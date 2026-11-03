@@ -89,6 +89,10 @@ OAuth inside the shell runs in a popup webview so the main window never navigate
 returns to `/auth/callback`, the session lands in shared storage, and the popup emits
 `timbre:oauth-complete` and closes.
 
+After `tauri android init`, set `android:windowSoftInputMode="adjustResize"` on the activity in
+`src-tauri/gen/android/app/src/main/AndroidManifest.xml`. Without it the keyboard covers the
+composer instead of shrinking the webview, and no amount of CSS fixes that.
+
 ## Dev proxy (CORS)
 
 An instance sends no `Access-Control-Allow-Origin` for `instance-info` or `config.json`, so a
