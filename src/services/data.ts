@@ -1,6 +1,6 @@
 /** Live Harmony data, mapped onto the shapes the components already render. */
 
-import { authUserId, rest } from './api';
+import { authUserId, rest, rpc } from './api';
 import type { Session } from './auth';
 import type { Author, Channel, Message, Server } from '../data/mock';
 
@@ -183,14 +183,36 @@ export async function sendMessage(
   }
 }
 
-export async function fetchMessages(session: Session, channelId: string): Promise<Message[]> {
+export interface MessagePage {
+  messages: Message[];
+  /** Oldest timestamp in this page — the cursor for loading further back. */
+  oldest: string | null;
+  hasMore: boolean;
+}
+
+/**
+ * One page of a channel: newest first from the API, oldest first in the result.
+ *
+ * The query used to ask for `order=created_at.asc` with a limit, which returns the *oldest*
+ * messages of the channel rather than the newest — invisible on a short channel, wrong on
+ * every real one.
+ */
+export async function fetchMessages(
+  session: Session,
+  channelId: string,
+  opts: { limit?: number; before?: string } = {}
+): Promise<MessagePage> {
+  const limit = Math.min(Math.max(opts.limit ?? 50, 1), 200);
   const rows = await rest<Row[]>(
     session,
     'messages',
     `channel_id=eq.${encodeURIComponent(channelId)}` +
-      '&is_deleted=eq.false&order=created_at.asc&limit=80' +
+      '&is_deleted=eq.false' +
+      `&order=created_at.desc&limit=${limit}` +
+      (opts.before ? `&created_at=lt.${encodeURIComponent(opts.before)}` : '') +
       '&select=id,created_at,content,encrypted,user_id,is_system,metadata'
   );
+  rows.reverse();
 
   // String(null) is "null", which made the in.(...) list invalid and the request 400 — the
   // catch below then returned no profiles and every author became "unknown".
@@ -227,7 +249,7 @@ export async function fetchMessages(session: Session, channelId: string): Promis
 
   let prevAuthor = '';
   let prevTime = 0;
-  return rows.map((m) => {
+  const messages = rows.map((m) => {
     const system = m.is_system === true;
     const author = toAuthor(byId.get(String(m.user_id)) ?? { username: system ? 'system' : 'unknown' });
     const at = new Date(String(m.created_at));
@@ -248,4 +270,56 @@ export async function fetchMessages(session: Session, channelId: string): Promis
       grouped: system ? false : grouped,
     } satisfies Message;
   });
+
+  return {
+    messages,
+    oldest: rows.length ? String(rows[0].created_at) : null,
+    // A full page usually means there is more behind it; a short one is the start of history.
+    hasMore: rows.length === limit,
+  };
+}
+
+export interface UnreadState {
+  channelId: string;
+  unread: number;
+  mentions: number;
+  lastReadAt: string | null;
+  lastReadMessageId: string | null;
+}
+
+/** Per-channel unread counters, straight from the instance's own accounting. */
+export async function fetchUnreadCounts(session: Session): Promise<Record<string, UnreadState>> {
+  let rows: {
+    channel_id: string | null;
+    unread_messages: number | null;
+    unread_mentions: number | null;
+    last_read_at: string | null;
+    last_read_message_id: string | null;
+  }[] = [];
+  try {
+    rows = await rpc(session, 'get_unread_counts', {});
+  } catch {
+    return {};
+  }
+  const out: Record<string, UnreadState> = {};
+  for (const row of rows) {
+    if (!row.channel_id) continue;
+    out[row.channel_id] = {
+      channelId: row.channel_id,
+      unread: Number(row.unread_messages ?? 0),
+      mentions: Number(row.unread_mentions ?? 0),
+      lastReadAt: row.last_read_at,
+      lastReadMessageId: row.last_read_message_id,
+    };
+  }
+  return out;
+}
+
+/** Moves the read cursor; the instance recomputes the counters from it. */
+export async function markChannelRead(session: Session, channelId: string, messageId?: string | null): Promise<void> {
+  try {
+    await rpc(session, 'mark_channel_as_read', { p_channel_id: channelId, p_message_id: messageId ?? null });
+  } catch {
+    /* an unread counter is not worth breaking the screen over */
+  }
 }
