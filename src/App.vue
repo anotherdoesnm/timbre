@@ -7,6 +7,7 @@ import MessageList from './components/MessageList.vue';
 import Composer from './components/Composer.vue';
 import MemberList from './components/MemberList.vue';
 import ServerSheet from './components/ServerSheet.vue';
+import AccountSheet from './components/AccountSheet.vue';
 import AuthScreen from './components/AuthScreen.vue';
 import AuthCallback from './components/AuthCallback.vue';
 import { channels as mockChannels, messages as mockMessages, servers as mockServers } from './data/mock';
@@ -68,6 +69,7 @@ const sending = ref(false);
 // Phone server switcher. The rail is desktop furniture: on a phone it costs a row of the
 // screen on every screen and scrolls sideways, which is what the strip did.
 const serversOpen = ref(false);
+const accountOpen = ref(false);
 const myProfileId = ref<string | null>(null);
 
 // A session means the mocks are a lie: show the real thing or nothing. Rendering the mock
@@ -254,6 +256,15 @@ function restartLive(): void {
 watch([session, live, activeChannel], restartLive, { immediate: true });
 onUnmounted(() => liveSub?.close());
 
+function signOutNow() {
+  signOut();
+  accountOpen.value = false;
+  session.value = null;
+  resume.value = null;
+  live.value = false;
+  location.hash = 'auth';
+}
+
 function pickServer(id: string) {
   activeServer.value = id;
   const first = (live.value ? liveChannels.value[id] ?? [] : mockChannels).find((c) => c.kind === 'text');
@@ -329,6 +340,7 @@ watch([activeServer, activeChannel], () => {
       :live="live"
       @select="pickChannel"
       @servers="serversOpen = true"
+      @account="accountOpen = true"
     />
     <main v-if="channel" class="chat">
       <ChatHeader
@@ -346,6 +358,14 @@ watch([activeServer, activeChannel], () => {
       <p>{{ loading ? 'Loading…' : 'No channels, or none visible to this session.' }}</p>
     </main>
     <MemberList v-if="membersOpen" />
+    <AccountSheet
+      v-if="accountOpen && session"
+      :name="me.name"
+      :instance="session.instance"
+      :role="me.role"
+      @close="accountOpen = false"
+      @signout="signOutNow"
+    />
     <ServerSheet
       v-if="serversOpen"
       :servers="servers"
@@ -399,6 +419,5 @@ watch([activeServer, activeChannel], () => {
   .app.mobile :deep(.rooms) { display: none; }
   .app :deep(.chat) { display: none; }
   .app.mobile :deep(.chat) { display: flex; }
-  .app :deep(.me) { display: none; }
 }
 </style>

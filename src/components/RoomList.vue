@@ -10,7 +10,7 @@ const props = defineProps<{
   me?: { name: string; role: 'admin' | 'mod' | null };
   live?: boolean;
 }>();
-const emit = defineEmits<{ (e: 'select', id: string): void; (e: 'servers'): void }>();
+const emit = defineEmits<{ (e: 'select', id: string): void; (e: 'servers'): void; (e: 'account'): void }>();
 
 const groups = computed(() => {
   const out: { title: string; items: Channel[] }[] = [];
@@ -56,14 +56,14 @@ const groups = computed(() => {
       </section>
     </div>
 
-    <footer class="me">
+    <button class="me" @click="emit('account')">
       <div class="avatar">{{ (me?.name ?? 'you').slice(0, 1).toUpperCase() }}</div>
       <div class="me-text">
         <span class="me-name">{{ me?.name ?? 'you' }}</span>
         <span class="me-status">{{ live ? 'instance session' : 'demo data' }}</span>
       </div>
       <Icon v-if="me?.role" name="shield" :size="15" />
-    </footer>
+    </button>
   </aside>
 </template>
 
