@@ -359,6 +359,18 @@ export async function fetchReactions(
   return out;
 }
 
+async function removeReaction(session: Session, messageId: string, userId: string, emoji: string): Promise<void> {
+  const query =
+    `message_id=eq.${encodeURIComponent(messageId)}` +
+    `&user_id=eq.${encodeURIComponent(userId)}` +
+    `&custom_emoji_content=eq.${encodeURIComponent(emoji)}`;
+  const res = await fetch(`${session.supabaseUrl}/rest/v1/reactions?${query}`, {
+    method: 'DELETE',
+    headers: { apikey: session.anonKey, Authorization: `Bearer ${session.accessToken}` },
+  });
+  if (!res.ok) throw new Error(`reaction: ${res.status}`);
+}
+
 /** Adds the reaction if it is not there yet, removes it otherwise. */
 export async function toggleReaction(
   session: Session,
@@ -369,15 +381,7 @@ export async function toggleReaction(
   remove: boolean
 ): Promise<void> {
   if (remove) {
-    const query =
-      `message_id=eq.${encodeURIComponent(messageId)}` +
-      `&user_id=eq.${encodeURIComponent(userId)}` +
-      `&custom_emoji_content=eq.${encodeURIComponent(emoji)}`;
-    const res = await fetch(`${session.supabaseUrl}/rest/v1/reactions?${query}`, {
-      method: 'DELETE',
-      headers: { apikey: session.anonKey, Authorization: `Bearer ${session.accessToken}` },
-    });
-    if (!res.ok) throw new Error(`reaction: ${res.status}`);
+    await removeReaction(session, messageId, userId, emoji);
     return;
   }
   const res = await fetch(`${session.supabaseUrl}/rest/v1/reactions`, {
@@ -390,9 +394,14 @@ export async function toggleReaction(
     },
     body: JSON.stringify({ message_id: messageId, channel_id: channelId, user_id: userId, custom_emoji_content: emoji }),
   });
-  // 409 here is reactions_message_user_emoji_key: the reaction is already there, which is
-  // exactly what was asked for. A stale chip must not produce a red banner.
-  if (!res.ok && res.status !== 409) {
+  // 409 is reactions_message_user_emoji_key: the reaction was already there even though the
+  // chip said otherwise (it was set from another device). The tap means "toggle", so the
+  // second half of the toggle is to take it away.
+  if (res.status === 409) {
+    await removeReaction(session, messageId, userId, emoji);
+    return;
+  }
+  if (!res.ok) {
     const body = await res.text().catch(() => '');
     throw new Error(`reaction: ${res.status} ${body.slice(0, 120)}`);
   }
