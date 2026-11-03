@@ -154,7 +154,25 @@ async function boot() {
   }
 }
 
+// Firefox (Iceraven included) does not implement `interactive-widget=resizes-content`: the
+// keyboard shrinks the *visual* viewport and leaves the layout viewport alone, so the composer
+// ends up under the keys. The difference between the two is the keyboard height; publish it as
+// a variable and let the shell lift the composer by it. In Chromium the gap is already handled
+// by resizes-content, so the variable stays 0 and nothing moves twice.
+function trackKeyboardInset() {
+  const vv = window.visualViewport;
+  if (!vv) return;
+  const apply = () => {
+    const covered = Math.max(0, Math.round(window.innerHeight - vv.height - vv.offsetTop));
+    document.documentElement.style.setProperty('--kb-inset', `${covered}px`);
+  };
+  vv.addEventListener('resize', apply);
+  vv.addEventListener('scroll', apply);
+  apply();
+}
+
 onMounted(() => {
+  trackKeyboardInset();
   boot();
   // Served by an instance (Timbre as its web frontend) — resolve it from the page's own
   // origin instead of asking for an address. A stored session, ?demo=1 and the Tauri shell
@@ -286,6 +304,9 @@ watch([activeServer, activeChannel], () => {
 
 <style scoped>
 .app {
+  /* `--kb-inset` is the slice the keyboard covers in browsers that do not resize the layout
+     viewport (Firefox); everywhere else it is 0. */
+  padding-bottom: var(--kb-inset, 0px);
   /* Pinned to the viewport rather than sized with 100%: on a phone the layout viewport is not
      the same thing as the visible area (URL bar, keyboard), and sizing by height left a strip
      of empty background under the composer. Fixed to inset 0 always ends where the visible
