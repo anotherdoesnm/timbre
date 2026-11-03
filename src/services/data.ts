@@ -99,7 +99,20 @@ export function renderContent(content: unknown): string {
   return '';
 }
 
-function toAuthor(row: Row): Author {
+/**
+ * Avatars are stored as `/default_avatar.webp` or `/storage/...` — relative to the *instance*.
+ * In a browser that resolves against the page; inside the shell the page is
+ * `tauri.localhost`, so the same path pointed at a host that serves no such file. That is why
+ * the APK showed torn avatars while the web build was fine, with the same session.
+ */
+function absoluteUrl(url: unknown, origin?: string): string | undefined {
+  if (typeof url !== 'string' || !url) return undefined;
+  if (/^https?:\/\//i.test(url)) return url;
+  if (!url.startsWith('/') || !origin) return undefined;
+  return `https://${origin}${url}`;
+}
+
+function toAuthor(row: Row, origin?: string): Author {
   const name = String(row.display_name || row.username || 'unknown');
   return {
     id: typeof row.id === 'string' ? row.id : undefined,
@@ -107,7 +120,7 @@ function toAuthor(row: Row): Author {
     initial: name.slice(0, 1).toUpperCase(),
     color: typeof row.color === 'string' && row.color ? row.color : colorFor(name),
     role: row.is_admin ? 'admin' : row.is_moderator ? 'mod' : null,
-    avatarUrl: typeof row.avatar_url === 'string' && row.avatar_url ? row.avatar_url : undefined,
+    avatarUrl: absoluteUrl(row.avatar_url, origin),
   };
 }
 
@@ -416,7 +429,7 @@ export async function fetchMessages(
     const parent = parents.get(id);
     if (!parent) return { id, author: 'unknown', text: '(message not available)' };
     const parts = renderContentParts(parent.content);
-    const author = toAuthor(byId.get(String(parent.user_id)) ?? { username: 'unknown' });
+    const author = toAuthor(byId.get(String(parent.user_id)) ?? { username: 'unknown' }, session.instance);
     return { id, author: author.name, text: parts.text.slice(0, 160) };
   };
 
@@ -427,7 +440,7 @@ export async function fetchMessages(
   let prevTime = 0;
   const messages: Message[] = visible.map((m) => {
     const system = m.is_system === true;
-    const author = toAuthor(byId.get(String(m.user_id)) ?? { username: system ? 'system' : 'unknown' });
+    const author = toAuthor(byId.get(String(m.user_id)) ?? { username: system ? 'system' : 'unknown' }, session.instance);
     const at = new Date(String(m.created_at));
     const ms = at.getTime();
     const grouped = author.name === prevAuthor && ms - prevTime < 5 * 60 * 1000;
