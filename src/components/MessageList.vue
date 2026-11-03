@@ -163,6 +163,7 @@ watch(
               :src="m.author.avatarUrl"
               alt=""
               loading="lazy"
+              referrerpolicy="no-referrer"
               @error="brokenAvatars[m.author.name] = true"
             />
             <template v-else>{{ m.author.initial }}</template>
@@ -224,7 +225,7 @@ watch(
           <div v-if="m.images?.length" class="images">
             <template v-for="(src, i) in m.images" :key="i">
               <a v-if="!broken[src]" :href="src" target="_blank" rel="noreferrer noopener" class="shot">
-                <img :src="src" alt="" loading="lazy" @error="broken[src] = true" />
+                <img :src="src" alt="" loading="lazy" referrerpolicy="no-referrer" @error="broken[src] = true" />
               </a>
               <span v-else class="shot-missing">Attachment unavailable — the link has expired</span>
             </template>
