@@ -1,6 +1,7 @@
 export type Role = 'admin' | 'mod' | null;
 
 export interface Author {
+  id?: string;
   name: string;
   initial: string;
   color: string;
@@ -25,6 +26,8 @@ export interface Message {
   reactions?: { emoji: string; count: number; mine: boolean }[];
   /** Non-image attachments, with a signed link when one could be made. */
   files?: { name: string; url?: string }[];
+  /** Set when the message was edited after sending. */
+  edited?: boolean;
 }
 
 export interface Channel {

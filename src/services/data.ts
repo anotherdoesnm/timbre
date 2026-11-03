@@ -102,6 +102,7 @@ export function renderContent(content: unknown): string {
 function toAuthor(row: Row): Author {
   const name = String(row.display_name || row.username || 'unknown');
   return {
+    id: typeof row.id === 'string' ? row.id : undefined,
     name,
     initial: name.slice(0, 1).toUpperCase(),
     color: typeof row.color === 'string' && row.color ? row.color : colorFor(name),
@@ -220,6 +221,45 @@ export async function sendMessage(
   }
 }
 
+/**
+ * Editing rewrites the content parts and nothing else; the instance stamps `updated_at`
+ * through its own trigger, and the audit trigger records the old text.
+ */
+export async function editMessage(session: Session, messageId: string, text: string): Promise<void> {
+  const res = await fetch(`${session.supabaseUrl}/rest/v1/messages?id=eq.${encodeURIComponent(messageId)}`, {
+    method: 'PATCH',
+    headers: {
+      apikey: session.anonKey,
+      Authorization: `Bearer ${session.accessToken}`,
+      'Content-Type': 'application/json',
+      Prefer: 'return=minimal',
+    },
+    body: JSON.stringify({ content: [{ type: 'text', text }] }),
+  });
+  if (!res.ok) {
+    const body = await res.text().catch(() => '');
+    throw new Error(`edit: ${res.status} ${body.slice(0, 160)}`);
+  }
+}
+
+/** Deleting is soft: `is_deleted` hides the message and keeps the audit trail intact. */
+export async function deleteMessage(session: Session, messageId: string): Promise<void> {
+  const res = await fetch(`${session.supabaseUrl}/rest/v1/messages?id=eq.${encodeURIComponent(messageId)}`, {
+    method: 'PATCH',
+    headers: {
+      apikey: session.anonKey,
+      Authorization: `Bearer ${session.accessToken}`,
+      'Content-Type': 'application/json',
+      Prefer: 'return=minimal',
+    },
+    body: JSON.stringify({ is_deleted: true }),
+  });
+  if (!res.ok) {
+    const body = await res.text().catch(() => '');
+    throw new Error(`delete: ${res.status} ${body.slice(0, 160)}`);
+  }
+}
+
 export interface UploadedFile {
   path: string;
   name: string;
@@ -310,7 +350,7 @@ export async function fetchMessages(
       '&is_deleted=eq.false' +
       `&order=created_at.desc&limit=${limit}` +
       (opts.before ? `&created_at=lt.${encodeURIComponent(opts.before)}` : '') +
-      '&select=id,created_at,content,encrypted,user_id,is_system,metadata,reply_to'
+      '&select=id,created_at,updated_at,content,encrypted,user_id,is_system,metadata,reply_to'
   );
   rows.reverse();
 
@@ -402,6 +442,10 @@ export async function fetchMessages(
       time: at.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }),
       text: system ? `${byId.get(String(subjectOf(m)))?.display_name ?? byId.get(String(subjectOf(m)))?.username ?? ''} ${parts.text}`.trim() : parts.text,
       images: parts.images,
+      edited:
+        typeof m.updated_at === 'string' &&
+        typeof m.created_at === 'string' &&
+        new Date(m.updated_at).getTime() - new Date(m.created_at).getTime() > 1000,
       system,
       grouped: system ? false : grouped,
       replyTo: quoteOf(m),
