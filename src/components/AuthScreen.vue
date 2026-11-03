@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue';
+import { computed, ref, watch } from 'vue';
 import Icon from './Icon.vue';
 import { discoverInstance, refreshProviders, type InstanceInfo } from '../services/discover';
 import { lastSignIn, navigateToSignIn, signInWithPassword } from '../services/auth';
 import { adoptSession, describeToken, parseSessionBlob } from '../services/sessionImport';
 
+const props = withDefaults(defineProps<{ autoInstance?: InstanceInfo | null }>(), { autoInstance: null });
 const emit = defineEmits<{ (e: 'authenticated'): void }>();
 
 const demo = new URLSearchParams(location.search).get('demo') === '1';
@@ -18,12 +19,33 @@ const loading = ref(false);
 const error = ref('');
 const instance = ref<InstanceInfo | null>(null);
 const showPassword = ref(false);
+// The instance this build is served from; the address step is skipped for it.
+const auto = ref(false);
 const retrying = ref(false);
 const showImport = ref(false);
 const blob = ref('');
 const importError = ref('');
 const pwError = ref('');
 const pwLoading = ref(false);
+
+function adopt(inst: InstanceInfo) {
+  instance.value = inst;
+  host.value = inst.origin;
+  auto.value = inst.selfHosted === true;
+  // No providers means the only way in is a password: do not make the user press a button
+  // that only reveals a form.
+  if (!inst.providers.length) showPassword.value = true;
+}
+
+// App.vue resolves the instance this page is served from before rendering this screen; it
+// arrives already resolved, and the user never sees an empty address field.
+watch(
+  () => props.autoInstance,
+  (inst) => {
+    if (inst && !instance.value && !host.value) adopt(inst);
+  },
+  { immediate: true }
+);
 
 function importSession() {
   const inst = instance.value;
@@ -109,6 +131,8 @@ async function startProvider(id: string) {
 function reset() {
   instance.value = null;
   showPassword.value = false;
+  auto.value = false;
+  host.value = '';
   error.value = '';
 }
 </script>
@@ -121,7 +145,11 @@ function reset() {
       </div>
 
       <h1>Timbre</h1>
-      <p class="sub">Sign in to Harmony. Enter an instance address — Timbre finds its API and sign-in methods on its own.</p>
+      <p v-if="auto" class="sub">
+        This build is served by the instance below, so there is no address to type.
+        <button class="inline-link" @click="reset">Use another one</button>
+      </p>
+      <p v-else class="sub">Sign in to Harmony. Enter an instance address — Timbre finds its API and sign-in methods on its own.</p>
 
       <form v-if="!instance" @submit.prevent="submit">
         <label class="label" for="host">Instance</label>
@@ -189,7 +217,7 @@ function reset() {
         </form>
         <button v-else class="text-btn" @click="showPassword = true">Sign in with password</button>
 
-        <button class="text-btn muted" @click="reset">Another instance</button>
+        <button v-if="!auto" class="text-btn muted" @click="reset">Another instance</button>
 
         <template v-if="showImport">
           <p class="hint">
@@ -248,6 +276,19 @@ function reset() {
 }
 h1 { margin: 0 0 var(--sp-100); font-size: 21px; letter-spacing: -0.01em; }
 .sub { margin: 0 0 var(--sp-500); color: var(--text-tertiary); font-size: var(--fs-sm); line-height: 1.5; }
+
+/* Sits inside a sentence, so it must not break the line rhythm or look like a button. */
+.inline-link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--primary-main);
+  font: inherit;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.inline-link:hover { color: var(--primary-hover); }
 
 .label {
   display: block;
