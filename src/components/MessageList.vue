@@ -2,12 +2,25 @@
 import { nextTick, ref, watch } from 'vue';
 import Icon from './Icon.vue';
 import type { Channel, Message } from '../data/mock';
+import { parseSegments, safeHref, type Segment } from '../services/markdown';
 
 const props = defineProps<{ channel: Channel; messages: Message[]; live?: boolean }>();
 const scroller = ref<HTMLElement | null>(null);
 // On a phone there is no hover: the toolbar would sit on every message forever. A tap
 // selects one message and shows its toolbar.
 const selected = ref<string | null>(null);
+// Parsing is cheap but happens on every scroll-driven re-render; one entry per message id is
+// enough and keeps a long channel from re-tokenising itself constantly.
+const segmentCache = new Map<string, Segment[]>();
+function segments(m: Message): Segment[] {
+  const hit = segmentCache.get(m.id);
+  if (hit) return hit;
+  const parsed = parseSegments(m.text);
+  segmentCache.set(m.id, parsed);
+  return parsed;
+}
+// A signed attachment URL can be expired or forbidden; a broken image icon tells nobody why.
+const broken = ref<Record<string, true>>({});
 // Which one is shown is decided in CSS by the pointer, not by this file: on a phone only the
 // tapped message carries a toolbar, on a mouse the hovered one.
 
@@ -61,9 +74,29 @@ watch(
             <span v-if="m.author.role" class="role" :class="m.author.role">{{ m.author.role === 'admin' ? 'admin' : 'mod' }}</span>
             <span class="time">{{ m.time }}</span>
           </header>
-          <p v-if="m.text" class="text">{{ m.text }}</p>
+          <p v-if="m.text" class="text">
+            <template v-for="(seg, i) in segments(m)" :key="i">
+              <code v-if="seg.kind === 'code'">{{ seg.text }}</code>
+              <strong v-else-if="seg.kind === 'bold'">{{ seg.text }}</strong>
+              <em v-else-if="seg.kind === 'italic'">{{ seg.text }}</em>
+              <span v-else-if="seg.kind === 'mention'" class="mention">{{ seg.text }}</span>
+              <a
+                v-else-if="seg.kind === 'link' && safeHref(seg.href)"
+                :href="safeHref(seg.href) ?? undefined"
+                target="_blank"
+                rel="noreferrer noopener"
+                >{{ seg.text }}</a
+              >
+              <template v-else>{{ seg.text }}</template>
+            </template>
+          </p>
           <div v-if="m.images?.length" class="images">
-            <img v-for="(src, i) in m.images" :key="i" :src="src" alt="" loading="lazy" />
+            <template v-for="(src, i) in m.images" :key="i">
+              <a v-if="!broken[src]" :href="src" target="_blank" rel="noreferrer noopener" class="shot">
+                <img :src="src" alt="" loading="lazy" @error="broken[src] = true" />
+              </a>
+              <span v-else class="shot-missing">Attachment unavailable — the link has expired</span>
+            </template>
           </div>
         </div>
         <div class="tools">
@@ -132,7 +165,31 @@ watch(
 .role.mod { background: var(--primary-container); color: var(--primary-on-container); }
 .role.admin { background: var(--critical-container); color: #f5d6d6; }
 .time { font-size: var(--fs-xs); color: var(--text-tertiary); }
-.text { margin: 0; color: var(--text); line-height: 1.5; overflow-wrap: anywhere; }
+.text { margin: 0; color: var(--text); line-height: 1.5; overflow-wrap: anywhere; white-space: pre-wrap; }
+.text a { color: var(--primary-main); text-decoration: underline; text-underline-offset: 2px; }
+.text a:hover { text-decoration-thickness: 2px; }
+.text code {
+  padding: 1px 5px;
+  border-radius: var(--radius-xs);
+  background: var(--sfv-active);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.92em;
+}
+.text .mention {
+  padding: 0 3px;
+  border-radius: var(--radius-xs);
+  background: color-mix(in srgb, var(--primary-container) 55%, transparent);
+  color: var(--primary-on-container);
+}
+.shot { display: block; }
+.shot-missing {
+  display: inline-block;
+  padding: var(--sp-200) var(--sp-300);
+  border: 1px dashed var(--sfv-line);
+  border-radius: var(--radius-md);
+  color: var(--text-tertiary);
+  font-size: var(--fs-sm);
+}
 .images { display: flex; flex-wrap: wrap; gap: var(--sp-200); margin-top: var(--sp-200); }
 .images img {
   max-width: min(320px, 100%);
