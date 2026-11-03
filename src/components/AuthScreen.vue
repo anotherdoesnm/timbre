@@ -4,6 +4,7 @@ import Icon from './Icon.vue';
 import { discoverInstance, refreshProviders, type InstanceInfo } from '../services/discover';
 import { lastSignIn, navigateToSignIn, signInWithPassword } from '../services/auth';
 import { adoptSession, describeToken, parseSessionBlob } from '../services/sessionImport';
+import { signUp } from '../services/onboarding';
 
 const props = withDefaults(defineProps<{ autoInstance?: InstanceInfo | null; probing?: boolean }>(), {
   autoInstance: null,
@@ -30,6 +31,12 @@ const blob = ref('');
 const importError = ref('');
 const pwError = ref('');
 const pwLoading = ref(false);
+// Password sign-in and account creation share the card; the link under the form flips it.
+const mode = ref<'signin' | 'signup'>('signin');
+const newUsername = ref('');
+const signupError = ref('');
+const signupNote = ref('');
+const signupLoading = ref(false);
 
 function adopt(inst: InstanceInfo, opts: { auto?: boolean } = {}) {
   instance.value = inst;
@@ -114,6 +121,25 @@ async function usePassword() {
   }
 }
 
+async function createAccount() {
+  const inst = instance.value;
+  if (!inst || signupLoading.value) return;
+  signupError.value = '';
+  signupNote.value = '';
+  signupLoading.value = true;
+  try {
+    const result = await signUp(inst, email.value.trim(), password.value, newUsername.value);
+    signupNote.value = result.joined
+      ? `Account created, joined ${result.joined}`
+      : result.warnings[0] ?? 'Account created';
+    emit('authenticated');
+  } catch (e) {
+    signupError.value = e instanceof Error ? e.message : String(e);
+  } finally {
+    signupLoading.value = false;
+  }
+}
+
 async function startProvider(id: string) {
   const inst = instance.value;
   if (!inst) return;
@@ -134,6 +160,8 @@ async function startProvider(id: string) {
 function reset() {
   instance.value = null;
   showPassword.value = false;
+  mode.value = 'signin';
+  signupError.value = '';
   auto.value = false;
   host.value = '';
   error.value = '';
@@ -219,14 +247,35 @@ function reset() {
           <div class="divider"><span>or</span></div>
         </template>
 
-        <form v-if="showPassword" class="pw" @submit.prevent="usePassword">
-          <div class="field"><input v-model="email" placeholder="Email" type="email" autocomplete="username" /></div>
-          <div class="field"><input v-model="password" placeholder="Password" type="password" autocomplete="current-password" /></div>
-          <button class="primary" type="submit" :disabled="pwLoading || !email || !password">
-            {{ pwLoading ? 'Signing in…' : 'Sign in' }}
-          </button>
-          <p v-if="pwError" class="warn">{{ pwError }}</p>
-        </form>
+        <template v-if="showPassword">
+          <form v-if="mode === 'signin'" class="pw" @submit.prevent="usePassword">
+            <div class="field"><input v-model="email" placeholder="Email" type="email" autocomplete="username" /></div>
+            <div class="field"><input v-model="password" placeholder="Password" type="password" autocomplete="current-password" /></div>
+            <button class="primary" type="submit" :disabled="pwLoading || !email || !password">
+              {{ pwLoading ? 'Signing in…' : 'Sign in' }}
+            </button>
+            <p v-if="pwError" class="warn">{{ pwError }}</p>
+            <button class="text-btn" type="button" @click="mode = 'signup'; pwError = ''">
+              Create an account
+            </button>
+          </form>
+
+          <form v-else class="pw" @submit.prevent="createAccount">
+            <p class="hint">A new account is created on {{ instance.origin }}: pick a username, it is what
+              people here will see.</p>
+            <div class="field"><input v-model="email" placeholder="Email" type="email" autocomplete="email" /></div>
+            <div class="field"><input v-model="newUsername" placeholder="Username" autocomplete="nickname" /></div>
+            <div class="field"><input v-model="password" placeholder="Password" type="password" autocomplete="new-password" /></div>
+            <button class="primary" type="submit" :disabled="signupLoading || !email || !password || !newUsername">
+              {{ signupLoading ? 'Creating…' : 'Create account' }}
+            </button>
+            <p v-if="signupError" class="warn">{{ signupError }}</p>
+            <p v-if="signupNote" class="hint">{{ signupNote }}</p>
+            <button class="text-btn" type="button" @click="mode = 'signin'; signupError = ''">
+              I already have an account
+            </button>
+          </form>
+        </template>
         <button v-else class="text-btn" @click="showPassword = true">Sign in with password</button>
 
         <button v-if="!auto" class="text-btn muted" @click="reset">Another instance</button>

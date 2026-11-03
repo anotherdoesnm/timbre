@@ -244,6 +244,16 @@ export async function signInWithPassword(instance: InstanceInfo, email: string, 
   return session;
 }
 
+/** Stores a session produced somewhere else (sign-up), keyed like every other session. */
+export function persistSession(session: Session, email?: string): void {
+  try {
+    localStorage.setItem(SESSION_PREFIX + session.instance, JSON.stringify(session));
+    rememberLast(session.instance, email ?? (session.user?.email as string | undefined) ?? '');
+  } catch {
+    /* storage may be unavailable */
+  }
+}
+
 export function storedSession(instance?: string): Session | null {
   const key = instance ? SESSION_PREFIX + instance : null;
   if (key) {
