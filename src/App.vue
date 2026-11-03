@@ -36,7 +36,7 @@ const session = ref<Session | null>(storedSession());
 const live = ref(false);
 const loading = ref(false);
 const loadError = ref('');
-const me = ref<{ name: string; role: 'admin' | 'mod' | null }>({ name: 'вы', role: null });
+const me = ref<{ name: string; role: 'admin' | 'mod' | null }>({ name: 'you', role: null });
 
 const liveServers = ref<typeof mockServers>([]);
 const liveChannels = ref<Record<string, typeof mockChannels>>({});
@@ -112,7 +112,7 @@ async function boot() {
     myProfileId.value = profile ? String(profile.id) : null;
     if (profile) {
       me.value = {
-        name: String(profile.display_name || profile.username || 'вы'),
+        name: String(profile.display_name || profile.username || 'you'),
         role: profile.is_admin ? 'admin' : profile.is_moderator ? 'mod' : null,
       };
     }

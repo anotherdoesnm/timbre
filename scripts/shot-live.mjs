@@ -8,7 +8,7 @@ page.on('pageerror', (e) => errors.push(String(e)));
 
 await page.goto('http://127.0.0.1:5173/#auth', { waitUntil: 'networkidle' });
 await page.getByPlaceholder('har.mony.lol').fill('har.mony.lol');
-await page.getByRole('button', { name: 'Продолжить' }).click();
+await page.getByRole('button', { name: 'Continue' }).click();
 await page.getByText('GitHub').waitFor({ timeout: 15000 });
 await page.waitForTimeout(300);
 await page.screenshot({ path: 'shots/auth-live.png' });

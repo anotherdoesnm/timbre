@@ -26,7 +26,7 @@ await shot('shots/auth-idle.png');
 // 4. Auth, resolved instance (canned reply, marked "демо").
 await page.goto(`${base}?demo=1#auth`, { waitUntil: 'networkidle' });
 await page.getByPlaceholder('har.mony.lol').fill('har.mony.lol');
-await page.getByRole('button', { name: 'Продолжить' }).click();
+await page.getByRole('button', { name: 'Continue' }).click();
 await page.getByText('GitHub').waitFor({ timeout: 5000 });
 await page.waitForTimeout(200);
 await shot('shots/auth-instance.png');
@@ -34,14 +34,14 @@ await shot('shots/auth-instance.png');
 // 5. Auth, failure state — a real request that the instance refuses to a foreign origin.
 await page.goto(`${base}#auth`, { waitUntil: 'networkidle' });
 await page.getByPlaceholder('har.mony.lol').fill('har.mony.lol');
-await page.getByRole('button', { name: 'Продолжить' }).click();
+await page.getByRole('button', { name: 'Continue' }).click();
 await page.locator('.error').waitFor({ timeout: 8000 });
 await page.waitForTimeout(150);
 await shot('shots/auth-error.png');
 
 // 6. OAuth callback, success (demo).
 await page.goto(`${base}?demo=1#auth/callback`, { waitUntil: 'networkidle' });
-await page.getByText('Вход выполнен').waitFor({ timeout: 5000 });
+await page.getByText('Signed in').waitFor({ timeout: 5000 });
 await page.waitForTimeout(150);
 await shot('shots/auth-callback.png');
 

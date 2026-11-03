@@ -119,7 +119,7 @@ async function fetchProviders(
   } catch (e) {
     const err = e as { name?: string; status?: number };
     const reason =
-      err.name === 'AbortError' ? 'таймаут' : typeof err.status === 'number' ? `HTTP ${err.status}` : 'сеть';
+      err.name === 'AbortError' ? 'timeout' : typeof err.status === 'number' ? `HTTP ${err.status}` : 'network';
     return { providers: [], error: reason };
   } finally {
     clearTimeout(timer);
@@ -185,7 +185,7 @@ export async function discoverInstance(rawHost: string, opts: { demo?: boolean }
         error: {
           kind: 'http',
           status: err.status,
-          message: `Не удалось подключиться к инстансу: ${err.status} ${err.status === 403 ? 'Forbidden' : err.status === 404 ? 'Not Found' : 'Error'}`,
+          message: `Could not reach the instance: ${err.status} ${err.status === 403 ? 'Forbidden' : err.status === 404 ? 'Not Found' : 'Error'}`,
         },
       };
     }
@@ -194,7 +194,7 @@ export async function discoverInstance(rawHost: string, opts: { demo?: boolean }
       ok: false,
       error: {
         kind: 'network',
-        message: `Не удалось подключиться к инстансу: ${host}`,
+        message: `Could not reach the instance: ${host}`,
       },
     };
   } finally {
