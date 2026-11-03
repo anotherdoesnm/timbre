@@ -576,6 +576,43 @@ export async function toggleReaction(
   }
 }
 
+export interface SearchHit {
+  messageId: string;
+  channelId: string;
+  text: string;
+  createdAt: string;
+  fuzzy: boolean;
+}
+
+/**
+ * Message search on the instance (`search_messages`): full text with a fuzzy fallback, scoped
+ * by channel or by server. It returns ids and text, not authors — the caller maps what it
+ * already knows.
+ */
+export async function searchMessages(
+  session: Session,
+  query: string,
+  opts: { channelId?: string; serverId?: string; limit?: number } = {}
+): Promise<SearchHit[]> {
+  const term = query.trim();
+  if (term.length < 2) return [];
+  const row = await rpc<
+    { message_id: string; content_text: string; channel_id: string; created_at: string; fuzzy: boolean | null }[]
+  >(session, 'search_messages', {
+    p_query: term,
+    p_channel_id: opts.channelId ?? null,
+    p_server_id: opts.serverId ?? null,
+    p_limit: opts.limit ?? 30,
+  });
+  return (row ?? []).map((r) => ({
+    messageId: r.message_id,
+    channelId: r.channel_id,
+    text: r.content_text ?? '',
+    createdAt: r.created_at,
+    fuzzy: r.fuzzy === true,
+  }));
+}
+
 export interface UnreadState {
   channelId: string;
   unread: number;

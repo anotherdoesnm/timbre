@@ -3,7 +3,7 @@ import Icon from './Icon.vue';
 import type { Channel } from '../data/mock';
 
 defineProps<{ channel: Channel; membersOpen: boolean; live?: boolean }>();
-const emit = defineEmits<{ (e: 'toggle-members'): void; (e: 'back'): void }>();
+const emit = defineEmits<{ (e: 'toggle-members'): void; (e: 'back'): void; (e: 'search'): void }>();
 </script>
 
 <template>
@@ -17,7 +17,7 @@ const emit = defineEmits<{ (e: 'toggle-members'): void; (e: 'back'): void }>();
       <span class="topic">Timbre — a client for Harmony</span>
     </div>
     <div class="right">
-      <button class="action" title="Search"><Icon name="search" :size="18" /></button>
+      <button class="action" title="Search" @click="emit('search')"><Icon name="search" :size="18" /></button>
       <button class="action" title="Notifications"><Icon name="bell" :size="18" /></button>
       <button class="action" :class="{ on: membersOpen }" title="Members" @click="emit('toggle-members')">
         <Icon name="users" :size="18" />
