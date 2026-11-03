@@ -8,6 +8,7 @@ import Composer from './components/Composer.vue';
 import MemberList from './components/MemberList.vue';
 import ServerSheet from './components/ServerSheet.vue';
 import AccountSheet from './components/AccountSheet.vue';
+import SearchPanel from './components/SearchPanel.vue';
 import AuthScreen from './components/AuthScreen.vue';
 import AuthCallback from './components/AuthCallback.vue';
 import { channels as mockChannels, messages as mockMessages, servers as mockServers } from './data/mock';
@@ -22,9 +23,11 @@ import {
   editMessage,
   fetchUnreadCounts,
   markChannelRead,
+  searchMessages,
   toggleReaction,
   sendMessage,
   uploadAttachment,
+  type SearchHit,
   type UnreadState,
   type UploadedFile,
 } from './services/data';
@@ -98,6 +101,56 @@ const uploading = ref(false);
 const online = ref(typeof navigator === 'undefined' ? true : navigator.onLine);
 const failedSend = ref<{ body: string; files: UploadedFile[]; replyTo: string | null } | null>(null);
 let lastLoad = Date.now();
+// Search runs on the instance (`search_messages`), scoped to this server.
+const searchOpen = ref(false);
+const searchResults = ref<SearchHit[]>([]);
+const searching = ref(false);
+const searchError = ref('');
+const focusId = ref<string | null>(null);
+
+async function runSearch(query: string): Promise<void> {
+  const s = session.value;
+  if (!s) return;
+  searchError.value = '';
+  if (query.trim().length < 2) {
+    searchResults.value = [];
+    return;
+  }
+  searching.value = true;
+  try {
+    searchResults.value = await searchMessages(s, query, { serverId: activeServer.value });
+  } catch (e) {
+    searchError.value = e instanceof Error ? e.message : String(e);
+  } finally {
+    searching.value = false;
+  }
+}
+
+async function openHit(hit: SearchHit): Promise<void> {
+  searchOpen.value = false;
+  if (hit.channelId !== activeChannel.value) {
+    activeChannel.value = hit.channelId;
+    mobilePane.value = 'chat';
+    await openChannel(hit.channelId);
+  }
+  focusId.value = hit.messageId;
+}
+
+/**
+ * After a drop the socket may have missed messages, and the unread counters belong to the
+ * server — so both are re-read instead of guessed. That is the common case on a throttled or
+ * filtered connection, where the socket dies quietly and comes back later.
+ */
+async function catchUp(): Promise<void> {
+  const s = session.value;
+  if (!s || !live.value) return;
+  try {
+    unread.value = await fetchUnreadCounts(s);
+    if (activeChannel.value) await openChannel(activeChannel.value);
+  } catch {
+    /* still unreachable; the next resume tries again */
+  }
+}
 /** Message being edited in the composer. */
 const editing = ref<{ id: string; text: string } | null>(null);
 
@@ -133,7 +186,10 @@ function refreshConnectivity(): void {
   online.value = typeof navigator === 'undefined' ? true : navigator.onLine;
 }
 if (typeof window !== 'undefined') {
-  window.addEventListener('online', refreshConnectivity);
+  window.addEventListener('online', () => {
+    refreshConnectivity();
+    void catchUp();
+  });
   window.addEventListener('offline', refreshConnectivity);
 }
 
@@ -383,6 +439,8 @@ document.addEventListener('visibilitychange', () => {
     refreshSession(s).then((next) => (session.value = next)).catch(() => undefined);
   }
   refreshConnectivity();
+  // A tab that slept may have missed a lot: refresh the open channel and the counters.
+  void catchUp();
   // Signed attachment links expire after an hour; reloading the channel signs them again.
   if (Date.now() - lastLoad > 45 * 60 * 1000 && live.value && activeChannel.value) {
     openChannel(activeChannel.value).catch(() => undefined);
@@ -538,6 +596,7 @@ watch([activeServer, activeChannel], () => {
         :channel="channel"
         :members-open="membersOpen"
         :live="live"
+        @search="searchOpen = true"
         @toggle-members="membersOpen = !membersOpen"
         @back="mobilePane = 'rooms'"
       />
@@ -547,6 +606,7 @@ watch([activeServer, activeChannel], () => {
         :messages="channelMessages"
         :live="live"
         :unread-from-id="unreadAnchor"
+        :focus-id="focusId"
         :has-more="cursors[channel.id]?.hasMore ?? false"
         :loading-older="loadingOlder"
         @load-older="loadOlder(channel.id)"
@@ -576,6 +636,16 @@ watch([activeServer, activeChannel], () => {
       <p>{{ loading ? 'Loading…' : 'No channels, or none visible to this session.' }}</p>
     </main>
     <MemberList v-if="membersOpen" />
+    <SearchPanel
+      v-if="searchOpen"
+      :scope="server?.name ? 'in ' + server.name : 'this server'"
+      :results="searchResults"
+      :searching="searching"
+      :error="searchError"
+      @search="runSearch"
+      @select="openHit"
+      @close="searchOpen = false"
+    />
     <AccountSheet
       v-if="accountOpen && session"
       :name="me.name"

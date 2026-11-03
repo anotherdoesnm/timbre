@@ -11,6 +11,8 @@ const props = defineProps<{
   live?: boolean;
   /** First unread message: the view opens here instead of at the bottom. */
   unreadFromId?: string | null;
+  /** Message to jump to (search result). */
+  focusId?: string | null;
   hasMore?: boolean;
   loadingOlder?: boolean;
 }>();
@@ -75,6 +77,20 @@ watch(
   () => [props.channel.id, props.messages.length === 0 ? '' : props.channel.id],
   scrollToStart,
   { immediate: true }
+);
+
+// A search result scrolls to its message and flashes it.
+watch(
+  () => props.focusId,
+  async (id) => {
+    if (!id) return;
+    await nextTick();
+    const el = scroller.value?.querySelector<HTMLElement>(`[data-mid="${id}"]`);
+    if (!el || !scroller.value) return;
+    scroller.value.scrollTop = Math.max(0, el.offsetTop - scroller.value.offsetTop - 80);
+    el.classList.add('flash');
+    setTimeout(() => el.classList.remove('flash'), 1600);
+  }
 );
 
 // After a channel loads, the anchor may arrive one tick later; retry once it does.
@@ -318,6 +334,11 @@ watch(
 }
 .picker.menu button.danger { color: var(--critical); }
 .edited { color: var(--text-tertiary); font-size: var(--fs-xs); }
+.flash { animation: flash-bg 1.6s ease-out; }
+@keyframes flash-bg {
+  from { background: color-mix(in srgb, var(--primary-container) 65%, transparent); }
+  to { background: transparent; }
+}
 .picker {
   position: absolute;
   right: var(--sp-300);
