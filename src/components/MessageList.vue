@@ -13,7 +13,7 @@ const props = defineProps<{
   hasMore?: boolean;
   loadingOlder?: boolean;
 }>();
-const emit = defineEmits<{ (e: 'load-older'): void }>();
+const emit = defineEmits<{ (e: 'load-older'): void; (e: 'reply', m: Message): void }>();
 const scroller = ref<HTMLElement | null>(null);
 // On a phone there is no hover: the toolbar would sit on every message forever. A tap
 // selects one message and shows its toolbar.
@@ -119,6 +119,10 @@ watch(
           <span v-else class="time-hover">{{ m.time }}</span>
         </div>
         <div class="body">
+          <div v-if="m.replyTo" class="quote">
+            <span class="quote-author">{{ m.replyTo.author }}</span>
+            <span class="quote-text">{{ m.replyTo.text }}</span>
+          </div>
           <header v-if="!m.grouped && !m.system" class="meta">
             <span class="author">{{ m.author.name }}</span>
             <span v-if="m.author.role" class="role" :class="m.author.role">{{ m.author.role === 'admin' ? 'admin' : 'mod' }}</span>
@@ -150,7 +154,7 @@ watch(
           </div>
         </div>
         <div class="tools">
-          <button title="Reply"><Icon name="reply" :size="15" /></button>
+          <button title="Reply" @click.stop="emit('reply', m)"><Icon name="reply" :size="15" /></button>
           <button title="React"><Icon name="smile" :size="15" /></button>
           <button title="More"><Icon name="dots" :size="15" /></button>
         </div>
@@ -234,6 +238,19 @@ watch(
   background: color-mix(in srgb, var(--primary-container) 55%, transparent);
   color: var(--primary-on-container);
 }
+.quote {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-200);
+  margin: 0 0 2px;
+  padding-left: var(--sp-200);
+  border-left: 2px solid var(--sfv-line);
+  color: var(--text-tertiary);
+  font-size: var(--fs-sm);
+  min-width: 0;
+}
+.quote-author { color: var(--text-secondary); font-weight: 600; flex: none; }
+.quote-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .unread-divider {
   display: flex;
   align-items: center;

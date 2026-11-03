@@ -2,8 +2,13 @@
 import { ref } from 'vue';
 import Icon from './Icon.vue';
 
-const props = defineProps<{ disabled?: boolean; channelName: string; sending?: boolean }>();
-const emit = defineEmits<{ (e: 'send', text: string): void }>();
+const props = defineProps<{
+  disabled?: boolean;
+  channelName: string;
+  sending?: boolean;
+  replyTo?: { author: string; text: string } | null;
+}>();
+const emit = defineEmits<{ (e: 'send', text: string): void; (e: 'cancel-reply'): void }>();
 const text = ref('');
 
 function send() {
@@ -17,6 +22,14 @@ function send() {
 <template>
   <div class="wrap">
     <div class="box" :class="{ disabled }">
+      <div v-if="replyTo" class="reply-bar">
+        <Icon name="reply" :size="14" />
+        <span class="reply-who">{{ replyTo.author }}</span>
+        <span class="reply-text">{{ replyTo.text }}</span>
+        <button class="reply-close" title="Cancel reply" @click="emit('cancel-reply')">
+          <Icon name="close" :size="14" />
+        </button>
+      </div>
       <textarea
         v-model="text"
         :disabled="disabled"
@@ -70,6 +83,21 @@ textarea {
   padding: var(--sp-100) var(--sp-200);
 }
 textarea::placeholder { color: var(--text-tertiary); }
+.reply-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-200);
+  margin: var(--sp-100) var(--sp-200) 0;
+  padding: var(--sp-100) var(--sp-200);
+  border-left: 2px solid var(--primary-main);
+  border-radius: var(--radius-xs);
+  background: var(--sfv-active);
+  color: var(--text-tertiary);
+  font-size: var(--fs-sm);
+}
+.reply-who { color: var(--text); font-weight: 600; flex: none; }
+.reply-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.reply-close { margin-left: auto; width: 22px; height: 22px; color: var(--text-tertiary); }
 .bar { display: flex; align-items: center; justify-content: space-between; margin-top: var(--sp-100); }
 .left, .right { display: flex; align-items: center; gap: var(--sp-100); }
 button {

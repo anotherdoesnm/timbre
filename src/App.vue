@@ -82,6 +82,8 @@ const unread = ref<Record<string, UnreadState>>({});
 const unreadAnchor = ref<string | null>(null);
 const cursors = ref<Record<string, { oldest: string | null; hasMore: boolean }>>({});
 const loadingOlder = ref(false);
+/** The message being replied to; cleared on send or on cancel. */
+const replyTarget = ref<{ id: string; author: string; text: string } | null>(null);
 // Phone server switcher. The rail is desktop furniture: on a phone it costs a row of the
 // screen on every screen and scrolls sideways, which is what the strip did.
 const serversOpen = ref(false);
@@ -358,6 +360,7 @@ function pickServer(id: string) {
 function pickChannel(id: string) {
   activeChannel.value = id;
   mobilePane.value = 'chat';
+  replyTarget.value = null;
   unreadAnchor.value = null;
   const s = session.value;
   if (s && live.value && !liveMessages.value[id]) {
@@ -374,8 +377,10 @@ async function onSend(body: string) {
   if (!s || !ch || !myProfileId.value) return;
   sending.value = true;
   try {
-    await sendMessage(s, ch.id, myProfileId.value, body);
-    liveMessages.value[ch.id] = await fetchMessages(s, ch.id);
+    await sendMessage(s, ch.id, myProfileId.value, body, replyTarget.value?.id ?? null);
+    replyTarget.value = null;
+    const page = await fetchMessages(s, ch.id);
+    liveMessages.value[ch.id] = page.messages;
   } catch (e) {
     loadError.value = e instanceof Error ? e.message : String(e);
   } finally {
@@ -433,8 +438,16 @@ watch([activeServer, activeChannel], () => {
         :has-more="cursors[channel.id]?.hasMore ?? false"
         :loading-older="loadingOlder"
         @load-older="loadOlder(channel.id)"
+        @reply="(m) => (replyTarget = { id: m.id, author: m.author.name, text: m.text.slice(0, 120) })"
       />
-      <Composer :channel-name="channel.name" :disabled="!!channel.encrypted" :sending="sending" @send="onSend" />
+      <Composer
+        :channel-name="channel.name"
+        :disabled="!!channel.encrypted"
+        :sending="sending"
+        :reply-to="replyTarget"
+        @send="onSend"
+        @cancel-reply="replyTarget = null"
+      />
     </main>
     <main v-else class="chat empty">
       <p>{{ loading ? 'Loading…' : 'No channels, or none visible to this session.' }}</p>
