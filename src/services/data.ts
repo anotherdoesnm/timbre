@@ -99,20 +99,34 @@ export function renderContent(content: unknown): string {
   return '';
 }
 
+/** Where a relative path can point: the instance's own files, or its storage API. */
+type Origin = { instance: string; supabaseUrl: string };
+
 /**
- * Avatars are stored as `/default_avatar.webp` or `/storage/...` — relative to the *instance*.
- * In a browser that resolves against the page; inside the shell the page is
- * `tauri.localhost`, so the same path pointed at a host that serves no such file. That is why
- * the APK showed torn avatars while the web build was fine, with the same session.
+ * `profiles.avatar_url` has three shapes on a real instance, and each one resolves against a
+ * different host:
+ *
+ *   `https://holos.social/media/avatars/…jpg`  a federated user, already absolute
+ *   `/default_avatar.webp`                     a file on the instance itself
+ *   `f930af28-…/toothy.png`                    a bare object path in the `avatars` bucket
+ *
+ * The last shape has no leading slash, so the earlier check dropped it and those authors fell
+ * back to initials while their picture sat in storage one host away. Resolving the relative
+ * case against the page is what made the APK differ from the browser: inside the shell the
+ * page is `tauri.localhost`, which serves no such file.
  */
-function absoluteUrl(url: unknown, origin?: string): string | undefined {
+function avatarUrl(url: unknown, at: Origin): string | undefined {
   if (typeof url !== 'string' || !url) return undefined;
   if (/^https?:\/\//i.test(url)) return url;
-  if (!url.startsWith('/') || !origin) return undefined;
-  return `https://${origin}${url}`;
+  if (url.startsWith('/')) return `https://${at.instance}${url}`;
+  // Only something that looks like an object path with an image extension is treated as one,
+  // so a stray relative word cannot turn into a request against the storage API.
+  if (!/^[\w-]+\/[\w./-]+\.(png|jpe?g|webp|gif|avif)$/i.test(url)) return undefined;
+  const q = 'width=96&height=96&resize=cover&quality=80';
+  return `${at.supabaseUrl}/storage/v1/render/image/public/avatars/${url}?${q}`;
 }
 
-function toAuthor(row: Row, origin?: string): Author {
+function toAuthor(row: Row, at: Origin): Author {
   const name = String(row.display_name || row.username || 'unknown');
   return {
     id: typeof row.id === 'string' ? row.id : undefined,
@@ -120,7 +134,7 @@ function toAuthor(row: Row, origin?: string): Author {
     initial: name.slice(0, 1).toUpperCase(),
     color: typeof row.color === 'string' && row.color ? row.color : colorFor(name),
     role: row.is_admin ? 'admin' : row.is_moderator ? 'mod' : null,
-    avatarUrl: absoluteUrl(row.avatar_url, origin),
+    avatarUrl: avatarUrl(row.avatar_url, at),
   };
 }
 
@@ -429,7 +443,7 @@ export async function fetchMessages(
     const parent = parents.get(id);
     if (!parent) return { id, author: 'unknown', text: '(message not available)' };
     const parts = renderContentParts(parent.content);
-    const author = toAuthor(byId.get(String(parent.user_id)) ?? { username: 'unknown' }, session.instance);
+    const author = toAuthor(byId.get(String(parent.user_id)) ?? { username: 'unknown' }, session);
     return { id, author: author.name, text: parts.text.slice(0, 160) };
   };
 
@@ -440,7 +454,7 @@ export async function fetchMessages(
   let prevTime = 0;
   const messages: Message[] = visible.map((m) => {
     const system = m.is_system === true;
-    const author = toAuthor(byId.get(String(m.user_id)) ?? { username: system ? 'system' : 'unknown' }, session.instance);
+    const author = toAuthor(byId.get(String(m.user_id)) ?? { username: system ? 'system' : 'unknown' }, session);
     const at = new Date(String(m.created_at));
     const ms = at.getTime();
     const grouped = author.name === prevAuthor && ms - prevTime < 5 * 60 * 1000;
