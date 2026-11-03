@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue';
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import ServerRail from './components/ServerRail.vue';
 import RoomList from './components/RoomList.vue';
 import ChatHeader from './components/ChatHeader.vue';
@@ -10,9 +10,10 @@ import ServerSheet from './components/ServerSheet.vue';
 import AuthScreen from './components/AuthScreen.vue';
 import AuthCallback from './components/AuthCallback.vue';
 import { channels as mockChannels, messages as mockMessages, servers as mockServers } from './data/mock';
-import { refreshSession, sessionExpired, storedSession, type Session } from './services/auth';
+import { refreshSession, sessionAlive, sessionExpired, signOut, storedSession, type Session } from './services/auth';
 import { fetchChannels, fetchMe, fetchMessages, fetchServers, sendMessage } from './services/data';
 import { discoverHere, instanceHostFromLocation, type InstanceInfo } from './services/discover';
+import { subscribeChannelMessages } from './services/realtime';
 
 const hash = () => location.hash.replace('#', '');
 const initialSearch = new URLSearchParams(location.search.slice(1));
@@ -127,6 +128,15 @@ async function boot() {
   loadError.value = '';
   try {
     const profile = await fetchMe(s);
+    if (!profile && !(await sessionAlive(s))) {
+      // The account is gone (deleted by an admin, or the instance was reset): the token still
+      // parses and every query returns nothing, which used to render as an empty shell.
+      signOut();
+      session.value = null;
+      route.value = 'auth';
+      loading.value = false;
+      return;
+    }
     if (!profile) {
       // The auth user exists but the profile does not: this is a half-finished sign-up, not a
       // usable account. Finishing it happens on the auth screen, at the username step.
@@ -222,6 +232,27 @@ function enter() {
   mobilePane.value = 'rooms';
   boot();
 }
+
+// One socket per open channel. Refetching on the event keeps rendering, deletes and edits in
+// one code path — the cost is a query per incoming message, which is fine at this size.
+let liveSub: { close(): void } | null = null;
+
+function restartLive(): void {
+  liveSub?.close();
+  liveSub = null;
+  const s = session.value;
+  const channelId = activeChannel.value;
+  if (!s || !live.value || !channelId) return;
+  liveSub = subscribeChannelMessages(s, channelId, (event) => {
+    if (!event.record || event.record.channel_id !== channelId) return;
+    fetchMessages(s, channelId)
+      .then((list) => (liveMessages.value[channelId] = list))
+      .catch(() => undefined);
+  });
+}
+
+watch([session, live, activeChannel], restartLive, { immediate: true });
+onUnmounted(() => liveSub?.close());
 
 function pickServer(id: string) {
   activeServer.value = id;

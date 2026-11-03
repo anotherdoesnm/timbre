@@ -244,6 +244,26 @@ export async function signInWithPassword(instance: InstanceInfo, email: string, 
   return session;
 }
 
+/**
+ * Does the instance still know this token?
+ *
+ * A session can outlive its account: delete the user and the stored JWT is still signed and
+ * still parses, while every table answers with an empty array. That looked like a blank client
+ * rather than a signed-out one until this check existed.
+ */
+export async function sessionAlive(session: Session): Promise<boolean> {
+  try {
+    const res = await fetch(`${session.supabaseUrl}/auth/v1/user`, {
+      headers: { apikey: session.anonKey, Authorization: `Bearer ${session.accessToken}` },
+      cache: 'no-store',
+    });
+    return res.ok;
+  } catch {
+    // A network failure is not proof of a dead account: keep the session and try again later.
+    return true;
+  }
+}
+
 /** Stores a session produced somewhere else (sign-up), keyed like every other session. */
 export function persistSession(session: Session, email?: string): void {
   try {
