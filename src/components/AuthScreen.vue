@@ -4,12 +4,24 @@ import Icon from './Icon.vue';
 import { discoverInstance, refreshProviders, type InstanceInfo } from '../services/discover';
 import { lastSignIn, navigateToSignIn, signInWithPassword } from '../services/auth';
 import { adoptSession, describeToken, parseSessionBlob } from '../services/sessionImport';
-import { signUp } from '../services/onboarding';
+import {
+  chooseUsername,
+  createAccount,
+  joinServer,
+  suggestedServers,
+  type ServerSuggestion,
+} from '../services/onboarding';
+import type { Session } from '../services/auth';
 
-const props = withDefaults(defineProps<{ autoInstance?: InstanceInfo | null; probing?: boolean }>(), {
-  autoInstance: null,
-  probing: false,
-});
+const props = withDefaults(
+  defineProps<{
+    autoInstance?: InstanceInfo | null;
+    probing?: boolean;
+    /** A stored session whose account has no profile yet: resume at the username step. */
+    resume?: { session: Session; instance: InstanceInfo } | null;
+  }>(),
+  { autoInstance: null, probing: false, resume: null }
+);
 const emit = defineEmits<{ (e: 'authenticated'): void }>();
 
 const demo = new URLSearchParams(location.search).get('demo') === '1';
@@ -31,12 +43,16 @@ const blob = ref('');
 const importError = ref('');
 const pwError = ref('');
 const pwLoading = ref(false);
-// Password sign-in and account creation share the card; the link under the form flips it.
-const mode = ref<'signin' | 'signup'>('signin');
+// Same three steps as the official web app: credentials → username → a suggested server that
+// the person accepts or declines. Nothing joins a server on its own.
+const step = ref<'signin' | 'signup' | 'username' | 'server'>('signin');
 const newUsername = ref('');
 const signupError = ref('');
-const signupNote = ref('');
 const signupLoading = ref(false);
+/** The account exists from step one on; the profile and the membership follow it. */
+const pending = ref<Session | null>(null);
+const suggested = ref<ServerSuggestion[]>([]);
+const joining = ref(false);
 
 function adopt(inst: InstanceInfo, opts: { auto?: boolean } = {}) {
   instance.value = inst;
@@ -121,24 +137,70 @@ async function usePassword() {
   }
 }
 
-async function createAccount() {
+async function submitCredentials() {
   const inst = instance.value;
   if (!inst || signupLoading.value) return;
   signupError.value = '';
-  signupNote.value = '';
   signupLoading.value = true;
   try {
-    const result = await signUp(inst, email.value.trim(), password.value, newUsername.value);
-    signupNote.value = result.joined
-      ? `Account created, joined ${result.joined}`
-      : result.warnings[0] ?? 'Account created';
-    emit('authenticated');
+    pending.value = await createAccount(inst, email.value.trim(), password.value);
+    step.value = 'username';
   } catch (e) {
     signupError.value = e instanceof Error ? e.message : String(e);
   } finally {
     signupLoading.value = false;
   }
 }
+
+async function submitUsername() {
+  const inst = instance.value;
+  const session = pending.value;
+  if (!inst || !session || signupLoading.value) return;
+  signupError.value = '';
+  signupLoading.value = true;
+  try {
+    await chooseUsername(session, inst, newUsername.value);
+    suggested.value = await suggestedServers(session);
+    // An instance with nothing public to offer just lets the person in.
+    if (!suggested.value.length) emit('authenticated');
+    else step.value = 'server';
+  } catch (e) {
+    signupError.value = e instanceof Error ? e.message : String(e);
+  } finally {
+    signupLoading.value = false;
+  }
+}
+
+async function acceptServer(id: string) {
+  const inst = instance.value;
+  const session = pending.value;
+  if (!inst || !session || joining.value) return;
+  joining.value = true;
+  try {
+    await joinServer(session, inst, id);
+  } catch (e) {
+    signupError.value = e instanceof Error ? e.message : String(e);
+  } finally {
+    joining.value = false;
+    emit('authenticated');
+  }
+}
+
+function skipServer() {
+  emit('authenticated');
+}
+
+watch(
+  () => props.resume,
+  (value) => {
+    if (!value) return;
+    instance.value = value.instance;
+    pending.value = value.session;
+    auto.value = value.instance.selfHosted === true;
+    step.value = 'username';
+  },
+  { immediate: true }
+);
 
 async function startProvider(id: string) {
   const inst = instance.value;
@@ -160,7 +222,8 @@ async function startProvider(id: string) {
 function reset() {
   instance.value = null;
   showPassword.value = false;
-  mode.value = 'signin';
+  step.value = 'signin';
+  pending.value = null;
   signupError.value = '';
   auto.value = false;
   host.value = '';
@@ -224,7 +287,7 @@ function reset() {
           <span v-if="instance.demo" class="chip">demo</span>
         </div>
 
-        <template v-if="providers.length">
+        <template v-if="step === 'signin' && providers.length">
           <div class="divider"><span>continue with</span></div>
           <button v-for="p in providers" :key="p.id" class="provider" @click="startProvider(p.id)">
             <span class="badge">{{ p.badge }}</span>
@@ -236,7 +299,7 @@ function reset() {
 
         <!-- Only a real failure deserves an explanation and a retry. An instance that simply
              has no OAuth configured goes straight to the password form. -->
-        <template v-else-if="instance.providersError">
+        <template v-else-if="step === 'signin' && instance.providersError">
           <p class="warn">
             Could not read the sign-in methods ({{ instance.providersError }}). The instance most likely
             offers some — the answer just did not arrive.
@@ -247,40 +310,59 @@ function reset() {
           <div class="divider"><span>or</span></div>
         </template>
 
-        <template v-if="showPassword">
-          <form v-if="mode === 'signin'" class="pw" @submit.prevent="usePassword">
+        <template v-if="step === 'signin'">
+          <form v-if="showPassword" class="pw" @submit.prevent="usePassword">
             <div class="field"><input v-model="email" placeholder="Email" type="email" autocomplete="username" /></div>
             <div class="field"><input v-model="password" placeholder="Password" type="password" autocomplete="current-password" /></div>
             <button class="primary" type="submit" :disabled="pwLoading || !email || !password">
               {{ pwLoading ? 'Signing in…' : 'Sign in' }}
             </button>
             <p v-if="pwError" class="warn">{{ pwError }}</p>
-            <button class="text-btn" type="button" @click="mode = 'signup'; pwError = ''">
+            <button class="text-btn" type="button" @click="step = 'signup'; pwError = ''">
               Create an account
             </button>
           </form>
-
-          <form v-else class="pw" @submit.prevent="createAccount">
-            <p class="hint">A new account is created on {{ instance.origin }}: pick a username, it is what
-              people here will see.</p>
-            <div class="field"><input v-model="email" placeholder="Email" type="email" autocomplete="email" /></div>
-            <div class="field"><input v-model="newUsername" placeholder="Username" autocomplete="nickname" /></div>
-            <div class="field"><input v-model="password" placeholder="Password" type="password" autocomplete="new-password" /></div>
-            <button class="primary" type="submit" :disabled="signupLoading || !email || !password || !newUsername">
-              {{ signupLoading ? 'Creating…' : 'Create account' }}
-            </button>
-            <p v-if="signupError" class="warn">{{ signupError }}</p>
-            <p v-if="signupNote" class="hint">{{ signupNote }}</p>
-            <button class="text-btn" type="button" @click="mode = 'signin'; signupError = ''">
-              I already have an account
-            </button>
-          </form>
+          <button v-else class="text-btn" @click="showPassword = true">Sign in with password</button>
         </template>
-        <button v-else class="text-btn" @click="showPassword = true">Sign in with password</button>
 
-        <button v-if="!auto" class="text-btn muted" @click="reset">Another instance</button>
+        <form v-else-if="step === 'signup'" class="pw" @submit.prevent="submitCredentials">
+          <p class="hint">Step 1 of 3 — the account on {{ instance.origin }}.</p>
+          <div class="field"><input v-model="email" placeholder="Email" type="email" autocomplete="email" /></div>
+          <div class="field"><input v-model="password" placeholder="Password" type="password" autocomplete="new-password" /></div>
+          <button class="primary" type="submit" :disabled="signupLoading || !email || !password">
+            {{ signupLoading ? 'Creating…' : 'Continue' }}
+          </button>
+          <p v-if="signupError" class="warn">{{ signupError }}</p>
+          <button class="text-btn" type="button" @click="step = 'signin'; signupError = ''">
+            I already have an account
+          </button>
+        </form>
 
-        <template v-if="showImport">
+        <form v-else-if="step === 'username'" class="pw" @submit.prevent="submitUsername">
+          <p class="hint">Step 2 of 3 — pick the username people here will see. The account exists now, so
+            this can be finished later if you close the app.</p>
+          <div class="field"><input v-model="newUsername" placeholder="Username" autocomplete="nickname" /></div>
+          <button class="primary" type="submit" :disabled="signupLoading || !newUsername">
+            {{ signupLoading ? 'Saving…' : 'Continue' }}
+          </button>
+          <p v-if="signupError" class="warn">{{ signupError }}</p>
+        </form>
+
+        <div v-else class="pw">
+          <p class="hint">
+            Step 3 of 3 — {{ suggested[0].name }} is a public server on this instance. Join it, or
+            look around on your own first; nothing is joined without asking.
+          </p>
+          <button class="primary" :disabled="joining" @click="acceptServer(suggested[0].id)">
+            {{ joining ? 'Joining…' : 'Join ' + suggested[0].name }}
+          </button>
+          <button class="text-btn" type="button" @click="skipServer">Not now</button>
+          <p v-if="signupError" class="warn">{{ signupError }}</p>
+        </div>
+
+        <button v-if="!auto && step === 'signin'" class="text-btn muted" @click="reset">Another instance</button>
+
+        <template v-if="step === 'signin' && showImport">
           <p class="hint">
             Until the instance allows our <code>redirect_to</code>, bring a session with you: open the
             instance in a browser, sign in, and copy <code>sb-*-auth-token</code> from
@@ -290,7 +372,7 @@ function reset() {
           <p v-if="importError" class="warn">{{ importError }}</p>
           <button class="ghost" @click="importSession">Use this session</button>
         </template>
-        <button v-else class="text-btn muted" @click="showImport = true">I already have a session</button>
+        <button v-else-if="step === 'signin'" class="text-btn muted" @click="showImport = true">I already have a session</button>
       </div>
 
       <footer class="legal">
