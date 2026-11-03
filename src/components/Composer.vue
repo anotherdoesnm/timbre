@@ -42,7 +42,11 @@ function send() {
 </template>
 
 <style scoped>
-.wrap { padding: 0 var(--sp-400) var(--sp-400); padding-bottom: calc(var(--sp-400) + env(safe-area-inset-bottom, 0px)); }
+/* No env(safe-area-inset-bottom) here. Firefox Android reports 48px for it whenever its own
+   toolbar is on screen — not a system inset at all — and the composer then floats half a
+   centimetre above the bottom. The fixed shell already ends at the visible edge (measured on
+   device: inset:0 bottom == innerHeight), so the plain spacing is the whole story. */
+.wrap { padding: 0 var(--sp-400) var(--sp-400); }
 .box {
   background: var(--sfv-container);
   border: 1px solid var(--sfv-line);
