@@ -10,7 +10,7 @@ const props = defineProps<{
   me?: { name: string; role: 'admin' | 'mod' | null };
   live?: boolean;
 }>();
-const emit = defineEmits<{ (e: 'select', id: string): void }>();
+const emit = defineEmits<{ (e: 'select', id: string): void; (e: 'servers'): void }>();
 
 const groups = computed(() => {
   const out: { title: string; items: Channel[] }[] = [];
@@ -26,8 +26,10 @@ const groups = computed(() => {
 <template>
   <aside class="rooms">
     <header class="rooms-head">
-      <span class="server-name">{{ serverName }}</span>
-      <Icon name="chevron" :size="16" />
+      <button class="server-switch" title="Servers" @click="emit('servers')">
+        <span class="server-name">{{ serverName }}</span>
+        <Icon name="chevron" :size="16" />
+      </button>
     </header>
 
     <div class="search">
@@ -82,6 +84,17 @@ const groups = computed(() => {
   border-bottom: 1px solid var(--sf-line);
   color: var(--text);
 }
+.server-switch {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-100);
+  min-width: 0;
+  padding: var(--sp-100) var(--sp-200);
+  margin-left: calc(var(--sp-200) * -1);
+  border-radius: var(--radius-md);
+  color: var(--text);
+}
+.server-switch:active { background: var(--sfv-container); }
 .server-name { font-weight: 600; font-size: var(--fs-md); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .search {
   display: flex;
@@ -103,7 +116,7 @@ const groups = computed(() => {
   color: var(--text);
   font-size: var(--fs-sm);
 }
-.scroll { flex: 1; overflow-y: auto; padding-bottom: var(--sp-300); }
+.scroll { flex: 1; overflow-y: auto; padding-bottom: var(--sp-300); scrollbar-gutter: stable; }
 .group { margin-bottom: var(--sp-200); }
 .group-title {
   padding: var(--sp-200) var(--sp-300) var(--sp-100);

@@ -6,6 +6,7 @@ import ChatHeader from './components/ChatHeader.vue';
 import MessageList from './components/MessageList.vue';
 import Composer from './components/Composer.vue';
 import MemberList from './components/MemberList.vue';
+import ServerSheet from './components/ServerSheet.vue';
 import AuthScreen from './components/AuthScreen.vue';
 import AuthCallback from './components/AuthCallback.vue';
 import { channels as mockChannels, messages as mockMessages, servers as mockServers } from './data/mock';
@@ -61,6 +62,9 @@ const membersOpen = ref(true);
 // except a 32px arrow in the corner.
 const mobilePane = ref<'rooms' | 'chat'>('rooms');
 const sending = ref(false);
+// Phone server switcher. The rail is desktop furniture: on a phone it costs a row of the
+// screen on every screen and scrolls sideways, which is what the strip did.
+const serversOpen = ref(false);
 const myProfileId = ref<string | null>(null);
 
 // A session means the mocks are a lie: show the real thing or nothing. Rendering the mock
@@ -252,6 +256,7 @@ watch([activeServer, activeChannel], () => {
       :me="me"
       :live="live"
       @select="pickChannel"
+      @servers="serversOpen = true"
     />
     <main v-if="channel" class="chat">
       <ChatHeader
@@ -269,6 +274,13 @@ watch([activeServer, activeChannel], () => {
       <p>{{ loading ? 'Loading…' : 'No channels, or none visible to this session.' }}</p>
     </main>
     <MemberList v-if="membersOpen" />
+    <ServerSheet
+      v-if="serversOpen"
+      :servers="servers"
+      :active-id="activeServer"
+      @select="(id) => { pickServer(id); serversOpen = false; }"
+      @close="serversOpen = false"
+    />
   </div>
 </template>
 
@@ -297,27 +309,14 @@ watch([activeServer, activeChannel], () => {
   .app,
   .app.with-members {
     grid-template-columns: 1fr;
-    grid-template-rows: auto 1fr;
+    grid-template-rows: 1fr;
   }
-  /* The rail stays, as a strip along the top: without it there is no way to switch servers
-     on a phone at all. */
-  .app :deep(.rail) {
-    flex-direction: row;
-    width: 100%;
-    height: auto;
-    gap: var(--sp-200);
-    padding: var(--sp-200) var(--sp-300);
-    border-right: none;
-    border-bottom: 1px solid var(--bg-line);
-    overflow-x: auto;
-  }
-  .app :deep(.rail .sep) { width: 1px; height: 28px; margin: 0 var(--sp-100); flex: none; }
-  .app :deep(.rail-btn) { flex: none; }
-  .app :deep(.rail-btn.active)::before { display: none; }
+  /* Server switching moves into a sheet behind the server name in the list header. */
+  .app :deep(.rail) { display: none; }
   .app :deep(.members) { display: none; }
-  .app :deep(.rooms) { width: 100%; grid-row: 2; display: flex; }
+  .app :deep(.rooms) { width: 100%; display: flex; }
   .app.mobile :deep(.rooms) { display: none; }
-  .app :deep(.chat) { display: none; grid-row: 2; }
+  .app :deep(.chat) { display: none; }
   .app.mobile :deep(.chat) { display: flex; }
   .app :deep(.me) { display: none; }
 }
