@@ -13,7 +13,11 @@ const props = defineProps<{
   hasMore?: boolean;
   loadingOlder?: boolean;
 }>();
-const emit = defineEmits<{ (e: 'load-older'): void; (e: 'reply', m: Message): void }>();
+const emit = defineEmits<{
+  (e: 'load-older'): void;
+  (e: 'reply', m: Message): void;
+  (e: 'react', m: Message, emoji: string, mine: boolean): void;
+}>();
 const scroller = ref<HTMLElement | null>(null);
 // On a phone there is no hover: the toolbar would sit on every message forever. A tap
 // selects one message and shows its toolbar.
@@ -103,6 +107,10 @@ watch(
         <p v-if="!live">Skin prototype. The data is a mock — no session is attached.</p>
       </div>
 
+      <!-- Above the oldest message: this end of the list is where history stops. -->
+      <div v-if="loadingOlder" class="older-hint">Loading earlier messages…</div>
+      <div v-else-if="hasMore === false && messages.length" class="older-hint">Start of the channel</div>
+
       <template v-for="m in messages" :key="m.id">
         <div v-if="m.id === unreadFromId" class="unread-divider"><span>New messages</span></div>
       <article
@@ -144,6 +152,18 @@ watch(
               <template v-else>{{ seg.text }}</template>
             </template>
           </p>
+          <div v-if="m.reactions?.length" class="chips">
+            <button
+              v-for="r in m.reactions"
+              :key="r.emoji"
+              class="reaction"
+              :class="{ mine: r.mine }"
+              @click.stop="emit('react', m, r.emoji, r.mine)"
+            >
+              <span class="reaction-emoji">{{ r.emoji }}</span>
+              <span class="reaction-count">{{ r.count }}</span>
+            </button>
+          </div>
           <div v-if="m.images?.length" class="images">
             <template v-for="(src, i) in m.images" :key="i">
               <a v-if="!broken[src]" :href="src" target="_blank" rel="noreferrer noopener" class="shot">
@@ -155,13 +175,11 @@ watch(
         </div>
         <div class="tools">
           <button title="Reply" @click.stop="emit('reply', m)"><Icon name="reply" :size="15" /></button>
-          <button title="React"><Icon name="smile" :size="15" /></button>
+          <button title="React 👍" @click.stop="emit('react', m, '👍', !!m.reactions?.find((r) => r.emoji === '👍')?.mine)"><Icon name="smile" :size="15" /></button>
           <button title="More"><Icon name="dots" :size="15" /></button>
         </div>
       </article>
       </template>
-      <div v-if="loadingOlder" class="older-hint">Loading earlier messages…</div>
-      <div v-else-if="hasMore === false && messages.length" class="older-hint">Start of the channel</div>
     </template>
   </div>
 </template>
@@ -238,6 +256,21 @@ watch(
   background: color-mix(in srgb, var(--primary-container) 55%, transparent);
   color: var(--primary-on-container);
 }
+.chips { display: flex; flex-wrap: wrap; gap: var(--sp-100); margin-top: var(--sp-200); }
+.reaction {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 7px;
+  border: 1px solid var(--sfv-line);
+  border-radius: var(--radius-round);
+  background: var(--sfv-container);
+  font-size: var(--fs-sm);
+  line-height: 1.6;
+}
+.reaction.mine { border-color: var(--primary-main); background: color-mix(in srgb, var(--primary-container) 45%, transparent); }
+.reaction-count { color: var(--text-secondary); font-variant-numeric: tabular-nums; }
+.reaction-emoji { font-size: 13px; }
 .quote {
   display: flex;
   align-items: baseline;

@@ -17,8 +17,10 @@ import {
   fetchMe,
   fetchMessages,
   fetchServers,
+  fetchReactions,
   fetchUnreadCounts,
   markChannelRead,
+  toggleReaction,
   sendMessage,
   type UnreadState,
 } from './services/data';
@@ -126,7 +128,8 @@ async function openChannel(channelId: string): Promise<void> {
   const pending = state?.unread ?? 0;
   const limit = pending > 0 ? Math.min(pending + 20, 120) : 50;
   const page = await fetchMessages(s, channelId, { limit });
-  liveMessages.value[channelId] = page.messages;
+  const reactions = await fetchReactions(s, page.messages.map((m) => m.id));
+  liveMessages.value[channelId] = page.messages.map((m) => ({ ...m, reactions: reactions[m.id] }));
   cursors.value[channelId] = { oldest: page.oldest, hasMore: page.hasMore };
   unreadAnchor.value =
     pending > 0 ? page.messages[Math.max(0, page.messages.length - pending)]?.id ?? null : null;
@@ -134,6 +137,23 @@ async function openChannel(channelId: string): Promise<void> {
     const newest = page.messages[page.messages.length - 1];
     void markChannelRead(s, channelId, newest?.id ?? null);
     delete unread.value[channelId];
+  }
+}
+
+async function onReact(m: { id: string }, emoji: string, mine: boolean): Promise<void> {
+  const s = session.value;
+  const ch = channel.value;
+  if (!s || !ch || !myProfileId.value) return;
+  try {
+    await toggleReaction(s, m.id, ch.id, myProfileId.value, emoji, mine);
+    const ids = (liveMessages.value[ch.id] ?? []).map((x) => x.id);
+    const reactions = await fetchReactions(s, ids);
+    liveMessages.value[ch.id] = (liveMessages.value[ch.id] ?? []).map((x) => ({
+      ...x,
+      reactions: reactions[x.id],
+    }));
+  } catch (e) {
+    loadError.value = e instanceof Error ? e.message : String(e);
   }
 }
 
@@ -439,6 +459,7 @@ watch([activeServer, activeChannel], () => {
         :loading-older="loadingOlder"
         @load-older="loadOlder(channel.id)"
         @reply="(m) => (replyTarget = { id: m.id, author: m.author.name, text: m.text.slice(0, 120) })"
+        @react="onReact"
       />
       <Composer
         :channel-name="channel.name"
