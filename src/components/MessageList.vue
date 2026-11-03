@@ -39,6 +39,9 @@ function segments(m: Message): Segment[] {
 }
 // A signed attachment URL can be expired or forbidden; a broken image icon tells nobody why.
 const broken = ref<Record<string, true>>({});
+// `/default_avatar.webp` is served by the instance, not by us; if it is missing the message
+// should show initials rather than a torn image.
+const brokenAvatars = ref<Record<string, true>>({});
 // A short list rather than a full emoji keyboard: the instance has its own emoji table, and
 // wiring that (with search and custom uploads) is its own step.
 const QUICK_EMOJI = ['👍', '❤️', '😂', '🎉', '🔥', '👀', '🙏', '✅', '😅', '🤔', '😮', '💀'];
@@ -155,7 +158,13 @@ watch(
       >
         <div class="avatar-col">
           <div v-if="!m.grouped" class="avatar" :style="{ background: m.author.color }">
-            <img v-if="m.author.avatarUrl" :src="m.author.avatarUrl" alt="" loading="lazy" />
+            <img
+              v-if="m.author.avatarUrl && !brokenAvatars[m.author.name]"
+              :src="m.author.avatarUrl"
+              alt=""
+              loading="lazy"
+              @error="brokenAvatars[m.author.name] = true"
+            />
             <template v-else>{{ m.author.initial }}</template>
           </div>
           <span v-else class="time-hover">{{ m.time }}</span>

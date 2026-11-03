@@ -666,6 +666,8 @@ watch([activeServer, activeChannel], () => {
 
 <style scoped>
 .app {
+  /* The shell draws edge to edge: without this the status bar sits on top of the header. */
+  padding-top: env(safe-area-inset-top, 0px);
   /* `--kb-inset` is the slice the keyboard covers in browsers that do not resize the layout
      viewport (Firefox); everywhere else it is 0. */
   padding-bottom: var(--kb-inset, 0px);
