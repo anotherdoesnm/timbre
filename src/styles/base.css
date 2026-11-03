@@ -51,11 +51,20 @@ a:hover { text-decoration: underline; }
 
 ::selection { background: var(--primary-container); color: var(--primary-on-container); }
 
-/* Thin scrollbars, like Cinny's */
-* { scrollbar-width: thin; scrollbar-color: var(--sfv-line) transparent; }
-*::-webkit-scrollbar { width: 8px; height: 8px; }
-*::-webkit-scrollbar-thumb {
-  background: var(--sfv-line);
-  border-radius: var(--radius-round);
+/* Thin scrollbars, like Cinny's — for mice only.
+   Styling ::-webkit-scrollbar replaces the phone's overlay scrollbar with a permanent
+   desktop one: 8px of the screen, always visible, and a second horizontal bar whenever
+   anything is a pixel too wide. Touch devices get the native overlay back. */
+@media (hover: hover) and (pointer: fine) {
+  * { scrollbar-width: thin; scrollbar-color: var(--sfv-line) transparent; }
+  *::-webkit-scrollbar { width: 8px; height: 8px; }
+  *::-webkit-scrollbar-thumb {
+    background: var(--sfv-line);
+    border-radius: var(--radius-round);
+  }
+  *::-webkit-scrollbar-track { background: transparent; }
 }
-*::-webkit-scrollbar-track { background: transparent; }
+
+/* Nothing here is meant to scroll sideways; a horizontal bar on a phone is always a bug and
+   it used to push the composer's buttons off screen. */
+html, body { overflow-x: hidden; }

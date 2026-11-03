@@ -51,6 +51,9 @@ const emit = defineEmits<{ (e: 'select', id: string): void; (e: 'close'): void }
 .sheet {
   width: 100%;
   max-width: 420px;
+  /* A long server list must scroll inside the sheet, not run off the screen. */
+  max-height: 70vh;
+  overflow-y: auto;
   padding: var(--sp-200) var(--sp-200) var(--sp-500);
   background: var(--sf-container);
   border-radius: var(--radius-xl) var(--radius-xl) 0 0;

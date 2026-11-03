@@ -116,7 +116,8 @@ const groups = computed(() => {
   color: var(--text);
   font-size: var(--fs-sm);
 }
-.scroll { flex: 1; overflow-y: auto; padding-bottom: var(--sp-300); scrollbar-gutter: stable; }
+.scroll { flex: 1; overflow-y: auto; overflow-x: hidden; padding-bottom: var(--sp-300); }
+@media (hover: hover) and (pointer: fine) { .scroll { scrollbar-gutter: stable; } }
 .group { margin-bottom: var(--sp-200); }
 .group-title {
   padding: var(--sp-200) var(--sp-300) var(--sp-100);

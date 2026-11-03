@@ -287,6 +287,7 @@ watch([activeServer, activeChannel], () => {
 <style scoped>
 .app {
   height: 100%;
+  overflow: hidden;
   display: grid;
   grid-template-columns: var(--rail-width) var(--rooms-width) 1fr;
   min-height: 0;
