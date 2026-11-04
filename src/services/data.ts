@@ -1040,6 +1040,109 @@ export async function fetchProfileByUsername(
   };
 }
 
+/** One entry of the instance's notification list, flattened for the panel. */
+export interface NotificationItem {
+  id: string;
+  type: string;
+  isRead: boolean;
+  createdAt: string;
+  /** Who caused it, when the type has somebody behind it. */
+  actor?: { name: string; avatarUrl?: string; handle: string };
+  text: string;
+  serverId?: string;
+  channelId?: string;
+  messageId?: string;
+  where?: string;
+}
+
+/**
+ * The instance's own notification list (`get_user_notifications`), flattened.
+ *
+ * The payload differs per type — a mention carries `sender`/`message`/`location`, a security notice
+ * carries an IP and an event name — so everything here is optional and the panel falls back to the
+ * type name. Reading it through the RPC rather than the table keeps the shape the instance intends.
+ */
+export async function fetchNotifications(
+  session: Session,
+  profileId: string,
+  opts: { limit?: number; offset?: number; unreadOnly?: boolean } = {}
+): Promise<NotificationItem[]> {
+  const rows = await rpc<
+    {
+      id?: string;
+      type?: string;
+      is_read?: boolean;
+      created_at?: string;
+      data?: Record<string, unknown> | null;
+    }[]
+  >(session, 'get_user_notifications', {
+    p_user_id: profileId,
+    p_limit: opts.limit ?? 30,
+    p_offset: opts.offset ?? 0,
+    p_unread_only: opts.unreadOnly === true,
+  });
+
+  return (rows ?? []).map((row) => {
+    const data = (row.data ?? {}) as Record<string, unknown>;
+    const location = (data.location ?? {}) as Record<string, unknown>;
+    const sender = (data.sender ?? {}) as Record<string, unknown>;
+    const message = (data.message ?? {}) as Record<string, unknown>;
+    const senderName =
+      (typeof data.sender_display_name === 'string' && data.sender_display_name) ||
+      (typeof sender.display_name === 'string' && sender.display_name) ||
+      (typeof data.sender_username === 'string' && data.sender_username) ||
+      (typeof sender.username === 'string' && sender.username) ||
+      '';
+    const preview =
+      (typeof data.preview === 'string' && data.preview) ||
+      (typeof message.content_preview === 'string' && message.content_preview) ||
+      (typeof data.event === 'string' && data.event) ||
+      '';
+    const channelName = typeof location.channel_name === 'string' ? location.channel_name : undefined;
+    const serverName = typeof location.server_name === 'string' ? location.server_name : undefined;
+    return {
+      id: String(row.id ?? ''),
+      type: String(row.type ?? 'notification'),
+      isRead: row.is_read === true,
+      createdAt: typeof row.created_at === 'string' ? row.created_at : new Date().toISOString(),
+      actor: senderName
+        ? {
+            name: senderName,
+            avatarUrl: avatarUrl(sender.avatar_url, session),
+            handle:
+              (typeof sender.handle === 'string' && sender.handle) ||
+              (typeof sender.username === 'string' ? `@${sender.username}` : ''),
+          }
+        : undefined,
+      text: preview,
+      serverId:
+        typeof location.server_id === 'string'
+          ? location.server_id
+          : typeof data.server_id === 'string'
+            ? data.server_id
+            : undefined,
+      channelId:
+        typeof location.channel_id === 'string'
+          ? location.channel_id
+          : typeof data.channel_id === 'string'
+            ? data.channel_id
+            : undefined,
+      messageId:
+        typeof message.id === 'string'
+          ? message.id
+          : typeof data.message_id === 'string'
+            ? data.message_id
+            : undefined,
+      where: [serverName, channelName].filter(Boolean).join(' · ') || undefined,
+    };
+  });
+}
+
+/** Clears the whole list's unread state through the instance's own helper. */
+export async function markAllNotificationsRead(session: Session, profileId: string): Promise<void> {
+  await rpc(session, 'mark_all_notifications_read', { p_user_id: profileId });
+}
+
 export async function fetchNotificationPrefs(
   session: Session,
   profileId: string

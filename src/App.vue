@@ -10,6 +10,7 @@ import ServerSheet from './components/ServerSheet.vue';
 import AccountSheet from './components/AccountSheet.vue';
 import SearchPanel from './components/SearchPanel.vue';
 import ProfileCard from './components/ProfileCard.vue';
+import NotificationsPanel from './components/NotificationsPanel.vue';
 import AuthScreen from './components/AuthScreen.vue';
 import AuthCallback from './components/AuthCallback.vue';
 import { channels as mockChannels, messages as mockMessages, servers as mockServers, type Author } from './data/mock';
@@ -36,6 +37,9 @@ import {
   fetchNotificationPrefs,
   fetchProfileByUsername,
   fetchServerMembers,
+  fetchNotifications,
+  markAllNotificationsRead,
+  type NotificationItem,
   setDnd,
   type SearchHit,
   type UnreadState,
@@ -130,6 +134,13 @@ const mutedChannels = ref<Record<string, true>>({});
 // Do-not-disturb, including the daily window: a muted channel is quiet, the whole account is
 // quiet inside it.
 const prefs = ref<{ dndEnabled: boolean; dndStart: string | null; dndEnd: string | null } | null>(null);
+/** What the instance says happened while the app was closed. */
+const notificationsOpen = ref(false);
+const notifications = ref<NotificationItem[]>([]);
+const notificationsLoading = ref(false);
+const notificationsError = ref('');
+const unreadNotifications = computed(() => notifications.value.filter((n) => !n.isRead).length);
+
 /** The server's roster, kept per server so switching back does not refetch it. */
 const liveMembers = ref<Record<string, Author[]>>({});
 const members = computed<Author[] | undefined>(() =>
@@ -764,6 +775,65 @@ async function toggleMute(): Promise<void> {
  * Tapping `@name` looks the person up rather than trusting the rendered page: a mention can point
  * at someone who has not spoken in this channel, and a federated handle carries its own instance.
  */
+/**
+ * Opens the notification list, refreshing it: a count in the header is only useful if tapping it
+ * answers "what happened", not "what happened when the app started".
+ */
+async function openNotifications(): Promise<void> {
+  notificationsOpen.value = true;
+  await loadNotifications();
+}
+
+async function loadNotifications(): Promise<void> {
+  const s = session.value;
+  const id = myProfileId.value;
+  if (!s || !id) return;
+  notificationsLoading.value = true;
+  notificationsError.value = '';
+  try {
+    notifications.value = await fetchNotifications(s, id, { limit: 40 });
+  } catch (e) {
+    notificationsError.value = e instanceof Error ? e.message : String(e);
+  } finally {
+    notificationsLoading.value = false;
+  }
+}
+
+/** A notification about a message is a link to it: mark it read and go there. */
+async function openNotification(item: NotificationItem): Promise<void> {
+  notificationsOpen.value = false;
+  if (item.channelId) {
+    const owner = Object.entries(liveChannels.value).find(([, chans]) =>
+      chans.some((c) => c.id === item.channelId)
+    );
+    if (owner) {
+      if (owner[0] !== activeServer.value) pickServer(owner[0]);
+      pickChannel(item.channelId);
+      if (item.messageId) focusId.value = item.messageId;
+    }
+  }
+  if (item.isRead !== true) {
+    notifications.value = notifications.value.map((n) =>
+      n.id === item.id ? { ...n, isRead: true } : n
+    );
+    const s = session.value;
+    const id = myProfileId.value;
+    if (s && id) void markAllNotificationsRead(s, id).catch(() => undefined);
+  }
+}
+
+async function markEveryNotificationRead(): Promise<void> {
+  const s = session.value;
+  const id = myProfileId.value;
+  if (!s || !id) return;
+  notifications.value = notifications.value.map((n) => ({ ...n, isRead: true }));
+  try {
+    await markAllNotificationsRead(s, id);
+  } catch (e) {
+    notificationsError.value = e instanceof Error ? e.message : String(e);
+  }
+}
+
 async function openMention(handle: string): Promise<void> {
   const s = session.value;
   if (!s || !live.value) return;
@@ -984,6 +1054,8 @@ watch([activeServer, activeChannel], () => {
         :muted="!!mutedChannels[channel.id]"
         :live="live"
         @search="openSearch"
+        @notifications="openNotifications"
+        :unread-notifications="unreadNotifications"
         @toggle-mute="toggleMute"
         @toggle-members="membersOpen = !membersOpen"
         @back="closeChannel"
@@ -1031,6 +1103,15 @@ watch([activeServer, activeChannel], () => {
     <div v-else-if="membersOpen && narrow" class="members-backdrop" @click.self="membersOpen = false">
       <MemberList class="members-overlay" :members="members" />
     </div>
+    <NotificationsPanel
+      v-if="notificationsOpen"
+      :items="notifications"
+      :loading="notificationsLoading"
+      :error="notificationsError"
+      @close="notificationsOpen = false"
+      @open="openNotification"
+      @read-all="markEveryNotificationRead"
+    />
     <ProfileCard v-if="profileCard" :person="profileCard" :on-close="() => (profileCard = null)" />
     <SearchPanel
       v-if="searchOpen"

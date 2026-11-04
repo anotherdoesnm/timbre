@@ -2,12 +2,19 @@
 import Icon from './Icon.vue';
 import type { Channel } from '../data/mock';
 
-defineProps<{ channel: Channel; membersOpen: boolean; live?: boolean; muted?: boolean }>();
+defineProps<{
+  channel: Channel;
+  membersOpen: boolean;
+  live?: boolean;
+  muted?: boolean;
+  unreadNotifications?: number;
+}>();
 const emit = defineEmits<{
   (e: 'toggle-members'): void;
   (e: 'back'): void;
   (e: 'search'): void;
   (e: 'toggle-mute'): void;
+  (e: 'notifications'): void;
 }>();
 </script>
 
@@ -23,6 +30,15 @@ const emit = defineEmits<{
     </div>
     <div class="right">
       <button class="action" title="Search" @click="emit('search')"><Icon name="search" :size="18" /></button>
+      <button
+        class="action"
+        title="Notifications"
+        :aria-label="unreadNotifications ? `Notifications, ${unreadNotifications} unread` : 'Notifications'"
+        @click="emit('notifications')"
+      >
+        <Icon name="inbox" :size="18" />
+        <span v-if="unreadNotifications" class="unread-dot" />
+      </button>
       <!-- The bell mutes this channel. Notification *permission* lives in the account sheet, and
            the old "More" button is gone: a control that does nothing is worse than no control. -->
       <button
