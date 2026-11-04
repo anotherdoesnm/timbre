@@ -46,6 +46,22 @@ export function renderContentParts(content: unknown): RenderedContent {
       if (handle) texts.push(`@${handle}`);
       continue;
     }
+    // The rest of Harmony's structural parts carry no `text` either, and dropping them made whole
+    // messages look empty: a bare link, a custom emoji, a `#channel` pointer.
+    if (type === 'channel_mention') {
+      if (typeof o.name === 'string' && o.name) texts.push(`#${o.name}`);
+      continue;
+    }
+    if (type === 'emoji') {
+      const emoji = (o.emoji ?? {}) as Record<string, unknown>;
+      const name = typeof emoji.name === 'string' ? emoji.name : '';
+      if (name) texts.push(`:${name}:`);
+      continue;
+    }
+    if (type === 'url' && typeof o.url === 'string' && o.url) {
+      texts.push(o.url);
+      continue;
+    }
     // A part with a `path` is re-signed by the caller (links expire); one without a path only has
     // its URL to go on.
     if (
@@ -118,10 +134,17 @@ export function renderContent(content: unknown): string {
     if (typeof part === 'string') return part;
     if (part && typeof part === 'object') {
       const o = part as Record<string, unknown>;
-      if (String(o.type ?? '') === 'mention') {
+      const kind = String(o.type ?? '');
+      if (kind === 'mention') {
         const handle = typeof o.username === 'string' ? o.username : typeof o.name === 'string' ? o.name : '';
         if (handle) return `@${handle}`;
       }
+      if (kind === 'channel_mention' && typeof o.name === 'string' && o.name) return `#${o.name}`;
+      if (kind === 'emoji') {
+        const emoji = (o.emoji ?? {}) as Record<string, unknown>;
+        if (typeof emoji.name === 'string' && emoji.name) return `:${emoji.name}:`;
+      }
+      if (kind === 'url' && typeof o.url === 'string') return o.url;
       for (const key of ['text', 'content', 'value', 'body']) {
         if (typeof o[key] === 'string') return o[key] as string;
       }
