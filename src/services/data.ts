@@ -369,7 +369,13 @@ export async function sendMessage(
   userId: string,
   content: string,
   replyToId?: string | null,
-  files: UploadedFile[] = []
+  files: UploadedFile[] = [],
+  /**
+   * An id chosen by the caller, so a retry after a timeout cannot post the message twice: the row
+   * is inserted with this primary key, and the second attempt is refused with 409 instead of
+   * creating a duplicate. Omitted when the caller has nothing to retry.
+   */
+  id?: string
 ): Promise<void> {
   // A year rather than the hour used for display: this URL is written into the message, where
   // other clients read it as-is and never re-sign. Harmony's own messages carry long-lived links
@@ -388,6 +394,7 @@ export async function sendMessage(
     // `content` is jsonb and the table enforces it with a check constraint
     // (messages_content_is_array): a plain string is rejected with 23514.
     body: JSON.stringify({
+      ...(id ? { id } : {}),
       channel_id: channelId,
       user_id: userId,
       // Harmony's own clients read `fileName`/`fileType`/`fileSize` and render the attachment from
@@ -413,6 +420,9 @@ export async function sendMessage(
       ...(replyToId ? { reply_to: replyToId } : {}),
     }),
   });
+  // 23505/409 means this exact id is already stored: the earlier attempt did reach the instance and
+  // the acknowledgement was what got lost. That is a success, not a failure to retry forever.
+  if (res.status === 409 || res.status === 23505) return;
   if (!res.ok) {
     const body = await res.text().catch(() => '');
     throw new Error(`send: ${res.status} ${body.slice(0, 200)}`);

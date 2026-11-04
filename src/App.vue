@@ -161,7 +161,14 @@ const uploading = ref(false);
 // Offline state and the last message that failed to send. Keeping the text here (rather than
 // in the composer) means a failed send never eats what was typed.
 const online = ref(typeof navigator === 'undefined' ? true : navigator.onLine);
-const failedSend = ref<{ body: string; files: UploadedFile[]; replyTo: string | null } | null>(null);
+// `id` is generated once per message, not per attempt: pressing Retry re-sends the same primary
+// key, which the instance answers with 409 (already stored) instead of a duplicate.
+const failedSend = ref<{
+  id: string;
+  body: string;
+  files: UploadedFile[];
+  replyTo: string | null;
+} | null>(null);
 let lastLoad = Date.now();
 // Search runs on the instance (`search_messages`), scoped to this server.
 const searchOpen = ref(false);
@@ -306,6 +313,9 @@ if (typeof window !== 'undefined') {
   window.addEventListener('online', () => {
     refreshConnectivity();
     void catchUp();
+    // The send that failed because the connection dropped is retried with the same id, so the
+    // worst case is the instance answering "already stored".
+    if (failedSend.value && !sending.value) void retrySend();
   });
   window.addEventListener('offline', refreshConnectivity);
 }
@@ -314,7 +324,7 @@ async function retrySend(): Promise<void> {
   const pending = failedSend.value;
   if (!pending || sending.value) return;
   failedSend.value = null;
-  await onSend(pending.body, pending.files, pending.replyTo);
+  await onSend(pending.body, pending.files, pending.replyTo, pending.id);
 }
 
 async function onAttach(file: File): Promise<void> {
@@ -897,7 +907,12 @@ function pickChannel(id: string) {
   }
 }
 
-async function onSend(body: string, filesArg?: UploadedFile[], replyArg?: string | null) {
+async function onSend(
+  body: string,
+  filesArg?: UploadedFile[],
+  replyArg?: string | null,
+  reuseId?: string
+) {
   const s = session.value;
   const ch = channel.value;
   if (!s || !ch || !myProfileId.value) return;
@@ -905,8 +920,9 @@ async function onSend(body: string, filesArg?: UploadedFile[], replyArg?: string
   loadError.value = '';
   const files = filesArg ?? attached.value;
   const replyTo = replyArg !== undefined ? replyArg : replyTarget.value?.id ?? null;
+  const id = reuseId ?? (globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`);
   try {
-    await sendMessage(s, ch.id, myProfileId.value, body, replyTo, files);
+    await sendMessage(s, ch.id, myProfileId.value, body, replyTo, files, id);
     failedSend.value = null;
     replyTarget.value = null;
     attached.value = [];
@@ -915,7 +931,7 @@ async function onSend(body: string, filesArg?: UploadedFile[], replyArg?: string
     lastLoad = Date.now();
   } catch (e) {
     // Keep what was typed: a dropped connection must not eat the message.
-    failedSend.value = { body, files, replyTo };
+    failedSend.value = { id, body, files, replyTo };
     loadError.value = e instanceof Error ? e.message : String(e);
   } finally {
     sending.value = false;
