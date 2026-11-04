@@ -35,7 +35,18 @@ import {
   type UploadedFile,
 } from './services/data';
 import { discoverHere, instanceHostFromLocation, type InstanceInfo } from './services/discover';
-import { subscribeChannelMessages } from './services/realtime';
+import { connectRealtime, type LiveConnection, type MessageEvent } from './services/realtime';
+import {
+  buzz,
+  mentionNames,
+  mentions,
+  notifyPermission,
+  preview,
+  requestNotify,
+  setTitleBadge,
+  showNotification,
+  type Permission,
+} from './services/notify';
 
 const hash = () => location.hash.replace('#', '');
 const initialSearch = new URLSearchParams(location.search.slice(1));
@@ -99,6 +110,13 @@ const sending = ref(false);
 // Unread state comes from the instance (`get_unread_counts`), not from counting locally: the
 // server knows where the read cursor is, including on other devices.
 const unread = ref<Record<string, UnreadState>>({});
+// Messages that landed in a channel this client is not showing. The server counters only move
+// when something re-reads them, and a badge that appears a minute late is not a notification.
+const localUnread = ref<Record<string, number>>({});
+/** In-app bubble: the Android shell has no window title to put a count in. */
+const toast = ref<{ text: string; channelId: string } | null>(null);
+let toastTimer: ReturnType<typeof setTimeout> | null = null;
+const notifyState = ref<Permission>(notifyPermission());
 /** First unread message of the open channel — the view opens there. */
 const unreadAnchor = ref<string | null>(null);
 const cursors = ref<Record<string, { oldest: string | null; hasMore: boolean }>>({});
@@ -295,7 +313,10 @@ const channels = computed(() => {
   if (!session.value) return list;
   return list.map((c) => {
     const state = unread.value[c.id];
-    return state ? { ...c, unread: state.unread, mention: state.mentions } : c;
+    const fresh = localUnread.value[c.id] ?? 0;
+    const total = (state?.unread ?? 0) + fresh;
+    if (!total && !state) return c;
+    return { ...c, unread: total, mention: state?.mentions };
   });
 });
 const channel = computed(
@@ -328,6 +349,12 @@ async function openChannel(channelId: string): Promise<void> {
     const newest = page.messages[page.messages.length - 1];
     void markChannelRead(s, channelId, newest?.id ?? null);
     delete unread.value[channelId];
+  }
+  // Opening the channel is reading it, whichever counter noticed the message first.
+  if (localUnread.value[channelId]) {
+    const rest = { ...localUnread.value };
+    delete rest[channelId];
+    localUnread.value = rest;
   }
 }
 
@@ -520,18 +547,64 @@ function enter() {
   boot();
 }
 
-// One socket per open channel. Refetching on the event keeps rendering, deletes and edits in
-// one code path — the cost is a query per incoming message, which is fine at this size.
-let liveSub: { close(): void } | null = null;
+/**
+ * One socket, every channel this client knows about. Subscribing only to the open channel was
+ * enough to render it, but it meant a message anywhere else arrived silently — there was nothing
+ * to raise a notification from.
+ */
+let liveConn: LiveConnection | null = null;
 
-function restartLive(): void {
-  liveSub?.close();
-  liveSub = null;
+function ensureLive(): void {
   const s = session.value;
-  const channelId = activeChannel.value;
-  if (!s || !live.value || !channelId) return;
-  liveSub = subscribeChannelMessages(s, channelId, (event) => {
-    if (!event.record || event.record.channel_id !== channelId) return;
+  if (!s || !live.value) {
+    liveConn?.close();
+    liveConn = null;
+    return;
+  }
+  if (!liveConn) liveConn = connectRealtime(s);
+  for (const chans of Object.values(liveChannels.value)) {
+    for (const c of chans) {
+      if (c.kind !== 'text') continue;
+      liveConn.subscribe(c.id, (event) => onLiveEvent(c.id, event));
+    }
+  }
+}
+
+function channelById(id: string): { name: string; serverId: string } | null {
+  for (const [serverId, chans] of Object.entries(liveChannels.value)) {
+    const hit = chans.find((c) => c.id === id);
+    if (hit) return { name: hit.name, serverId };
+  }
+  return null;
+}
+
+function jumpToChannel(channelId: string): void {
+  toast.value = null;
+  const where = channelById(channelId);
+  if (!where) return;
+  if (where.serverId !== activeServer.value) pickServer(where.serverId);
+  pickChannel(channelId);
+}
+
+function showToast(text: string, channelId: string): void {
+  toast.value = { text, channelId };
+  if (toastTimer) clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => {
+    toast.value = null;
+  }, 6000);
+}
+
+function onLiveEvent(channelId: string, event: MessageEvent): void {
+  const s = session.value;
+  if (!s || !live.value) return;
+  const record = event.record;
+  if (record.channel_id && record.channel_id !== channelId) return;
+  const mine = !!myProfileId.value && record.user_id === myProfileId.value;
+  const viewing = channelId === activeChannel.value && document.visibilityState === 'visible';
+
+  if (viewing) {
+    // Refetching keeps rendering, edits and deletes in one code path — the cost is a query per
+    // incoming message, which is fine at this size.
     fetchMessages(s, channelId)
       .then((page) => {
         const existing = liveMessages.value[channelId] ?? [];
@@ -543,11 +616,53 @@ function restartLive(): void {
         if (newest) void markChannelRead(s, channelId, newest.id);
       })
       .catch(() => undefined);
-  });
+    return;
+  }
+
+  // Everything below is about telling the person, not about the open channel.
+  if (mine || event.op === 'DELETE') return;
+  localUnread.value = {
+    ...localUnread.value,
+    [channelId]: (localUnread.value[channelId] ?? 0) + 1,
+  };
+  if (event.op !== 'INSERT') return;
+
+  const where = channelById(channelId);
+  const named = mentions(
+    record.content,
+    mentionNames(me.value.username, me.value.name),
+    record.metadata
+  );
+  const body = `${preview(record.content)}${where ? ` · #${where.name}` : ''}`;
+  showNotification(named ? 'You were mentioned' : 'Timbre', body, () => jumpToChannel(channelId));
+  if (named) {
+    buzz();
+    showToast(`Mentioned in #${where?.name ?? 'a channel'}: ${preview(record.content)}`, channelId);
+  }
 }
 
-watch([session, live, activeChannel], restartLive, { immediate: true });
-onUnmounted(() => liveSub?.close());
+watch([session, live, liveChannels], ensureLive, { deep: true, immediate: true });
+onUnmounted(() => liveConn?.close());
+
+// The window title is the only badge a browser tab has; a shell shows the toast instead.
+watch(
+  () =>
+    Object.values(unread.value).reduce((sum, state) => sum + (state.unread ?? 0), 0) +
+    Object.values(localUnread.value).reduce((sum, n) => sum + n, 0),
+  (count) => setTitleBadge(count),
+  { immediate: true }
+);
+
+async function enableNotifications(): Promise<void> {
+  notifyState.value = await requestNotify();
+  if (notifyState.value === 'granted') {
+    showNotification('Timbre', 'Notifications are on for this device while the app is open.');
+  }
+}
+
+function toAuth(): void {
+  location.hash = 'auth';
+}
 
 function signOutNow() {
   signOut();
@@ -569,7 +684,7 @@ function pickServer(id: string) {
         const t = chans.find((c) => c.kind === 'text');
         if (t) {
           activeChannel.value = t.id;
-          fetchMessages(s, t.id).then((m) => (liveMessages.value[t.id] = m));
+          fetchMessages(s, t.id).then((page) => (liveMessages.value[t.id] = page.messages));
         }
       });
     }
@@ -697,7 +812,7 @@ watch([activeServer, activeChannel], () => {
     :query="hashQuery"
     :demo="demoMode"
     @done="enter"
-    @cancel="location.hash = 'auth'"
+    @cancel="toAuth"
   />
   <AuthScreen
     v-else-if="route !== 'chat' || (!session && !demoMode)"
@@ -779,6 +894,10 @@ watch([activeServer, activeChannel], () => {
       @select="openHit"
       @close="closeSearch"
     />
+    <button v-if="toast" class="toast" type="button" @click="jumpToChannel(toast.channelId)">
+      <Icon name="bell" :size="16" />
+      <span class="toast-text">{{ toast.text }}</span>
+    </button>
     <AccountSheet
       v-if="accountOpen && session"
       :name="me.name"
@@ -788,10 +907,12 @@ watch([activeServer, activeChannel], () => {
       :avatar-url="me.avatarUrl"
       :busy="profileBusy"
       :error="profileError"
+      :notifications="notifyState"
       @close="closeAccount"
       @signout="signOutNow"
       @rename="onRename"
       @avatar="onAvatar"
+      @enable-notifications="enableNotifications"
     />
     <ServerSheet
       v-if="serversOpen"
@@ -804,6 +925,29 @@ watch([activeServer, activeChannel], () => {
 </template>
 
 <style scoped>
+/* The shell has no window title to count unread messages in, so a mention lands here instead:
+   one line, tappable, gone after a few seconds. */
+.toast {
+  position: fixed;
+  top: calc(var(--sp-300) + env(safe-area-inset-top, 0px));
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 70;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-200);
+  max-width: min(92vw, 480px);
+  padding: var(--sp-200) var(--sp-300);
+  border-radius: var(--radius-lg);
+  background: var(--sf-container);
+  color: var(--text);
+  box-shadow: var(--shadow-3);
+  font-size: var(--fs-sm);
+  text-align: left;
+  animation: toast-in 140ms ease-out;
+}
+@keyframes toast-in { from { transform: translate(-50%, -8px); opacity: 0; } to { transform: translate(-50%, 0); opacity: 1; } }
+.toast-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .app {
   /* The shell draws edge to edge: without this the status bar sits on top of the header. */
   padding-top: env(safe-area-inset-top, 0px);
