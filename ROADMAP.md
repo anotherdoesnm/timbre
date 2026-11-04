@@ -61,7 +61,7 @@ schema — that is what decides whether a feature is a client job or a project.
 |---|---|---|
 | **Server and channel management** | roles, permissions, invites, `join_public_server` | Create a server, create channels, roles, permissions, invites. Without it a new person cannot make a place of their own. |
 | **Moderation** | reports, bans, timeouts, automod tables | Only matters on an instance with other people on it. |
-| **Microblog (ActivityPub)** | posts, lists, hashtags, follows, notifications | A whole second product: timelines, post cards, replies, likes, boosts, lists, trends, hashtags, profiles. |
+| **Microblog (ActivityPub)** | posts, lists, hashtags, follows, notifications | A bonus, not the core: chat federation is ActivityPub too and runs entirely on the server, so nothing here is needed for federated *chat*. A second product otherwise: timelines, post cards, replies, likes, boosts, lists, trends. |
 | **Voice and video** | LiveKit, `unifiedVoiceChannel`, egress | A different kind of work: native code and media, not a Vue screen. |
 | **Drive** | `drive_folders`, quota tables | File storage with folders and sharing. |
 | **E2EE** | Megolm tables, `useChannelEncryption` | Deliberately a placeholder: no downgrade, and interop with upstream's session sharing is not a weekend job. |
@@ -86,3 +86,8 @@ channel from a notification, resumable uploads.
 
 Modern Android clients live or die by notifications and DMs, in that order; the microblog and voice
 are different products sharing a server.
+
+Worth saying plainly: **federated chat is not a client feature.** Sending a message to a member of
+another instance is the federation backend's job (ActivityPub delivery, signatures, WebFinger), and
+this client only ever writes a row and renders what it reads back. The gaps above are about the
+interface, not about federation.
