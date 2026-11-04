@@ -87,9 +87,14 @@ export function renderContentParts(content: unknown): RenderedContent {
     }
   }
   // Whatever Harmony ships next, a message must not arrive as an empty bubble: the parts this
-  // client does not know are exactly the ones a user cannot report as "invisible".
-  if (!texts.length && !images.length && parts.length) {
-    texts.push('[message content this client cannot render]');
+  // client does not know are exactly the ones a user cannot report as "invisible". An attachment
+  // is the exception — it carries `path` and no text by design, and the caller signs it into an
+  // image afterwards, so the placeholder would land on top of a perfectly good picture.
+  const hasAttachment = parts.some(
+    (part) => part && typeof part === 'object' && (part as { type?: unknown }).type === 'file'
+  );
+  if (!texts.length && !images.length && parts.length && !hasAttachment) {
+    texts.push('[unsupported message content]');
   }
   return { text: texts.join(''), images };
 }
