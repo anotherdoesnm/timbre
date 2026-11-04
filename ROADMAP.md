@@ -1,92 +1,88 @@
-# Timbre — roadmap
+# Timbre — where it stands, and what upstream has that we do not
 
-Where the client stands, what is next, and what is blocked elsewhere.
-Updated 2026-11-03.
+Updated 2026-11-04, against Harmony 1.9.2. The comparison comes from upstream's own tree
+(`src/views`, `src/stores`, `src/components`, the router) rather than from its README, which is
+written for instance operators.
 
-## Done
+The point of this file is to answer one question honestly: **if someone used the official client
+for a day and then this one, what would they miss?**
 
-- Cinny-style skin on Vue 3: layout, palette, typography, phone layout with a one-pane
-  channel list and a top server strip.
-- Discovery: `GET /api/federation/instance-info`, providers from GoTrue `/settings`,
-  capabilities, four failure modes (timeout, HTTP, not-Harmony, network).
-- Sign-in: password (works everywhere) and OAuth (PKCE; popup on desktop, redirect on phone —
-  blocked by the instance, see below). Session import for bringing a session from the web app.
-- Sessions: stored per instance, JWT validated (the anon key is refused by name), refreshed
-  before expiry and on app resume, never thrown away on a failed refresh.
-- Live data: profile, servers (`user_servers`, deduped), channels with `channel_categories`
-  names, messages with authors resolved from `user_id` **or** `metadata.subject_id`,
-  attachments from the jsonb parts.
-- Sending: `content` must be an array of parts (`messages_content_is_array`); errors surface.
-- Builds: arm64 debug APK (19 MiB, stripped), AppImage, Windows NSIS installer; published to
-  `builds.doesnmlab.xyz` and announced by a channel webhook. CI runs on request or on a tag.
-- **Test instance**: `https://timbre.doesnmlab.xyz` — Harmony 1.9.2 on a 2 GiB LXC, federation
-  off, and this build is served as its web frontend (replacing the official one in the
-  `harmony-web` container). Same-origin means no CORS, no OAuth allowlist problem, and the
-  client can be exercised end to end against a real backend.
-- **In-client registration**: email + username + password, straight to the instance. GoTrue's
-  signup only makes the auth user, so the client also writes the `profiles` row (RLS wants
-  `auth_user_id = auth.uid()`) and calls `join_public_server()` for the busiest public server —
-  a new account lands in a chat instead of an empty screen. Nothing here needs an operator.
+## What we have
 
-## Fixed after build 1c01cd1 (not in a build yet)
+Sign-in (password, OAuth via PKCE, the instance's own OIDC providers), registration and profile
+creation, session import, per-instance sessions.
 
-- Flash of mock data before live data. **Fixed**: with a session the shell renders nothing
-  until real data arrives.
-- The chat opened immediately on a phone. **Fixed**: sign-in lands on the channel list; the
-  server rail is back as a horizontal strip.
-- No avatars. **Fixed**: `profiles.avatar_url` is fetched and rendered, initials as fallback.
-- Per-message buttons still visible everywhere. **Fixed**: touch detection moved from a CSS
-  media query to `matchMedia('(hover: none)')`, so the toolbar appears on tap only.
+Servers, channels (with categories), message history with pagination, realtime over one socket
+for every channel, unread counters and a first-unread anchor, an unread badge in the title.
 
-## Next (no external blockers)
+Message rendering: text with markdown (bold, italic, code, links), `@mentions` (as links to a
+profile card), `#channel` references, custom-emoji names, stickers, attachments with signed URLs
+and a lightbox, replies with quotes, edits and deletes, reactions with a picker, webhook authors.
 
-1. **Realtime.** Subscribe to the Broadcast channels the triggers publish; today a message
-   appears only after reopening the channel.
-2. **Message rendering**: markdown, links, mentions, custom emoji (`:dance:` currently shows
-   literally), replies, edits, reactions.
-   Links, inline code, bold/italic and @mentions now render as elements from a tokeniser (no
-   `v-html`), and attachments open full size or say the signed link expired. Still missing:
-   replies, edits, reactions, custom emoji.
-3. **Unread state, notification levels, search**: unread counts and the read cursor now come
-   from `get_unread_counts()` / `mark_channel_as_read()`, channels open at the first unread
-   message with a divider, and history pages backwards from there. Still missing: per-channel
-   notification levels, and search (`get_message_page` is already the pagination path).
-4. **Settings screen**: switch instance, sign out, choose theme, toggle reduced motion.
-5. **E2EE**: encrypted channels are a placeholder today; the plan is to reuse upstream's
-   `src/services/encryption/` rather than write one.
-6. **Polish**: signed attachment URLs expire, so old images will break until re-signed; date
-   separators; long-press context menu; keyboard shortcuts on desktop.
-7. **Android keyboard and viewport**: the layout now survives the on-screen keyboard
-   (`100dvh`, `min-height: 0` on every flex and grid child, `interactive-widget=resizes-content`),
-   but the Tauri shell additionally needs `windowSoftInputMode="adjustResize"` — see README.
-   Check it on a real device once the APK with these fixes is built.
+Sending: attachments with upload, drafts per channel, a retry that cannot duplicate the message
+(the id is the client's), an offline banner.
 
-## Blocked elsewhere
+Notifications while the app is open: a system notification where the platform has one, a toast and
+a vibration in the shell, per-channel mute, do-not-disturb including the daily window.
 
-- **OAuth for any native client.** `self-host/configure.sh` writes
-  `ADDITIONAL_REDIRECT_URLS="https://$DOMAIN"`, so `${origin}/auth/callback` with
-  `origin = http://tauri.localhost` is refused and GoTrue sends the browser to SITE_URL. The
-  official app cannot sign in this way either. Needs `http://tauri.localhost/**` and
-  `tauri://localhost/**` on the instance — asked; waiting.
-- **Forgejo Releases as an artifact host**: attachment size limit versus a 124 MiB universal
-  APK. `builds.doesnmlab.xyz` serves the LAN cache read-only instead.
+Account: rename, avatar upload, sign out. Member list (join order, no presence). Search across the
+instance's messages. Mobile layout, Android hardware Back, safe-area insets.
 
-## Open questions
+## What upstream has that we do not
 
-- Does the flagship's `ADDITIONAL_REDIRECT_URLS` really contain only the app origin? One line
-  from the operator settles it.
-- `messages.user_id` sometimes points at `profiles.id`, sometimes at the auth user id — our
-  queries handle both; is one of them deprecated?
+Grouped by what it would take, with the server support that already exists in the instance's
+schema — that is what decides whether a feature is a client job or a project.
 
-## Housekeeping on the test instance
+### Small: the tables and RPCs are there and the UI is one screen
 
-- The LXC rootfs is at 97 % (9.0 G of 9.8 G). Two installer steps fail on free space and any
-  image write is one `docker pull` away from failing. Needs `pct resize 170 rootfs +8G` on the
-  node, which only the operator can run.
-- Deploying a new build into the running instance: `npm run build`, tar `dist`, copy it into the
-  `harmony-web` container's `/usr/share/nginx/html` (keep the instance's own `config.json`), no
-  restart needed — Caddy serves the container as-is. Ship the tarball through stdin
-  (`ssh node 'pct exec 170 -- sh -c "base64 -d > /root/d.tgz"' < d.b64`): a base64 argument on
-  the command line overruns `ARG_MAX` long before the tarball is large.
-- Nothing has been built since `1c01cd1`; the next APK dispatch carries the four fixes above,
-  the English strings and the served-frontend change.
+| Feature | Server side | Notes |
+|---|---|---|
+| **Notifications screen + bell** | `notifications` (own RLS), `get_user_notifications`, `get_unread_notification_count` | Upstream's bell widget lists mentions, replies, DMs, follows. Ours has no place to look at what happened while the app was closed. |
+| **Pinned messages** | `pinned_messages_view` | A pin bar or a section in the channel header. |
+| **Bookmarks** | `user_bookmarks` | Save a message, list them later. |
+| **Mark all as read** | `mark_channel_as_read` per channel, `get_unread_counts` | One button; the counters already exist. |
+| **Per-category mute** | `notification_channels.category_id`, unique index in place | Same write as channel mute, one column different. |
+
+### Medium: a fair amount of UI, no new concepts
+
+| Feature | Server side | Notes |
+|---|---|---|
+| **Direct messages** | `conversations`, `conversation_participants`, `messages.conversation_id` | The second half of a messenger. Everything we have is channel-shaped: fetch, realtime topic, unread RPC, sending. |
+| **Threads** | `threads`, `thread_members`, `active_threads_view` | A thread view and a reply-as-thread action. |
+| **Polls** | 4 tables | Vote, show results, close. |
+| **Custom emoji and sticker pickers** | `emojis`, stickers tables | We render `:name:` as text and stickers as pictures; picking one is the missing half. Emoji picker is also where the reactions picker's 12 hard-coded emoji should come from. |
+| **GIF picker** | instance endpoint (klipy) | In the composer next to the attachment button. |
+| **Presence and typing** | realtime `server-presence:<id>` topic | The member list currently has no "online", and nobody sees "typing…". |
+| **Settings beyond the profile** | `notification_preferences` (full matrix), appearance, language | Upstream has a settings screen per section; ours is a sheet with a name, an avatar and two switches. |
+
+### Large: weeks, not hours
+
+| Feature | Server side | Notes |
+|---|---|---|
+| **Server and channel management** | roles, permissions, invites, `join_public_server` | Create a server, create channels, roles, permissions, invites. Without it a new person cannot make a place of their own. |
+| **Moderation** | reports, bans, timeouts, automod tables | Only matters on an instance with other people on it. |
+| **Microblog (ActivityPub)** | posts, lists, hashtags, follows, notifications | A whole second product: timelines, post cards, replies, likes, boosts, lists, trends, hashtags, profiles. |
+| **Voice and video** | LiveKit, `unifiedVoiceChannel`, egress | A different kind of work: native code and media, not a Vue screen. |
+| **Drive** | `drive_folders`, quota tables | File storage with folders and sharing. |
+| **E2EE** | Megolm tables, `useChannelEncryption` | Deliberately a placeholder: no downgrade, and interop with upstream's session sharing is not a weekend job. |
+| **Background push** | `push_subscriptions`, `unified_push_register` | A WebView has no `PushManager`; this needs a native bridge (or a port of upstream's Kotlin plugin) plus a distributor app on the phone. |
+
+### Smaller things, worth bundling with something else
+
+Unread badges for servers and categories (only channels have them), swipe-to-reply, message
+forwarding, sound preferences, voice messages, keyboard shortcuts, i18n, deep links into a
+channel from a notification, resumable uploads.
+
+## What I would do next
+
+1. **Notifications screen.** It closes the loop we opened with mute and DND, and it is the one
+   place where "what happened while you were away" lives. Server support is complete.
+2. **Direct messages.** A chat client without DMs is a forum client.
+3. **Pins and bookmarks.** Two small features that make an active channel usable.
+4. **Emoji, sticker and GIF pickers.** The composer is the most-used surface we have, and the
+   reaction picker is twelve hard-coded characters.
+5. **Threads.** After DMs, this is the other half of a conversation that is not a channel.
+6. **Server and channel management.** Needed the day somebody else wants to use the instance.
+
+Modern Android clients live or die by notifications and DMs, in that order; the microblog and voice
+are different products sharing a server.
