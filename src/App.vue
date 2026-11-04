@@ -553,6 +553,9 @@ const syncNarrow = (): void => {
   narrow.value = media?.matches === true;
 };
 syncNarrow();
+// A phone starts with the roster closed: the sheet is one tap away, and an open one on first load
+// hides the conversation behind a scrim.
+if (narrow.value) membersOpen.value = false;
 media?.addEventListener('change', syncNarrow);
 onUnmounted(() => media?.removeEventListener('change', syncNarrow));
 
@@ -1137,16 +1140,7 @@ watch([activeServer, activeChannel], () => {
   /* Same specificity as `.app.with-members`, otherwise the desktop columns win and the chat
      is squeezed into whatever the rail and the room list leave behind. */
   .app,
-  .members-backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 42;
-  display: flex;
-  align-items: flex-end;
-  justify-content: center;
-  background: rgb(0 0 0 / 0.45);
-}
-.app.with-members {
+  .app.with-members {
     grid-template-columns: 1fr;
     grid-template-rows: 1fr;
   }
