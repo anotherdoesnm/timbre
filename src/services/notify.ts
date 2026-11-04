@@ -113,3 +113,31 @@ export function preview(content: unknown): string {
   }
   return 'New message';
 }
+
+/**
+ * Is `now` inside the quiet window? Postgres gives the window back as `HH:MM:SS`, and a window
+ * that starts at 22:00 and ends at 08:00 wraps past midnight — the case a naive `start <= now <
+ * end` comparison gets backwards. An enabled window whose ends were never set means all day.
+ */
+export function inQuietHours(start: string | null, end: string | null, now = new Date()): boolean {
+  const minutes = (value: string | null): number | null => {
+    const m = /^(\d{1,2}):(\d{2})/.exec(value ?? '');
+    if (!m) return null;
+    const h = Number(m[1]);
+    const min = Number(m[2]);
+    if (!Number.isFinite(h) || !Number.isFinite(min) || h > 23 || min > 59) return null;
+    return h * 60 + min;
+  };
+  const from = minutes(start);
+  const to = minutes(end);
+  if (from === null || to === null) return true;
+  if (from === to) return true;
+  const at = now.getHours() * 60 + now.getMinutes();
+  return from < to ? at >= from && at < to : at >= from || at < to;
+}
+
+/** `22:00:00` → `22:00`, for the one place that shows the window to a person. */
+export function clockOf(value: string | null): string {
+  const m = /^(\d{1,2}:\d{2})/.exec(value ?? '');
+  return m ? m[1].padStart(5, '0') : '';
+}

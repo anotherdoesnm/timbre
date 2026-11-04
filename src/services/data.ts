@@ -956,6 +956,62 @@ export async function fetchMutedChannels(
   return out;
 }
 
+/**
+ * The person's notification settings, of which this client honours the one that changes what a
+ * message is allowed to do: do-not-disturb, including its daily window. The instance stores the
+ * window as two times and expects the client to decide whether "now" falls inside it.
+ */
+export interface NotificationPrefs {
+  dndEnabled: boolean;
+  /** `HH:MM:SS` as Postgres prints a `time`, or null when the window was never set. */
+  dndStart: string | null;
+  dndEnd: string | null;
+  pushMentions: boolean;
+  pushDms: boolean;
+}
+
+export async function fetchNotificationPrefs(
+  session: Session,
+  profileId: string
+): Promise<NotificationPrefs | null> {
+  const rows = await rest<Row[]>(
+    session,
+    'notification_preferences',
+    `user_id=eq.${encodeURIComponent(profileId)}` +
+      '&select=dnd_enabled,dnd_start_time,dnd_end_time,push_mentions,push_dms&limit=1'
+  ).catch(() => [] as Row[]);
+  const row = rows[0];
+  if (!row) return null;
+  return {
+    dndEnabled: row.dnd_enabled === true,
+    dndStart: typeof row.dnd_start_time === 'string' ? row.dnd_start_time : null,
+    dndEnd: typeof row.dnd_end_time === 'string' ? row.dnd_end_time : null,
+    pushMentions: row.push_mentions !== false,
+    pushDms: row.push_dms !== false,
+  };
+}
+
+/** Turns do-not-disturb on or off; the window itself is left as the instance has it. */
+export async function setDnd(session: Session, profileId: string, enabled: boolean): Promise<void> {
+  const res = await fetch(
+    `${session.supabaseUrl}/rest/v1/notification_preferences?user_id=eq.${encodeURIComponent(profileId)}`,
+    {
+      method: 'PATCH',
+      headers: {
+        apikey: session.anonKey,
+        Authorization: `Bearer ${session.accessToken}`,
+        'Content-Type': 'application/json',
+        Prefer: 'return=minimal',
+      },
+      body: JSON.stringify({ dnd_enabled: enabled }),
+    }
+  );
+  if (!res.ok) {
+    const body = await res.text().catch(() => '');
+    throw new Error(`dnd: ${res.status} ${body.slice(0, 120)}`);
+  }
+}
+
 /** Moves the read cursor; the instance recomputes the counters from it. */
 export async function markChannelRead(session: Session, channelId: string, messageId?: string | null): Promise<void> {
   try {

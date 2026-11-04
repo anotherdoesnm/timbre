@@ -32,6 +32,8 @@ import {
   avatarUrl as avatarUrlOf,
   setChannelMute,
   fetchMutedChannels,
+  fetchNotificationPrefs,
+  setDnd,
   type SearchHit,
   type UnreadState,
   type UploadedFile,
@@ -47,6 +49,8 @@ import {
   requestNotify,
   setTitleBadge,
   showNotification,
+  inQuietHours,
+  clockOf,
   type Permission,
 } from './services/notify';
 
@@ -117,6 +121,16 @@ const unread = ref<Record<string, UnreadState>>({});
 const localUnread = ref<Record<string, number>>({});
 // Channels muted on the instance; a quiet channel never appears in the unread counters.
 const mutedChannels = ref<Record<string, true>>({});
+// Do-not-disturb, including the daily window: a muted channel is quiet, the whole account is
+// quiet inside it.
+const prefs = ref<{ dndEnabled: boolean; dndStart: string | null; dndEnd: string | null } | null>(null);
+const dndLabel = computed(() => {
+  const p = prefs.value;
+  if (!p?.dndEnabled) return '';
+  const from = clockOf(p.dndStart);
+  const to = clockOf(p.dndEnd);
+  return from && to ? `Quiet from ${from} to ${to}` : 'Always quiet';
+});
 /** In-app bubble: the Android shell has no window title to put a count in. */
 const toast = ref<{ text: string; channelId: string } | null>(null);
 let toastTimer: ReturnType<typeof setTimeout> | null = null;
@@ -181,7 +195,10 @@ async function catchUp(): Promise<void> {
   if (!s || !live.value) return;
   try {
     unread.value = await fetchUnreadCounts(s);
-    if (myProfileId.value) mutedChannels.value = await fetchMutedChannels(s, myProfileId.value);
+    if (myProfileId.value) {
+      mutedChannels.value = await fetchMutedChannels(s, myProfileId.value);
+      prefs.value = await fetchNotificationPrefs(s, myProfileId.value);
+    }
     if (activeChannel.value) await openChannel(activeChannel.value);
   } catch {
     /* still unreachable; the next resume tries again */
@@ -481,6 +498,7 @@ async function boot() {
       activeServer.value = list[0].id;
       unread.value = await fetchUnreadCounts(s);
       mutedChannels.value = await fetchMutedChannels(s, String(profile?.id ?? ''));
+      prefs.value = await fetchNotificationPrefs(s, String(profile?.id ?? ''));
       const chans = await fetchChannels(s, list[0].id);
       liveChannels.value[list[0].id] = chans;
       const firstText = chans.find((c) => c.kind === 'text') ?? chans[0];
@@ -635,8 +653,11 @@ function onLiveEvent(channelId: string, event: MessageEvent): void {
   if (event.op !== 'INSERT') return;
 
   const where = channelById(channelId);
-  // A muted channel still counts unread messages; it just does not interrupt.
-  if (mutedChannels.value[channelId]) return;
+  // A muted channel still counts unread messages; it just does not interrupt. Do-not-disturb does
+  // the same for the whole account, and is checked per event rather than stored, so a window that
+  // closes at 08:00 takes effect without a reload.
+  const quiet = prefs.value?.dndEnabled === true && inQuietHours(prefs.value.dndStart, prefs.value.dndEnd);
+  if (mutedChannels.value[channelId] || quiet) return;
   const named = mentions(
     record.content,
     mentionNames(me.value.username, me.value.name),
@@ -661,6 +682,22 @@ watch(
   (count) => setTitleBadge(count),
   { immediate: true }
 );
+
+/** Do-not-disturb lives on the instance too, so the phone and the browser agree on it. */
+async function toggleDnd(): Promise<void> {
+  const s = session.value;
+  const id = myProfileId.value;
+  const current = prefs.value;
+  if (!s || !id || !current) return;
+  const next = !current.dndEnabled;
+  prefs.value = { ...current, dndEnabled: next };
+  try {
+    await setDnd(s, id, next);
+  } catch (e) {
+    prefs.value = { ...current };
+    loadError.value = e instanceof Error ? e.message : String(e);
+  }
+}
 
 /** Mute is a per-user row on the instance, so it follows the account to every other client. */
 async function toggleMute(): Promise<void> {
@@ -944,6 +981,9 @@ watch([activeServer, activeChannel], () => {
       :busy="profileBusy"
       :error="profileError"
       :notifications="notifyState"
+      :dnd="prefs?.dndEnabled === true"
+      :dnd-label="dndLabel"
+      @toggle-dnd="toggleDnd"
       @close="closeAccount"
       @signout="signOutNow"
       @rename="onRename"

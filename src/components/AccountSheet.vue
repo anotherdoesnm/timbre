@@ -11,6 +11,8 @@ const props = defineProps<{
   busy?: boolean;
   error?: string;
   notifications?: 'unsupported' | 'default' | 'granted' | 'denied';
+  dnd?: boolean;
+  dndLabel?: string;
 }>();
 const emit = defineEmits<{
   (e: 'close'): void;
@@ -18,6 +20,7 @@ const emit = defineEmits<{
   (e: 'rename', name: string): void;
   (e: 'avatar', file: File): void;
   (e: 'enable-notifications'): void;
+  (e: 'toggle-dnd'): void;
 }>();
 
 const draft = ref(props.name);
@@ -103,6 +106,16 @@ function pick(event: Event): void {
         </span>
       </button>
       <p v-else class="hint">Notifications are on while the app is open.</p>
+
+      <!-- Do-not-disturb is an instance setting; this switch is how it gets flipped without the
+           official client, and the line under it says when the quiet window runs. -->
+      <button class="row" :disabled="busy" :aria-pressed="dnd ? 'true' : 'false'" @click="emit('toggle-dnd')">
+        <Icon :name="dnd ? 'bell-off' : 'bell'" :size="16" />
+        <span>
+          {{ dnd ? 'Do not disturb is on' : 'Do not disturb' }}
+          <span v-if="dnd && dndLabel" class="hint-inline">— {{ dndLabel }}</span>
+        </span>
+      </button>
 
       <button class="row danger" :disabled="busy" @click="emit('signout')">
         <Icon name="close" :size="16" />
@@ -218,5 +231,6 @@ header {
 }
 .row:active { background: var(--sfv-container); }
 .row.danger { color: var(--critical); }
+.hint-inline { color: var(--text-tertiary); font-size: var(--fs-sm); }
 .hint { margin: 0; padding: var(--sp-100) var(--sp-300) var(--sp-200); color: var(--text-tertiary); font-size: var(--fs-sm); }
 </style>
