@@ -20,6 +20,12 @@ export interface InstanceInfo {
   capabilities: string[];
   /** OAuth providers only; GoTrue reports `email`/`phone` in the same map. */
   providers: string[];
+  /**
+   * Providers the instance defined itself (`instance_config.custom_oauth_providers`), which
+   * GoTrue's `settings` endpoint does not list — it only knows the built-in names. Without this
+   * a self-hosted IdP is configured, works, and never appears as a button.
+   */
+  customProviders?: { id: string; name: string }[];
   /** Set when the provider list could not be read — the instance may well have some. */
   providersError?: string;
   emailAuth?: boolean;
@@ -65,7 +71,8 @@ function instanceFromInfo(
   body: Record<string, unknown>,
   host: string,
   providers: string[],
-  providersError?: string
+  providersError?: string,
+  customProviders: { id: string; name: string }[] = []
 ): InstanceInfo {
   return {
     origin: host,
@@ -78,6 +85,7 @@ function instanceFromInfo(
       ? body.capabilities.filter((c): c is string => typeof c === 'string')
       : [],
     providers,
+    customProviders,
     providersError,
   };
 }
@@ -135,33 +143,74 @@ async function fetchProviders(
   supabaseUrl: string,
   anonKey: string,
   timeoutMs = 8000
-): Promise<{ providers: string[]; error?: string }> {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    const origin = new URL(supabaseUrl).host;
-    const settings = (await getJson(endpoint(origin, '/auth/v1/settings'), controller.signal, {
-      apikey: anonKey ?? '',
-    })) as { external?: Record<string, boolean> };
-    const enabled = Object.entries(settings.external ?? {})
-      .filter(([, on]) => on)
-      .map(([id]) => id);
-    return { providers: enabled.filter((id) => id !== 'email' && id !== 'phone') };
-  } catch (e) {
-    const err = e as { name?: string; status?: number };
-    const reason =
-      err.name === 'AbortError' ? 'timeout' : typeof err.status === 'number' ? `HTTP ${err.status}` : 'network';
-    return { providers: [], error: reason };
-  } finally {
-    clearTimeout(timer);
-  }
+): Promise<{ providers: string[]; custom: { id: string; name: string }[]; error?: string }> {
+  const origin = new URL(supabaseUrl).host;
+  const settingsCall = (async () => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const settings = (await getJson(endpoint(origin, '/auth/v1/settings'), controller.signal, {
+        apikey: anonKey ?? '',
+      })) as { external?: Record<string, boolean> };
+      const enabled = Object.entries(settings.external ?? {})
+        .filter(([, on]) => on)
+        .map(([id]) => id);
+      return { ok: true as const, ids: enabled.filter((id) => id !== 'email' && id !== 'phone') };
+    } catch (e) {
+      const err = e as { name?: string; status?: number };
+      const reason =
+        err.name === 'AbortError'
+          ? 'timeout'
+          : typeof err.status === 'number'
+            ? `HTTP ${err.status}`
+            : 'network';
+      return { ok: false as const, reason };
+    } finally {
+      clearTimeout(timer);
+    }
+  })();
+
+  // The instance's own providers live in `instance_config`, which the instance exposes to
+  // anonymous readers precisely so the sign-in page can name them. A failure here must not
+  // report "this instance offers no sign-in methods" when the built-in list came back fine.
+  const customCall = (async () => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const rows = (await getJson(
+        endpoint(
+          origin,
+          '/rest/v1/instance_config?config_key=eq.custom_oauth_providers&select=config_value'
+        ),
+        controller.signal,
+        { apikey: anonKey ?? '' }
+      )) as { config_value?: unknown }[];
+      const list = Array.isArray(rows) ? rows[0]?.config_value : null;
+      if (!Array.isArray(list)) return [];
+      return list
+        .map((entry) => entry as { id?: unknown; name?: unknown })
+        .filter((entry) => typeof entry.id === 'string' && entry.id)
+        .map((entry) => ({
+          id: String(entry.id),
+          name: typeof entry.name === 'string' && entry.name ? entry.name : String(entry.id),
+        }));
+    } catch {
+      return [];
+    } finally {
+      clearTimeout(timer);
+    }
+  })();
+
+  const [settings, custom] = await Promise.all([settingsCall, customCall]);
+  if (!settings.ok) return { providers: [], custom, error: settings.reason };
+  return { providers: settings.ids, custom };
 }
 
 /** Re-reads just the provider list, keeping the already-resolved instance. */
 export async function refreshProviders(instance: InstanceInfo, opts: { demo?: boolean } = {}): Promise<InstanceInfo> {
   if (opts.demo || instance.demo) return instance;
-  const { providers, error } = await fetchProviders(instance.supabaseUrl, instance.supabaseAnonKey);
-  return { ...instance, providers, providersError: error };
+  const { providers, custom, error } = await fetchProviders(instance.supabaseUrl, instance.supabaseAnonKey);
+  return { ...instance, providers, customProviders: custom, providersError: error };
 }
 
 export async function discoverInstance(rawHost: string, opts: { demo?: boolean } = {}): Promise<DiscoveryResult> {
@@ -187,8 +236,11 @@ export async function discoverInstance(rawHost: string, opts: { demo?: boolean }
     if (!looksLikeHarmony(body)) {
       return { ok: false, error: { kind: 'not-harmony', message: `${host} does not answer as Harmony` } };
     }
-    const { providers, error: providersError } = await fetchProviders(body.supabaseUrl as string, body.supabaseAnonKey as string);
-    return { ok: true, instance: instanceFromInfo(body, host, providers, providersError) };
+    const { providers, custom, error: providersError } = await fetchProviders(
+      body.supabaseUrl as string,
+      body.supabaseAnonKey as string
+    );
+    return { ok: true, instance: instanceFromInfo(body, host, providers, providersError, custom) };
   } catch (e) {
     const err = e as { name?: string; status?: number; message?: string };
     if (err.name === 'AbortError') {
@@ -245,8 +297,11 @@ export async function discoverHere(): Promise<InstanceInfo | null> {
   try {
     const body = (await getJson('/api/federation/instance-info', controller.signal)) as Record<string, unknown>;
     if (!looksLikeHarmony(body)) return null;
-    const { providers, error } = await fetchProviders(body.supabaseUrl as string, body.supabaseAnonKey as string);
-    return { ...instanceFromInfo(body, host, providers, error), selfHosted: true };
+    const { providers, custom, error } = await fetchProviders(
+      body.supabaseUrl as string,
+      body.supabaseAnonKey as string
+    );
+    return { ...instanceFromInfo(body, host, providers, error, custom), selfHosted: true };
   } catch {
     return null;
   } finally {

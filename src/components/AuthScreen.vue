@@ -97,13 +97,27 @@ const providerMeta: Record<string, { label: string; badge: string }> = {
   google: { label: 'Google', badge: 'G' },
 };
 
-const providers = computed(() =>
-  (instance.value?.providers ?? []).map((id) => ({
-    id,
-    label: providerMeta[id]?.label ?? id,
-    badge: providerMeta[id]?.badge ?? id.slice(0, 2).toUpperCase(),
-  }))
-);
+const providers = computed(() => {
+  const inst = instance.value;
+  if (!inst) return [];
+  // Built-in providers come from GoTrue's settings endpoint; an instance's own OIDC providers do
+  // not appear there at all, and their display names live in `instance_config`. A provider the
+  // instance configured but the client never lists is a configured feature nobody can reach.
+  const custom = (inst.customProviders ?? []).map((p) => ({
+    id: p.id,
+    label: p.name,
+    badge: p.name.slice(0, 2).toUpperCase(),
+  }));
+  const known = new Set(custom.map((p) => p.id));
+  const builtin = inst.providers
+    .filter((id) => !known.has(id))
+    .map((id) => ({
+      id,
+      label: providerMeta[id]?.label ?? id,
+      badge: providerMeta[id]?.badge ?? id.slice(0, 2).toUpperCase(),
+    }));
+  return [...custom, ...builtin];
+});
 
 async function submit() {
   if (loading.value) return;
