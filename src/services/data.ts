@@ -437,14 +437,39 @@ export async function fetchMessages(
   const parents = new Map<string, Row>();
   for (const row of rows) parents.set(String(row.id), row);
 
+  // A webhook post has no profile at all: `user_id` is null and the presentation lives in
+  // `metadata.webhook` (`{id, name, avatar_url}`, with `metadata.bot` true). Resolving authors in
+  // `profiles` alone is why every CI announcement in #new-builds read "unknown".
+  const authorOf = (m: Row): Author => {
+    const row = byId.get(String(m.user_id));
+    if (row) return toAuthor(row, session);
+    const meta = (m.metadata ?? null) as Record<string, unknown> | null;
+    const hook =
+      meta && typeof meta.webhook === 'object' && meta.webhook
+        ? (meta.webhook as Record<string, unknown>)
+        : null;
+    const name = hook && typeof hook.name === 'string' ? hook.name : '';
+    if (name) {
+      const raw = hook && typeof hook.avatar_url === 'string' ? hook.avatar_url : '';
+      return {
+        name,
+        initial: name.slice(0, 1).toUpperCase(),
+        color: colorFor(name),
+        role: null,
+        bot: meta?.bot === true,
+        avatarUrl: raw ? avatarUrl(raw, session) : undefined,
+      };
+    }
+    return toAuthor({ username: m.is_system === true ? 'system' : 'unknown' }, session);
+  };
+
   const quoteOf = (m: Row): Message['replyTo'] | undefined => {
     const id = typeof m.reply_to === 'string' ? m.reply_to : null;
     if (!id) return undefined;
     const parent = parents.get(id);
     if (!parent) return { id, author: 'unknown', text: '(message not available)' };
     const parts = renderContentParts(parent.content);
-    const author = toAuthor(byId.get(String(parent.user_id)) ?? { username: 'unknown' }, session);
-    return { id, author: author.name, text: parts.text.slice(0, 160) };
+    return { id, author: authorOf(parent).name, text: parts.text.slice(0, 160) };
   };
 
   // Parents added above are only there for quoting; they are not part of the page.
@@ -454,7 +479,7 @@ export async function fetchMessages(
   let prevTime = 0;
   const messages: Message[] = visible.map((m) => {
     const system = m.is_system === true;
-    const author = toAuthor(byId.get(String(m.user_id)) ?? { username: system ? 'system' : 'unknown' }, session);
+    const author = authorOf(m);
     const at = new Date(String(m.created_at));
     const ms = at.getTime();
     const grouped = author.name === prevAuthor && ms - prevTime < 5 * 60 * 1000;

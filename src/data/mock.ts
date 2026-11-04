@@ -7,6 +7,8 @@ export interface Author {
   color: string;
   role?: Role;
   avatarUrl?: string;
+  /** A webhook or bot post: no profile row, the name comes from the message metadata. */
+  bot?: boolean;
 }
 
 export interface Message {

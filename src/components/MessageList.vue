@@ -178,6 +178,7 @@ watch(
           <header v-if="!m.grouped && !m.system" class="meta">
             <span class="author">{{ m.author.name }}</span>
             <span v-if="m.author.role" class="role" :class="m.author.role">{{ m.author.role === 'admin' ? 'admin' : 'mod' }}</span>
+            <span v-else-if="m.author.bot" class="role bot">bot</span>
             <span class="time">{{ m.time }}</span>
             <span v-if="m.edited" class="edited">(edited)</span>
           </header>
@@ -310,6 +311,7 @@ watch(
 }
 .role.mod { background: var(--primary-container); color: var(--primary-on-container); }
 .role.admin { background: var(--critical-container); color: #f5d6d6; }
+.role.bot { background: var(--surface-2, #2a2a2e); color: var(--text-tertiary); }
 .time { font-size: var(--fs-xs); color: var(--text-tertiary); }
 .text { margin: 0; color: var(--text); line-height: 1.5; overflow-wrap: anywhere; white-space: pre-wrap; }
 .text a { color: var(--primary-main); text-decoration: underline; text-underline-offset: 2px; }
