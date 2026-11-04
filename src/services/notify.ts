@@ -141,3 +141,40 @@ export function clockOf(value: string | null): string {
   const m = /^(\d{1,2}:\d{2})/.exec(value ?? '');
   return m ? m[1].padStart(5, '0') : '';
 }
+
+/**
+ * "Firefox on Linux", "Harmony app on Android" — the same reading upstream gives a security notice,
+ * so a person can tell their own phone from a stranger's laptop at a glance.
+ */
+export function describeDevice(userAgent: string | null | undefined): string {
+  if (!userAgent) return '';
+  const os = /Android/.test(userAgent)
+    ? 'Android'
+    : /iPad/.test(userAgent)
+      ? 'iPadOS'
+      : /iPhone|iPod/.test(userAgent)
+        ? 'iOS'
+        : /Windows/.test(userAgent)
+          ? 'Windows'
+          : /Mac OS X|Macintosh/.test(userAgent)
+            ? 'macOS'
+            : /Linux|X11/.test(userAgent)
+              ? 'Linux'
+              : '';
+  const webview = /; wv\)/.test(userAgent) || (os === 'Linux' && /AppleWebKit/.test(userAgent) && !/Chrome\/|Chromium\//.test(userAgent));
+  const browser = webview
+    ? 'Harmony app'
+    : /Edg\//.test(userAgent)
+      ? 'Edge'
+      : /OPR\//.test(userAgent)
+        ? 'Opera'
+        : /Firefox\//.test(userAgent)
+          ? 'Firefox'
+          : /Chrome\/|Chromium\//.test(userAgent)
+            ? 'Chrome'
+            : /Safari\//.test(userAgent)
+              ? 'Safari'
+              : '';
+  if (browser && os) return `${browser} on ${os}`;
+  return browser || os;
+}

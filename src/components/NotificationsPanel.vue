@@ -77,11 +77,12 @@ function when(iso: string): string {
         <span class="body">
           <span class="line">
             <span v-if="item.actor" class="who">{{ item.actor.name }}</span>
+            <span v-if="item.title" class="who">{{ item.title }}</span>
             <span class="text">{{ item.text }}</span>
           </span>
           <span class="meta">
             <span v-if="item.where">{{ item.where }}</span>
-            <span class="type">{{ item.type }}</span>
+            <span v-if="!item.title" class="type">{{ item.type }}</span>
             <span class="time">{{ when(item.createdAt) }}</span>
           </span>
         </span>

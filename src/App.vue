@@ -1054,6 +1054,8 @@ watch([activeServer, activeChannel], () => {
       @select="pickChannel"
       @servers="openServers"
       @account="openAccount"
+      @notifications="openNotifications"
+      :unread-notifications="unreadNotifications"
     />
     <main v-if="channel" class="chat">
       <ChatHeader
@@ -1062,8 +1064,6 @@ watch([activeServer, activeChannel], () => {
         :muted="!!mutedChannels[channel.id]"
         :live="live"
         @search="openSearch"
-        @notifications="openNotifications"
-        :unread-notifications="unreadNotifications"
         @toggle-mute="toggleMute"
         @toggle-members="membersOpen = !membersOpen"
         @back="closeChannel"

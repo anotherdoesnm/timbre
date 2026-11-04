@@ -9,8 +9,14 @@ const props = defineProps<{
   activeId: string;
   me?: { name: string; role: 'admin' | 'mod' | null };
   live?: boolean;
+  unreadNotifications?: number;
 }>();
-const emit = defineEmits<{ (e: 'select', id: string): void; (e: 'servers'): void; (e: 'account'): void }>();
+const emit = defineEmits<{
+  (e: 'select', id: string): void;
+  (e: 'servers'): void;
+  (e: 'account'): void;
+  (e: 'notifications'): void;
+}>();
 
 const groups = computed(() => {
   const out: { title: string; items: Channel[] }[] = [];
@@ -57,14 +63,27 @@ const groups = computed(() => {
       </section>
     </div>
 
-    <button class="me" @click="emit('account')">
-      <div class="avatar">{{ (me?.name ?? 'you').slice(0, 1).toUpperCase() }}</div>
-      <div class="me-text">
-        <span class="me-name">{{ me?.name ?? 'you' }}</span>
-        <span class="me-status">{{ live ? 'instance session' : 'demo data' }}</span>
-      </div>
-      <Icon v-if="me?.role" name="shield" :size="15" />
-    </button>
+    <!-- Notification history sits with the account, as in the official client: it is about you,
+         not about the channel you happen to have open. -->
+    <div class="me">
+      <button class="me-who" @click="emit('account')">
+        <div class="avatar">{{ (me?.name ?? 'you').slice(0, 1).toUpperCase() }}</div>
+        <div class="me-text">
+          <span class="me-name">{{ me?.name ?? 'you' }}</span>
+          <span class="me-status">{{ live ? 'instance session' : 'demo data' }}</span>
+        </div>
+        <Icon v-if="me?.role" name="shield" :size="15" />
+      </button>
+      <button
+        class="me-notifications"
+        title="Notifications"
+        :aria-label="unreadNotifications ? `Notifications, ${unreadNotifications} unread` : 'Notifications'"
+        @click="emit('notifications')"
+      >
+        <Icon name="bell" :size="16" />
+        <span v-if="unreadNotifications" class="me-dot" />
+      </button>
+    </div>
   </aside>
 </template>
 
@@ -167,6 +186,8 @@ const groups = computed(() => {
 .me {
   display: flex;
   align-items: center;
+  gap: var(--sp-100);
+  align-items: center;
   gap: var(--sp-200);
   padding: var(--sp-200) var(--sp-300);
   background: var(--bg-container);
@@ -183,6 +204,25 @@ const groups = computed(() => {
   color: var(--primary-on-container);
   font-size: var(--fs-sm);
   font-weight: 700;
+}
+.me-who {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-200);
+  min-width: 0;
+  color: inherit;
+  text-align: left;
+}
+.me-notifications { position: relative; padding: var(--sp-200); color: var(--text-tertiary); }
+.me-dot {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 7px;
+  height: 7px;
+  border-radius: var(--radius-round);
+  background: var(--primary-main);
 }
 .me-text { display: flex; flex-direction: column; flex: 1; min-width: 0; }
 .me-name { font-size: var(--fs-sm); color: var(--text); font-weight: 600; }

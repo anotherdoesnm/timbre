@@ -2,6 +2,7 @@
 
 import { authUserId, rest, rpc } from './api';
 import type { Session } from './auth';
+import { describeDevice } from './notify';
 import type { Author, Channel, Message, Server } from '../data/mock';
 
 interface Row {
@@ -1040,6 +1041,15 @@ export async function fetchProfileByUsername(
   };
 }
 
+const SECURITY_TITLES: Record<string, string> = {
+  new_sign_in: 'New sign-in',
+  mfa_enabled: 'Two-factor enabled',
+  mfa_disabled: 'Two-factor disabled',
+  recovery_code_used: 'Recovery code used',
+  recovery_codes_regenerated: 'Recovery codes regenerated',
+  password_changed: 'Password changed',
+};
+
 /** One entry of the instance's notification list, flattened for the panel. */
 export interface NotificationItem {
   id: string;
@@ -1048,6 +1058,8 @@ export interface NotificationItem {
   createdAt: string;
   /** Who caused it, when the type has somebody behind it. */
   actor?: { name: string; avatarUrl?: string; handle: string };
+  /** A line above the detail, for types that are not a message (security notices). */
+  title?: string;
   text: string;
   serverId?: string;
   channelId?: string;
@@ -1093,10 +1105,11 @@ export async function fetchNotifications(
       (typeof data.sender_username === 'string' && data.sender_username) ||
       (typeof sender.username === 'string' && sender.username) ||
       '';
+    const event = typeof data.event === 'string' ? data.event : '';
     const preview =
       (typeof data.preview === 'string' && data.preview) ||
       (typeof message.content_preview === 'string' && message.content_preview) ||
-      (typeof data.event === 'string' && data.event) ||
+      (event && !String(row.type ?? '').includes('security') ? event : '') ||
       '';
     const channelName = typeof location.channel_name === 'string' ? location.channel_name : undefined;
     const serverName = typeof location.server_name === 'string' ? location.server_name : undefined;
@@ -1114,7 +1127,15 @@ export async function fetchNotifications(
               (typeof sender.username === 'string' ? `@${sender.username}` : ''),
           }
         : undefined,
-      text: preview,
+      // A security notice reads as a sentence, not as `new_sign_in` thirty-two times: the event
+      // name becomes the title and the device/address the detail.
+      title: event ? SECURITY_TITLES[event] ?? event.replace(/_/g, ' ') : undefined,
+      text:
+        String(row.type ?? '') === 'security'
+          ? [describeDevice(typeof data.user_agent === 'string' ? data.user_agent : null), typeof data.ip === 'string' ? data.ip : '']
+              .filter(Boolean)
+              .join(' · ')
+          : preview,
       serverId:
         typeof location.server_id === 'string'
           ? location.server_id
