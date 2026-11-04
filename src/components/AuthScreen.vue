@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
 import Icon from './Icon.vue';
+import ProviderMark from './ProviderMark.vue';
 import { discoverInstance, refreshProviders, type InstanceInfo } from '../services/discover';
 import { lastSignIn, navigateToSignIn, signInWithPassword, fetchAuthUser } from '../services/auth';
 import { adoptSession, describeToken, parseSessionBlob } from '../services/sessionImport';
@@ -96,12 +97,13 @@ function importSession() {
 const email = ref(last?.email ?? '');
 const password = ref('');
 
-const providerMeta: Record<string, { label: string; badge: string }> = {
-  github: { label: 'GitHub', badge: 'GH' },
-  google: { label: 'Google', badge: 'G' },
+const providerMeta: Record<string, { label: string }> = {
+  github: { label: 'GitHub' },
+  google: { label: 'Google' },
+  twitch: { label: 'Twitch' },
 };
 
-const providers = computed(() => {
+const providers = computed<{ id: string; label: string; icon?: string }[]>(() => {
   const inst = instance.value;
   if (!inst) return [];
   // Built-in providers come from GoTrue's settings endpoint; an instance's own OIDC providers do
@@ -110,7 +112,7 @@ const providers = computed(() => {
   const custom = (inst.customProviders ?? []).map((p) => ({
     id: p.id,
     label: p.name,
-    badge: p.name.slice(0, 2).toUpperCase(),
+    icon: p.icon,
   }));
   const known = new Set(custom.map((p) => p.id));
   const builtin = inst.providers
@@ -118,7 +120,6 @@ const providers = computed(() => {
     .map((id) => ({
       id,
       label: providerMeta[id]?.label ?? id,
-      badge: providerMeta[id]?.badge ?? id.slice(0, 2).toUpperCase(),
     }));
   return [...custom, ...builtin];
 });
@@ -340,7 +341,7 @@ function reset() {
         <template v-if="step === 'signin' && providers.length">
           <div class="divider"><span>continue with</span></div>
           <button v-for="p in providers" :key="p.id" class="provider" @click="startProvider(p.id)">
-            <span class="badge">{{ p.badge }}</span>
+            <ProviderMark :id="p.id" :name="p.label" :icon="p.icon" />
             <span class="provider-label">{{ p.label }}</span>
             <Icon name="chevron" :size="16" class="chev" />
           </button>
@@ -609,15 +610,6 @@ h1 { margin: 0 0 var(--sp-100); font-size: 21px; letter-spacing: -0.01em; }
   font-size: var(--fs-base);
 }
 .provider:hover { background: var(--sfv-hover); }
-.badge {
-  width: 24px; height: 24px;
-  display: grid; place-items: center;
-  border-radius: var(--radius-xs);
-  background: var(--bg-container);
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.02em;
-}
 .provider-label { flex: 1; text-align: left; }
 .chev { transform: rotate(-90deg); color: var(--text-tertiary); }
 

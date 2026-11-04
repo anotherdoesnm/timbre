@@ -25,7 +25,7 @@ export interface InstanceInfo {
    * GoTrue's `settings` endpoint does not list — it only knows the built-in names. Without this
    * a self-hosted IdP is configured, works, and never appears as a button.
    */
-  customProviders?: { id: string; name: string }[];
+  customProviders?: { id: string; name: string; icon?: string }[];
   /** Set when the provider list could not be read — the instance may well have some. */
   providersError?: string;
   emailAuth?: boolean;
@@ -72,7 +72,7 @@ function instanceFromInfo(
   host: string,
   providers: string[],
   providersError?: string,
-  customProviders: { id: string; name: string }[] = []
+  customProviders: { id: string; name: string; icon?: string }[] = []
 ): InstanceInfo {
   return {
     origin: host,
@@ -143,7 +143,7 @@ async function fetchProviders(
   supabaseUrl: string,
   anonKey: string,
   timeoutMs = 8000
-): Promise<{ providers: string[]; custom: { id: string; name: string }[]; error?: string }> {
+): Promise<{ providers: string[]; custom: { id: string; name: string; icon?: string }[]; error?: string }> {
   const origin = new URL(supabaseUrl).host;
   const settingsCall = (async () => {
     const controller = new AbortController();
@@ -188,11 +188,12 @@ async function fetchProviders(
       const list = Array.isArray(rows) ? rows[0]?.config_value : null;
       if (!Array.isArray(list)) return [];
       return list
-        .map((entry) => entry as { id?: unknown; name?: unknown })
+        .map((entry) => entry as { id?: unknown; name?: unknown; icon?: unknown })
         .filter((entry) => typeof entry.id === 'string' && entry.id)
         .map((entry) => ({
           id: String(entry.id),
           name: typeof entry.name === 'string' && entry.name ? entry.name : String(entry.id),
+          ...(typeof entry.icon === 'string' && entry.icon ? { icon: entry.icon } : {}),
         }));
     } catch {
       return [];
