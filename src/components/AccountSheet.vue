@@ -16,6 +16,7 @@ const emit = defineEmits<{
   (e: 'close'): void;
   (e: 'signout'): void;
   (e: 'rename', name: string): void;
+  (e: 'avatar', file: File): void;
   (e: 'enable-notifications'): void;
 }>();
 
