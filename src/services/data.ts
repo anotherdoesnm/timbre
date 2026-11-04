@@ -115,7 +115,7 @@ type Origin = { instance: string; supabaseUrl: string };
  * case against the page is what made the APK differ from the browser: inside the shell the
  * page is `tauri.localhost`, which serves no such file.
  */
-function avatarUrl(url: unknown, at: Origin): string | undefined {
+export function avatarUrl(url: unknown, at: Origin): string | undefined {
   if (typeof url !== 'string' || !url) return undefined;
   if (/^https?:\/\//i.test(url)) return url;
   if (url.startsWith('/')) return `https://${at.instance}${url}`;
@@ -147,6 +147,75 @@ export async function fetchMe(session: Session): Promise<Row | null> {
     `auth_user_id=eq.${encodeURIComponent(sub)}&select=id,username,display_name,avatar_url,color,is_admin,is_moderator&limit=1`
   );
   return rows[0] ?? null;
+}
+
+/**
+ * A profile edit is one PATCH: row-level security lets the owner (and instance staff) touch the
+ * row, and every client renders `display_name`, so nothing else has to change to make a rename
+ * visible.
+ */
+export async function updateProfile(
+  session: Session,
+  profileId: string,
+  patch: { display_name?: string; avatar_url?: string }
+): Promise<void> {
+  const res = await fetch(
+    `${session.supabaseUrl}/rest/v1/profiles?id=eq.${encodeURIComponent(profileId)}`,
+    {
+      method: 'PATCH',
+      headers: {
+        apikey: session.anonKey,
+        Authorization: `Bearer ${session.accessToken}`,
+        'Content-Type': 'application/json',
+        Prefer: 'return=minimal',
+      },
+      body: JSON.stringify(patch),
+    }
+  );
+  if (!res.ok) {
+    const body = await res.text().catch(() => '');
+    throw new Error(`profile: ${res.status} ${body.slice(0, 160)}`);
+  }
+}
+
+/**
+ * Uploads an avatar and returns the value for `profiles.avatar_url`.
+ *
+ * That column holds the bare object path (`<profileId>/<file>`) rather than a URL — the shape
+ * `avatarUrl()` resolves for every author — so the upload is only half the job and the caller
+ * patches the path in afterwards.
+ */
+export async function uploadAvatar(
+  session: Session,
+  profileId: string,
+  file: File
+): Promise<string> {
+  const ext =
+    (file.name.split('.').pop() ?? 'png').toLowerCase().replace(/[^a-z0-9]/g, '') || 'png';
+  const stem =
+    (file.name.replace(/\.[^.]+$/, '') || 'avatar')
+      .toLowerCase()
+      .replace(/[^a-z0-9._-]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 40) || 'avatar';
+  // The timestamp keeps a re-upload from overwriting the old file while browsers still cache
+  // it; the path is short because it lives in the profile row.
+  const path = `${profileId}/${stem}-${Date.now().toString(36)}.${ext}`;
+  const res = await fetch(`${session.supabaseUrl}/storage/v1/object/avatars/${path}`, {
+    method: 'POST',
+    headers: {
+      apikey: session.anonKey,
+      Authorization: `Bearer ${session.accessToken}`,
+      'Content-Type': file.type || 'application/octet-stream',
+      'x-upsert': 'true',
+    },
+    body: file,
+  });
+  if (!res.ok) {
+    const body = await res.text().catch(() => '');
+    throw new Error(`avatar: ${res.status} ${body.slice(0, 160)}`);
+  }
+  return path;
 }
 
 export async function fetchServers(session: Session, profileId: string): Promise<Server[]> {

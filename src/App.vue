@@ -27,6 +27,9 @@ import {
   toggleReaction,
   sendMessage,
   uploadAttachment,
+  updateProfile,
+  uploadAvatar,
+  avatarUrl as avatarUrlOf,
   type SearchHit,
   type UnreadState,
   type UploadedFile,
@@ -71,7 +74,16 @@ const probing = ref(Boolean(selfHost) && !homeSession && !demoMode);
 const live = ref(false);
 const loading = ref(false);
 const loadError = ref('');
-const me = ref<{ name: string; role: 'admin' | 'mod' | null }>({ name: 'you', role: null });
+const me = ref<{
+  name: string;
+  username?: string;
+  role: 'admin' | 'mod' | null;
+  avatarUrl?: string;
+}>({ name: 'you', role: null });
+// Renaming and re-avataring live in the account sheet: the instance ships no settings screen, and
+// a federated profile is just a row its owner may PATCH.
+const profileBusy = ref(false);
+const profileError = ref('');
 
 const liveServers = ref<typeof mockServers>([]);
 const liveChannels = ref<Record<string, typeof mockChannels>>({});
@@ -179,6 +191,56 @@ async function onDeleteMessage(m: { id: string }): Promise<void> {
     liveMessages.value[ch.id] = page.messages;
   } catch (e) {
     loadError.value = e instanceof Error ? e.message : String(e);
+  }
+}
+
+/**
+ * Re-reads the open page so a changed display name or avatar shows on messages already on
+ * screen. Only the last page is fetched, and nothing scrolls: the list is replaced in place.
+ */
+async function refreshByline(): Promise<void> {
+  const s = session.value;
+  const ch = channel.value;
+  if (!s || !ch) return;
+  const page = await fetchMessages(s, ch.id);
+  liveMessages.value[ch.id] = page.messages;
+}
+
+async function onRename(name: string): Promise<void> {
+  const s = session.value;
+  const id = myProfileId.value;
+  const trimmed = name.trim();
+  if (!s || !id || !trimmed) return;
+  profileBusy.value = true;
+  profileError.value = '';
+  try {
+    await updateProfile(s, id, { display_name: trimmed });
+    me.value = { ...me.value, name: trimmed };
+    await refreshByline();
+  } catch (e) {
+    profileError.value = e instanceof Error ? e.message : String(e);
+  } finally {
+    profileBusy.value = false;
+  }
+}
+
+async function onAvatar(file: File): Promise<void> {
+  const s = session.value;
+  const id = myProfileId.value;
+  if (!s || !id) return;
+  profileBusy.value = true;
+  profileError.value = '';
+  try {
+    // Two steps, in this order: the object has to exist before the profile points at it, or
+    // every client renders a broken avatar for as long as the upload takes.
+    const path = await uploadAvatar(s, id, file);
+    await updateProfile(s, id, { avatar_url: path });
+    me.value = { ...me.value, avatarUrl: avatarUrlOf(path, s) };
+    await refreshByline();
+  } catch (e) {
+    profileError.value = e instanceof Error ? e.message : String(e);
+  } finally {
+    profileBusy.value = false;
   }
 }
 
@@ -373,7 +435,9 @@ async function boot() {
     if (profile) {
       me.value = {
         name: String(profile.display_name || profile.username || 'you'),
+        username: typeof profile.username === 'string' ? profile.username : undefined,
         role: profile.is_admin ? 'admin' : profile.is_moderator ? 'mod' : null,
+        avatarUrl: avatarUrlOf(profile.avatar_url, s),
       };
     }
     const list = await fetchServers(s, String(profile?.id ?? ''));
@@ -649,10 +713,16 @@ watch([activeServer, activeChannel], () => {
     <AccountSheet
       v-if="accountOpen && session"
       :name="me.name"
+      :username="me.username"
       :instance="session.instance"
       :role="me.role"
-      @close="accountOpen = false"
+      :avatar-url="me.avatarUrl"
+      :busy="profileBusy"
+      :error="profileError"
+      @close="accountOpen = false; profileError = ''"
       @signout="signOutNow"
+      @rename="onRename"
+      @avatar="onAvatar"
     />
     <ServerSheet
       v-if="serversOpen"
