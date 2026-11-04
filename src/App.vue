@@ -809,7 +809,7 @@ watch([activeServer, activeChannel], () => {
   padding-top: env(safe-area-inset-top, 0px);
   /* `--kb-inset` is the slice the keyboard covers in browsers that do not resize the layout
      viewport (Firefox); everywhere else it is 0. */
-  padding-bottom: var(--kb-inset, 0px);
+  padding-bottom: calc(var(--kb-inset, 0px) + var(--nav-inset, 0px));
   /* Pinned to the viewport rather than sized with 100%: on a phone the layout viewport is not
      the same thing as the visible area (URL bar, keyboard), and sizing by height left a strip
      of empty background under the composer. Fixed to inset 0 always ends where the visible

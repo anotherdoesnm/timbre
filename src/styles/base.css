@@ -38,6 +38,11 @@ body {
   text-rendering: optimizeLegibility;
 }
 
+/* The system navigation bar, only inside the shell (see main.ts): a gesture bar and the
+   three-button layout are different heights, and neither exists in a browser tab. */
+:root { --nav-inset: 0px; }
+html.shell { --nav-inset: env(safe-area-inset-bottom, 0px); }
+
 button {
   font: inherit;
   color: inherit;

@@ -80,13 +80,16 @@ export function fileParts(content: unknown): FilePart[] {
       (typeof o.name === 'string' && o.name) ||
       (o.path.split('/').pop() ?? 'file');
     const kind = typeof o.fileType === 'string' ? o.fileType : '';
-    const contentType = kind.includes('/')
-      ? kind
-      : kind
-        ? `${kind}/`
-        : typeof o.contentType === 'string'
-          ? o.contentType
-          : 'application/octet-stream';
+    const mime = typeof o.mime_type === 'string' ? o.mime_type : typeof o.mimeType === 'string' ? o.mimeType : '';
+    const contentType = mime
+      ? mime
+      : kind.includes('/')
+        ? kind
+        : kind
+          ? `${kind}/`
+          : typeof o.contentType === 'string'
+            ? o.contentType
+            : 'application/octet-stream';
     out.push({
       path: o.path,
       name,
@@ -161,6 +164,14 @@ function toAuthor(row: Row, at: Origin): Author {
     role: row.is_admin ? 'admin' : row.is_moderator ? 'mod' : null,
     avatarUrl: avatarUrl(row.avatar_url, at),
   };
+}
+
+/** The coarse kind a part advertises: what a renderer checks before it inlines an attachment. */
+function kindOf(mime: string): string {
+  if (mime.startsWith('image/')) return 'image';
+  if (mime.startsWith('video/')) return 'video';
+  if (mime.startsWith('audio/')) return 'audio';
+  return 'file';
 }
 
 export async function fetchMe(session: Session): Promise<Row | null> {
@@ -340,7 +351,11 @@ export async function sendMessage(
           ...(signed[f.path] ? { url: signed[f.path] } : {}),
           fileName: f.name,
           fileSize: f.size,
-          fileType: f.contentType,
+          // `fileType` is a *kind*, not a MIME type: the official renderer compares it to "image"
+          // (voice messages carry "audio" for the same reason). Sending "image/png" there left
+          // every picture as a file chip; the full type goes in `mime_type`.
+          fileType: kindOf(f.contentType),
+          mime_type: f.contentType,
         })),
       ],
       ...(files.length ? { media_paths: files.map((f) => f.path) } : {}),
