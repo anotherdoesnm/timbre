@@ -139,10 +139,11 @@ async function runSearch(query: string): Promise<void> {
 }
 
 async function openHit(hit: SearchHit): Promise<void> {
-  searchOpen.value = false;
+  closeSearch();
   if (hit.channelId !== activeChannel.value) {
     activeChannel.value = hit.channelId;
     mobilePane.value = 'chat';
+    openGuard('channel');
     await openChannel(hit.channelId);
   }
   focusId.value = hit.messageId;
@@ -577,9 +578,77 @@ function pickServer(id: string) {
   }
 }
 
+/**
+ * Android only sends the hardware Back into the WebView while it has history to walk: Tauri's
+ * AppPlugin calls `goBack()` when `canGoBack()` and finishes the activity otherwise. A single-page
+ * app has one entry, so Back used to exit the client from any screen — including from a channel
+ * list, a sheet, or a half-typed search. One pushed entry per screen gives it something to close.
+ */
+type Guard = 'search' | 'account' | 'servers' | 'channel';
+const guards: Guard[] = [];
+
+function openGuard(kind: Guard): void {
+  if (guards.includes(kind)) return;
+  guards.push(kind);
+  history.pushState({ guard: kind }, '');
+}
+
+function closeGuard(kind: Guard): void {
+  const at = guards.lastIndexOf(kind);
+  if (at < 0) return;
+  guards.splice(at, 1);
+  // Walk the entry back as well, or the next press would be spent on a screen that is already
+  // gone. `popstate` then finds nothing to do, which is why that handler is idempotent.
+  if (at === guards.length && (history.state as { guard?: string } | null)?.guard === kind) {
+    history.back();
+  }
+}
+
+function openAccount(): void {
+  accountOpen.value = true;
+  openGuard('account');
+}
+function closeAccount(): void {
+  accountOpen.value = false;
+  profileError.value = '';
+  closeGuard('account');
+}
+function openServers(): void {
+  serversOpen.value = true;
+  openGuard('servers');
+}
+function closeServers(): void {
+  serversOpen.value = false;
+  closeGuard('servers');
+}
+function openSearch(): void {
+  searchOpen.value = true;
+  openGuard('search');
+}
+function closeSearch(): void {
+  searchOpen.value = false;
+  closeGuard('search');
+}
+function closeChannel(): void {
+  mobilePane.value = 'rooms';
+  closeGuard('channel');
+}
+
+window.addEventListener('popstate', () => {
+  const kind = guards.pop();
+  if (!kind) return;
+  if (kind === 'search') searchOpen.value = false;
+  else if (kind === 'account') {
+    accountOpen.value = false;
+    profileError.value = '';
+  } else if (kind === 'servers') serversOpen.value = false;
+  else if (kind === 'channel') mobilePane.value = 'rooms';
+});
+
 function pickChannel(id: string) {
   activeChannel.value = id;
   mobilePane.value = 'chat';
+  openGuard('channel');
   replyTarget.value = null;
   unreadAnchor.value = null;
   const s = session.value;
@@ -652,17 +721,17 @@ watch([activeServer, activeChannel], () => {
       :me="me"
       :live="live"
       @select="pickChannel"
-      @servers="serversOpen = true"
-      @account="accountOpen = true"
+      @servers="openServers"
+      @account="openAccount"
     />
     <main v-if="channel" class="chat">
       <ChatHeader
         :channel="channel"
         :members-open="membersOpen"
         :live="live"
-        @search="searchOpen = true"
+        @search="openSearch"
         @toggle-members="membersOpen = !membersOpen"
-        @back="mobilePane = 'rooms'"
+        @back="closeChannel"
       />
       <p v-if="loadError" class="banner">{{ loadError }}</p>
       <MessageList
@@ -708,7 +777,7 @@ watch([activeServer, activeChannel], () => {
       :error="searchError"
       @search="runSearch"
       @select="openHit"
-      @close="searchOpen = false"
+      @close="closeSearch"
     />
     <AccountSheet
       v-if="accountOpen && session"
@@ -719,7 +788,7 @@ watch([activeServer, activeChannel], () => {
       :avatar-url="me.avatarUrl"
       :busy="profileBusy"
       :error="profileError"
-      @close="accountOpen = false; profileError = ''"
+      @close="closeAccount"
       @signout="signOutNow"
       @rename="onRename"
       @avatar="onAvatar"
@@ -729,7 +798,7 @@ watch([activeServer, activeChannel], () => {
       :servers="servers"
       :active-id="activeServer"
       @select="(id) => { pickServer(id); serversOpen = false; }"
-      @close="serversOpen = false"
+      @close="closeServers"
     />
   </div>
 </template>
