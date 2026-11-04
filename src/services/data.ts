@@ -38,7 +38,13 @@ export function renderContentParts(content: unknown): RenderedContent {
     if (!part || typeof part !== 'object') continue;
     const o = part as Record<string, unknown>;
     const type = String(o.type ?? '');
-    if (typeof o.url === 'string' && (type.includes('image') || type.includes('media') || type.includes('file'))) {
+    // A part with a `path` is re-signed by the caller (links expire); one without a path only has
+    // its URL to go on.
+    if (
+      typeof o.url === 'string' &&
+      typeof o.path !== 'string' &&
+      (type.includes('image') || type.includes('media') || type.includes('file'))
+    ) {
       images.push(o.url);
       continue;
     }
@@ -67,11 +73,30 @@ export function fileParts(content: unknown): FilePart[] {
     if (!part || typeof part !== 'object') continue;
     const o = part as Record<string, unknown>;
     if (o.type !== 'file' || typeof o.path !== 'string') continue;
+    // Two shapes exist in the wild: Harmony's own client writes `fileName`/`fileType`/`fileSize`,
+    // this client used to write `name`/`contentType`/`size`. Read both, canonical first.
+    const name =
+      (typeof o.fileName === 'string' && o.fileName) ||
+      (typeof o.name === 'string' && o.name) ||
+      (o.path.split('/').pop() ?? 'file');
+    const kind = typeof o.fileType === 'string' ? o.fileType : '';
+    const contentType = kind.includes('/')
+      ? kind
+      : kind
+        ? `${kind}/`
+        : typeof o.contentType === 'string'
+          ? o.contentType
+          : 'application/octet-stream';
     out.push({
       path: o.path,
-      name: typeof o.name === 'string' ? o.name : (o.path.split('/').pop() ?? 'file'),
-      contentType: typeof o.contentType === 'string' ? o.contentType : 'application/octet-stream',
-      size: typeof o.size === 'number' ? o.size : undefined,
+      name,
+      contentType,
+      size:
+        typeof o.fileSize === 'number'
+          ? o.fileSize
+          : typeof o.size === 'number'
+            ? o.size
+            : undefined,
     });
   }
   return out;
@@ -284,6 +309,12 @@ export async function sendMessage(
   replyToId?: string | null,
   files: UploadedFile[] = []
 ): Promise<void> {
+  // A year rather than the hour used for display: this URL is written into the message, where
+  // other clients read it as-is and never re-sign. Harmony's own messages carry long-lived links
+  // for exactly that reason.
+  const signed = files.length
+    ? await signMedia(session, files.map((f) => f.path), 365 * 24 * 60 * 60)
+    : {};
   const res = await fetch(`${session.supabaseUrl}/rest/v1/messages`, {
     method: 'POST',
     headers: {
@@ -297,14 +328,19 @@ export async function sendMessage(
     body: JSON.stringify({
       channel_id: channelId,
       user_id: userId,
+      // Harmony's own clients read `fileName`/`fileType`/`fileSize` and render the attachment from
+      // `url`; a part carrying only `name`/`contentType` (what this client used to send) showed up
+      // there as a bare file chip titled with the object's UUID.
       content: [
         ...(content ? [{ type: 'text', text: content }] : []),
         ...files.map((f) => ({
           type: 'file',
           path: f.path,
-          name: f.name,
-          size: f.size,
-          contentType: f.contentType,
+          // Signed for immediacy; readers that understand `path` re-sign it later anyway.
+          ...(signed[f.path] ? { url: signed[f.path] } : {}),
+          fileName: f.name,
+          fileSize: f.size,
+          fileType: f.contentType,
         })),
       ],
       ...(files.length ? { media_paths: files.map((f) => f.path) } : {}),
@@ -393,7 +429,11 @@ export async function uploadAttachment(
  * Storage links are signed and expire. They are fetched per path; an expired URL shows a
  * placeholder rather than breaking the message.
  */
-export async function signMedia(session: Session, paths: string[]): Promise<Record<string, string>> {
+export async function signMedia(
+  session: Session,
+  paths: string[],
+  expiresIn = 3600
+): Promise<Record<string, string>> {
   const unique = [...new Set(paths.filter(Boolean))];
   const out: Record<string, string> = {};
   await Promise.all(
@@ -406,7 +446,7 @@ export async function signMedia(session: Session, paths: string[]): Promise<Reco
             Authorization: `Bearer ${session.accessToken}`,
             'Content-Type': 'application/json',
           },
-          body: JSON.stringify({ expiresIn: 3600 }),
+          body: JSON.stringify({ expiresIn }),
         });
         if (!res.ok) return;
         const body = (await res.json()) as { signedURL?: string };
