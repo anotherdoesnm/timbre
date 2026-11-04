@@ -10,7 +10,8 @@ import type { Author } from '../data/mock';
  * is a bottom sheet rather than a popover because on a phone the mention is under the thumb.
  */
 const props = defineProps<{
-  person: Author & { username?: string; domain?: string };
+  /** `id` and `name` only when the lookup found nothing; the handle is still worth showing. */
+  person: Partial<Author> & { name: string; username?: string; domain?: string };
   onClose: () => void;
 }>();
 
@@ -28,9 +29,9 @@ const handle = (): string => {
         <button class="close" aria-label="Close" @click="onClose()"><Icon name="close" :size="18" /></button>
       </header>
       <div class="who">
-        <span class="avatar" :style="person.avatarUrl ? undefined : { background: person.color }">
+        <span class="avatar" :style="person.avatarUrl ? undefined : { background: person.color ?? 'var(--primary-main)' }">
           <img v-if="person.avatarUrl" :src="person.avatarUrl" alt="" referrerpolicy="no-referrer" />
-          <template v-else>{{ person.initial }}</template>
+          <template v-else>{{ (person.initial ?? person.name.slice(0, 1)).toUpperCase() }}</template>
         </span>
         <span class="text">
           <span class="name">

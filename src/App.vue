@@ -137,7 +137,7 @@ const members = computed<Author[] | undefined>(() =>
 );
 
 /** The person behind a tapped mention, once looked up. */
-const profileCard = ref<(Author & { username?: string; domain?: string }) | null>(null);
+const profileCard = ref<(Partial<Author> & { name: string; username?: string; domain?: string }) | null>(null);
 const dndLabel = computed(() => {
   const p = prefs.value;
   if (!p?.dndEnabled) return '';
@@ -758,7 +758,9 @@ async function openMention(handle: string): Promise<void> {
   const s = session.value;
   if (!s || !live.value) return;
   const person = await fetchProfileByUsername(s, handle);
-  if (person) profileCard.value = person;
+  // A handle that no profile row answers is still a person someone named: show the handle rather
+  // than nothing, which is indistinguishable from a dead button.
+  profileCard.value = person ?? { name: handle, initial: handle.slice(0, 1).toUpperCase(), color: '#6b7280' };
 }
 
 /** Tapping `#channel` goes there when this server has a channel by that name. */

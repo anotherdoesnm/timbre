@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, ref } from 'vue';
 import { members as mockMembers, type Author } from '../data/mock';
 
 /**
@@ -30,6 +30,8 @@ const roster = computed<Row[]>(() =>
       }))
     : (mockMembers as Row[])
 );
+/** A picture that fails to load falls back to the initial, as it does in the message list. */
+const broken = ref<Record<string, true>>({});
 const online = computed(() => roster.value.filter((m) => m.status !== 'offline'));
 const offline = computed(() => roster.value.filter((m) => m.status === 'offline'));
 </script>
@@ -39,8 +41,15 @@ const offline = computed(() => roster.value.filter((m) => m.status === 'offline'
     <section v-for="g in [{ t: `Online — ${online.length}`, list: online }, { t: `Offline — ${offline.length}`, list: offline }]" :key="g.t">
       <div class="title">{{ g.t }}</div>
       <div v-for="m in g.list" :key="m.name" class="row" :class="{ dim: m.status === 'offline' }">
-        <div class="av" :style="m.avatarUrl ? undefined : { background: m.color }">
-          <img v-if="m.avatarUrl" :src="m.avatarUrl" alt="" loading="lazy" referrerpolicy="no-referrer" />
+        <div class="av" :style="!m.avatarUrl || broken[m.name] ? { background: m.color } : undefined">
+          <img
+            v-if="m.avatarUrl && !broken[m.name]"
+            :src="m.avatarUrl"
+            alt=""
+            loading="lazy"
+            referrerpolicy="no-referrer"
+            @error="broken[m.name] = true"
+          />
           <template v-else>{{ m.initial }}</template>
         </div>
         <div class="who">
