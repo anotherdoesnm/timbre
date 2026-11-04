@@ -10,12 +10,13 @@ const props = defineProps<{
   avatarUrl?: string;
   busy?: boolean;
   error?: string;
+  notifications?: 'unsupported' | 'default' | 'granted' | 'denied';
 }>();
 const emit = defineEmits<{
   (e: 'close'): void;
   (e: 'signout'): void;
   (e: 'rename', name: string): void;
-  (e: 'avatar', file: File): void;
+  (e: 'enable-notifications'): void;
 }>();
 
 const draft = ref(props.name);
@@ -84,6 +85,23 @@ function pick(event: Event): void {
         </button>
         <span v-if="error" class="error">{{ error }}</span>
       </div>
+
+      <button
+        v-if="notifications !== 'granted'"
+        class="row"
+        :disabled="notifications === 'unsupported' || notifications === 'denied' || busy"
+        @click="emit('enable-notifications')"
+      >
+        <Icon name="bell" :size="16" />
+        <span>
+          {{ notifications === 'unsupported'
+            ? 'Notifications are not available here'
+            : notifications === 'denied'
+              ? 'Notifications blocked in the browser settings'
+              : 'Turn on notifications' }}
+        </span>
+      </button>
+      <p v-else class="hint">Notifications are on while the app is open.</p>
 
       <button class="row danger" :disabled="busy" @click="emit('signout')">
         <Icon name="close" :size="16" />
@@ -197,4 +215,5 @@ header {
 }
 .row:active { background: var(--sfv-container); }
 .row.danger { color: var(--critical); }
+.hint { margin: 0; padding: var(--sp-100) var(--sp-300) var(--sp-200); color: var(--text-tertiary); font-size: var(--fs-sm); }
 </style>

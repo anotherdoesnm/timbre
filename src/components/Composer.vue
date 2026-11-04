@@ -6,6 +6,8 @@ const props = defineProps<{
   disabled?: boolean;
   channelName: string;
   sending?: boolean;
+  /** An attachment is still uploading: sending now would post a message pointing at nothing. */
+  uploading?: boolean;
   replyTo?: { author: string; text: string } | null;
   attached?: { path: string; name: string }[];
   /** When set, the composer edits this message instead of sending a new one. */
