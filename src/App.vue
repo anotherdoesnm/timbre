@@ -112,6 +112,9 @@ const liveMessages = ref<Record<string, typeof mockMessages.c1>>({});
 const activeServer = ref(mockServers[0].id);
 const activeChannel = ref('c1');
 const membersOpen = ref(true);
+// Below this width the member panel is not a column but a sheet: as a column it was hidden by CSS
+// and the header's toggle silently did nothing.
+const narrow = ref(false);
 // Phones start on the channel list: landing straight inside a channel left no way back
 // except a 32px arrow in the corner.
 const mobilePane = ref<'rooms' | 'chat'>('rooms');
@@ -544,6 +547,14 @@ function trackKeyboardInset() {
   vv.addEventListener('scroll', apply);
   apply();
 }
+
+const media = typeof window !== 'undefined' ? window.matchMedia('(max-width: 860px)') : null;
+const syncNarrow = (): void => {
+  narrow.value = media?.matches === true;
+};
+syncNarrow();
+media?.addEventListener('change', syncNarrow);
+onUnmounted(() => media?.removeEventListener('change', syncNarrow));
 
 onMounted(() => {
   trackKeyboardInset();
@@ -993,7 +1004,10 @@ watch([activeServer, activeChannel], () => {
     <main v-else class="chat empty">
       <p>{{ loading ? 'Loading…' : 'No channels, or none visible to this session.' }}</p>
     </main>
-    <MemberList v-if="membersOpen" :members="members" />
+    <MemberList v-if="membersOpen && !narrow" :members="members" />
+    <div v-else-if="membersOpen && narrow" class="members-backdrop" @click.self="membersOpen = false">
+      <MemberList class="members-overlay" :members="members" />
+    </div>
     <ProfileCard v-if="profileCard" :person="profileCard" :on-close="() => (profileCard = null)" />
     <SearchPanel
       v-if="searchOpen"
@@ -1079,6 +1093,15 @@ watch([activeServer, activeChannel], () => {
   grid-template-columns: var(--rail-width) var(--rooms-width) 1fr;
   min-height: 0;
 }
+.members-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 42;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  background: rgb(0 0 0 / 0.45);
+}
 .app.with-members { grid-template-columns: var(--rail-width) var(--rooms-width) 1fr var(--members-width); }
 .offline {
   position: fixed;
@@ -1114,13 +1137,32 @@ watch([activeServer, activeChannel], () => {
   /* Same specificity as `.app.with-members`, otherwise the desktop columns win and the chat
      is squeezed into whatever the rail and the room list leave behind. */
   .app,
-  .app.with-members {
+  .members-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 42;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  background: rgb(0 0 0 / 0.45);
+}
+.app.with-members {
     grid-template-columns: 1fr;
     grid-template-rows: 1fr;
   }
   /* Server switching moves into a sheet behind the server name in the list header. */
   .app :deep(.rail) { display: none; }
+  /* The panel becomes a sheet rather than disappearing: a toggle that does nothing is worse than
+     a layout that needs one more tap. */
   .app :deep(.members) { display: none; }
+  .app .members-backdrop :deep(.members) {
+    display: block;
+    width: 100%;
+    max-height: 70vh;
+    border-left: 0;
+    border-radius: var(--radius-xl) var(--radius-xl) 0 0;
+    padding-bottom: calc(var(--sp-500) + var(--nav-inset, 0px));
+  }
   .app :deep(.rooms) { width: 100%; display: flex; }
   .app.mobile :deep(.rooms) { display: none; }
   .app :deep(.chat) { display: none; }

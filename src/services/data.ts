@@ -1005,12 +1005,22 @@ export async function fetchProfileByUsername(
 ): Promise<(Author & { username?: string; domain?: string }) | null> {
   const handle = username.replace(/^@/, '').trim();
   if (!handle) return null;
-  const rows = await rest<Row[]>(
+  const query = (columns: string): string =>
+    `username=eq.${encodeURIComponent(handle)}&select=${columns}&limit=1`;
+  // `domain` is not on every version's profile row, and a missing column is a 400 rather than a
+  // default — ask for it, and fall back to the columns every instance has.
+  let rows = await rest<Row[]>(
     session,
     'profiles',
-    `username=eq.${encodeURIComponent(handle)}` +
-      '&select=id,username,display_name,avatar_url,color,is_admin,is_moderator,domain&limit=1'
+    query('id,username,display_name,avatar_url,color,is_admin,is_moderator,domain')
   ).catch(() => [] as Row[]);
+  if (!rows.length) {
+    rows = await rest<Row[]>(
+      session,
+      'profiles',
+      query('id,username,display_name,avatar_url,color,is_admin,is_moderator')
+    ).catch(() => [] as Row[]);
+  }
   const row = rows[0];
   if (!row) return null;
   return {
