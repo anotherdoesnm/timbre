@@ -69,7 +69,16 @@ export function parseSegments(input: string): Segment[] {
       PATTERN.lastIndex = m.index + whole.length;
     } else if (handle) {
       pushText(boundary ?? '');
-      out.push({ kind: 'mention', text: `@${handle}` });
+      // The handle class allows dots, so "ping @kirill." captured the sentence's full stop and the
+      // profile lookup asked for a person called `kirill.`. Punctuation at the end belongs to the
+      // sentence; a handle that is nothing but punctuation is not a mention at all.
+      const trimmed = handle.replace(/[.,;:!?]+$/, '');
+      if (trimmed.length >= 2) {
+        out.push({ kind: 'mention', text: `@${trimmed}` });
+        pushText(handle.slice(trimmed.length));
+      } else {
+        out.push({ kind: 'text', text: whole });
+      }
       PATTERN.lastIndex = m.index + whole.length;
     } else {
       pushText(whole);
