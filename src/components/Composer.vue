@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue';
 import Icon from './Icon.vue';
+import { clearDraft, loadDraft, saveDraft } from '../services/drafts';
 
 const props = defineProps<{
   disabled?: boolean;
@@ -12,6 +13,9 @@ const props = defineProps<{
   attached?: { path: string; name: string }[];
   /** When set, the composer edits this message instead of sending a new one. */
   editing?: { id: string; text: string } | null;
+  /** Draft identity: the instance and channel the text belongs to. */
+  draftInstance?: string;
+  draftChannel?: string;
 }>();
 const emit = defineEmits<{
   (e: 'send', text: string): void;
@@ -21,8 +25,9 @@ const emit = defineEmits<{
   (e: 'save-edit', text: string): void;
   (e: 'cancel-edit'): void;
 }>();
-const text = ref('');
+const text = ref(loadDraft(props.draftInstance, props.draftChannel));
 const fileInput = ref<HTMLInputElement | null>(null);
+let draftTimer: ReturnType<typeof setTimeout> | null = null;
 
 // Editing fills the box with the current text once and leaves it alone afterwards, so typing
 // is not overwritten by a re-render.
@@ -32,6 +37,24 @@ watch(
     text.value = props.editing?.text ?? '';
   },
   { immediate: true }
+);
+
+// Saving on every keystroke writes to storage dozens of times a second; 300 ms is below the point
+// where losing the text to a crash would hurt.
+watch(text, (value) => {
+  if (draftTimer) clearTimeout(draftTimer);
+  draftTimer = setTimeout(() => saveDraft(props.draftInstance, props.draftChannel, value), 300);
+});
+
+// Switching channels swaps the draft as well: what was typed belongs to one channel, not the box.
+watch(
+  () => [props.draftInstance, props.draftChannel] as const,
+  ([instance, channel], previous) => {
+    if (!previous) return;
+    if (draftTimer) clearTimeout(draftTimer);
+    saveDraft(previous[0], previous[1], text.value);
+    text.value = loadDraft(instance, channel);
+  }
 );
 
 function submit(): void {
@@ -58,6 +81,7 @@ function send() {
   if (!body && !props.attached?.length) return;
   emit('send', body);
   text.value = '';
+  clearDraft(props.draftInstance, props.draftChannel);
 }
 </script>
 

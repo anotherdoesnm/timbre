@@ -64,8 +64,13 @@ function pick(m: Message, emoji: string): void {
 // Which one is shown is decided in CSS by the pointer, not by this file: on a phone only the
 // tapped message carries a toolbar, on a mouse the hovered one.
 
-// Where the channel should open: on the first unread message when there is one, otherwise at
-// the newest. A channel that jumps to the bottom has hidden everything the person came to read.
+// Scroll offsets are per channel and outlive the component: switching away and back should land
+// where the reader left off, not at the newest message.
+const scrollMemory = new Map<string, number>();
+let restorePending = true;
+
+// Where the channel should open: on the first unread message when there is one, otherwise where
+// the reader was, and only then at the newest.
 async function scrollToStart(): Promise<void> {
   await nextTick();
   const el = scroller.value;
@@ -77,12 +82,23 @@ async function scrollToStart(): Promise<void> {
       return;
     }
   }
+  // A stored offset only makes sense once the messages it referred to are rendered, so it is
+  // applied after the load and skipped on the first pass with an empty list.
+  const saved = restorePending ? scrollMemory.get(props.channel.id) : undefined;
+  if (saved !== undefined && props.messages.length > 0) {
+    restorePending = false;
+    el.scrollTop = saved;
+    return;
+  }
   el.scrollTo({ top: el.scrollHeight });
 }
 
 watch(
   () => [props.channel.id, props.messages.length === 0 ? '' : props.channel.id],
-  scrollToStart,
+  () => {
+    restorePending = true;
+    return scrollToStart();
+  },
   { immediate: true }
 );
 
@@ -112,6 +128,7 @@ let anchorFromBottom: number | null = null;
 function onScroll(): void {
   const el = scroller.value;
   if (!el) return;
+  scrollMemory.set(props.channel.id, el.scrollTop);
   if (el.scrollTop < 200 && props.hasMore && !props.loadingOlder) {
     anchorFromBottom = el.scrollHeight - el.scrollTop;
     emit('load-older');
