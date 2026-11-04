@@ -99,10 +99,36 @@ export async function createAccount(
 }
 
 /** Step 2: the profile every policy resolves the current user through. */
+/**
+ * A first guess at a username from the provider's claims, in the order the official client uses:
+ * `preferred_username`, `user_name`, `username`, `login`, and finally the address' local part.
+ * Returns '' when nothing usable comes out, which leaves the field empty for the person to fill.
+ */
+export function suggestUsername(metadata: Record<string, unknown>, email?: string): string {
+  const pick = (...keys: string[]): string => {
+    for (const key of keys) {
+      const value = metadata[key];
+      if (typeof value === 'string' && value.trim()) return value.trim();
+    }
+    return '';
+  };
+  const raw =
+    pick('preferred_username', 'user_name', 'username', 'login', 'slug', 'name') ||
+    (email ? email.split('@')[0] : '');
+  const cleaned = raw
+    .toLowerCase()
+    .replace(/\s+/g, '-')
+    .replace(/[^a-z0-9._-]/g, '')
+    .replace(/^[._-]+|[._-]+$/g, '')
+    .slice(0, 32);
+  return validUsername(cleaned) ? cleaned : '';
+}
+
 export async function chooseUsername(
   session: Session,
   instance: InstanceInfo,
-  username: string
+  username: string,
+  displayName?: string
 ): Promise<void> {
   const name = username.trim();
   if (!validUsername(name)) {
@@ -119,7 +145,7 @@ export async function chooseUsername(
       id: uid,
       auth_user_id: uid,
       username: name,
-      display_name: name,
+      display_name: (displayName && displayName.trim()) || name,
       domain: instance.origin,
     }),
   });

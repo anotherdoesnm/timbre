@@ -71,6 +71,50 @@ export function readCallback(search: string, hash: string): { code?: string; acc
   return { code, accessToken, refreshToken };
 }
 
+/**
+ * The signed-in user as GoTrue sees it, which is where the provider's own claims live
+ * (`user_metadata`): `name`, `preferred_username`, `slug`, `email`. A profile row has none of
+ * that, so a sign-up through OAuth can suggest a username instead of asking for a blind guess.
+ */
+export interface AuthUser {
+  id: string;
+  email?: string;
+  metadata: Record<string, unknown>;
+  providers: string[];
+}
+
+export async function fetchAuthUser(session: Session): Promise<AuthUser | null> {
+  try {
+    const res = await fetch(`${session.supabaseUrl}/auth/v1/user`, {
+      headers: { apikey: session.anonKey, Authorization: `Bearer ${session.accessToken}` },
+    });
+    if (!res.ok) return null;
+    const body = (await res.json()) as {
+      id?: unknown;
+      email?: unknown;
+      user_metadata?: unknown;
+      app_metadata?: { provider?: unknown; providers?: unknown };
+    };
+    if (typeof body.id !== 'string') return null;
+    const providers = Array.isArray(body.app_metadata?.providers)
+      ? (body.app_metadata?.providers as unknown[]).filter((p): p is string => typeof p === 'string')
+      : typeof body.app_metadata?.provider === 'string'
+        ? [body.app_metadata.provider]
+        : [];
+    return {
+      id: body.id,
+      email: typeof body.email === 'string' ? body.email : undefined,
+      metadata:
+        body.user_metadata && typeof body.user_metadata === 'object'
+          ? (body.user_metadata as Record<string, unknown>)
+          : {},
+      providers,
+    };
+  } catch {
+    return null;
+  }
+}
+
 export async function beginSignIn(instance: InstanceInfo, provider: string): Promise<string> {
   const verifier = randomVerifier();
   const challenge = await challengeFor(verifier);

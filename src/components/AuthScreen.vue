@@ -2,12 +2,14 @@
 import { computed, ref, watch } from 'vue';
 import Icon from './Icon.vue';
 import { discoverInstance, refreshProviders, type InstanceInfo } from '../services/discover';
-import { lastSignIn, navigateToSignIn, signInWithPassword } from '../services/auth';
+import { lastSignIn, navigateToSignIn, signInWithPassword, fetchAuthUser } from '../services/auth';
 import { adoptSession, describeToken, parseSessionBlob } from '../services/sessionImport';
 import {
   chooseUsername,
   createAccount,
   joinServer,
+  suggestUsername,
+  usernameTaken,
   suggestedServers,
   type ServerSuggestion,
 } from '../services/onboarding';
@@ -47,6 +49,8 @@ const pwLoading = ref(false);
 // the person accepts or declines. Nothing joins a server on its own.
 const step = ref<'signin' | 'signup' | 'username' | 'server'>('signin');
 const newUsername = ref('');
+// The provider usually says who you are; the profile row is the only thing it cannot fill in.
+const newDisplayName = ref('');
 const signupError = ref('');
 const signupLoading = ref(false);
 /** The account exists from step one on; the profile and the membership follow it. */
@@ -173,7 +177,7 @@ async function submitUsername() {
   signupError.value = '';
   signupLoading.value = true;
   try {
-    await chooseUsername(session, inst, newUsername.value);
+    await chooseUsername(session, inst, newUsername.value, newDisplayName.value);
     suggested.value = await suggestedServers(session);
     // An instance with nothing public to offer just lets the person in.
     if (!suggested.value.length) emit('authenticated');
@@ -212,9 +216,38 @@ watch(
     pending.value = value.session;
     auto.value = value.instance.selfHosted === true;
     step.value = 'username';
+    void prefillFromProvider(value.session);
   },
   { immediate: true }
 );
+
+/**
+ * GoTrue keeps the provider's claims in `user_metadata`, so a sign-up through OAuth already knows
+ * a plausible handle: asking for one blind, as if the account were new and empty, is what made the
+ * official client feel automatic and this one feel like paperwork. A guess that is taken still
+ * fails loudly at Continue, and the field stays editable.
+ */
+async function prefillFromProvider(session: Session): Promise<void> {
+  const user = await fetchAuthUser(session);
+  if (!user) return;
+  const inst = instance.value;
+  if (!newUsername.value) {
+    let guess = suggestUsername(user.metadata, user.email);
+    // A provider that only sends a name (dex does) lands on the address' local part, and that
+    // handle is the one most likely to be taken already. Asking someone to invent a variant
+    // after they just proved who they are is the step this is meant to remove.
+    if (guess && inst) {
+      for (let n = 2; n <= 9 && (await usernameTaken(inst, guess)); n += 1) {
+        const base = guess.replace(/[0-9]+$/, '');
+        guess = `${base}${n}`;
+        if (guess.length > 32) break;
+      }
+    }
+    newUsername.value = guess;
+  }
+  const name = user.metadata.full_name ?? user.metadata.name;
+  if (!newDisplayName.value && typeof name === 'string') newDisplayName.value = name.slice(0, 40);
+}
 
 async function startProvider(id: string) {
   const inst = instance.value;
@@ -357,8 +390,10 @@ function reset() {
 
         <form v-else-if="step === 'username'" class="pw" @submit.prevent="submitUsername">
           <p class="hint">Step 2 of 3 — pick the username people here will see. The account exists now, so
-            this can be finished later if you close the app.</p>
+            this can be finished later if you close the app. Both fields come from your provider where
+            it knows them.</p>
           <div class="field"><input v-model="newUsername" placeholder="Username" autocomplete="nickname" /></div>
+          <div class="field"><input v-model="newDisplayName" placeholder="Display name" autocomplete="name" /></div>
           <button class="primary" type="submit" :disabled="signupLoading || !newUsername">
             {{ signupLoading ? 'Saving…' : 'Continue' }}
           </button>
