@@ -9,9 +9,10 @@ import MemberList from './components/MemberList.vue';
 import ServerSheet from './components/ServerSheet.vue';
 import AccountSheet from './components/AccountSheet.vue';
 import SearchPanel from './components/SearchPanel.vue';
+import ProfileCard from './components/ProfileCard.vue';
 import AuthScreen from './components/AuthScreen.vue';
 import AuthCallback from './components/AuthCallback.vue';
-import { channels as mockChannels, messages as mockMessages, servers as mockServers } from './data/mock';
+import { channels as mockChannels, messages as mockMessages, servers as mockServers, type Author } from './data/mock';
 import { refreshSession, sessionAlive, sessionExpired, signOut, storedSession, type Session } from './services/auth';
 import {
   fetchChannels,
@@ -33,6 +34,8 @@ import {
   setChannelMute,
   fetchMutedChannels,
   fetchNotificationPrefs,
+  fetchProfileByUsername,
+  fetchServerMembers,
   setDnd,
   type SearchHit,
   type UnreadState,
@@ -124,6 +127,14 @@ const mutedChannels = ref<Record<string, true>>({});
 // Do-not-disturb, including the daily window: a muted channel is quiet, the whole account is
 // quiet inside it.
 const prefs = ref<{ dndEnabled: boolean; dndStart: string | null; dndEnd: string | null } | null>(null);
+/** The server's roster, kept per server so switching back does not refetch it. */
+const liveMembers = ref<Record<string, Author[]>>({});
+const members = computed<Author[] | undefined>(() =>
+  live.value ? liveMembers.value[activeServer.value] : undefined
+);
+
+/** The person behind a tapped mention, once looked up. */
+const profileCard = ref<(Author & { username?: string; domain?: string }) | null>(null);
 const dndLabel = computed(() => {
   const p = prefs.value;
   if (!p?.dndEnabled) return '';
@@ -498,6 +509,7 @@ async function boot() {
       activeServer.value = list[0].id;
       unread.value = await fetchUnreadCounts(s);
       mutedChannels.value = await fetchMutedChannels(s, String(profile?.id ?? ''));
+      liveMembers.value = { [list[0].id]: await fetchServerMembers(s, list[0].id) };
       prefs.value = await fetchNotificationPrefs(s, String(profile?.id ?? ''));
       const chans = await fetchChannels(s, list[0].id);
       liveChannels.value[list[0].id] = chans;
@@ -724,6 +736,23 @@ async function toggleMute(): Promise<void> {
   }
 }
 
+/**
+ * Tapping `@name` looks the person up rather than trusting the rendered page: a mention can point
+ * at someone who has not spoken in this channel, and a federated handle carries its own instance.
+ */
+async function openMention(handle: string): Promise<void> {
+  const s = session.value;
+  if (!s || !live.value) return;
+  const person = await fetchProfileByUsername(s, handle);
+  if (person) profileCard.value = person;
+}
+
+/** Tapping `#channel` goes there when this server has a channel by that name. */
+function openChannelRef(name: string): void {
+  const target = channels.value.find((c) => c.name.toLowerCase() === name.toLowerCase());
+  if (target) pickChannel(target.id);
+}
+
 async function enableNotifications(): Promise<void> {
   notifyState.value = await requestNotify();
   if (notifyState.value === 'granted') {
@@ -746,6 +775,12 @@ function signOutNow() {
 
 function pickServer(id: string) {
   activeServer.value = id;
+  const s0 = session.value;
+  if (s0 && live.value && !liveMembers.value[id]) {
+    fetchServerMembers(s0, id)
+      .then((people) => (liveMembers.value = { ...liveMembers.value, [id]: people }))
+      .catch(() => undefined);
+  }
   const first = (live.value ? liveChannels.value[id] ?? [] : mockChannels).find((c) => c.kind === 'text');
   if (live.value && !liveChannels.value[id]) {
     const s = session.value;
@@ -936,6 +971,8 @@ watch([activeServer, activeChannel], () => {
         @edit="(m) => (editing = { id: m.id, text: m.text })"
         @delete="onDeleteMessage"
         @react="onReact"
+        @mention="openMention"
+        @channel="openChannelRef"
       />
       <Composer
         :channel-name="channel.name"
@@ -956,7 +993,8 @@ watch([activeServer, activeChannel], () => {
     <main v-else class="chat empty">
       <p>{{ loading ? 'Loading…' : 'No channels, or none visible to this session.' }}</p>
     </main>
-    <MemberList v-if="membersOpen" />
+    <MemberList v-if="membersOpen" :members="members" />
+    <ProfileCard v-if="profileCard" :person="profileCard" :on-close="() => (profileCard = null)" />
     <SearchPanel
       v-if="searchOpen"
       :scope="server?.name ? 'in ' + server.name : 'this server'"

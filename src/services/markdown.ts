@@ -8,7 +8,7 @@
  * markup. Rendering with innerHTML would turn one paste into a very bad day.
  */
 
-export type SegmentKind = 'text' | 'code' | 'bold' | 'italic' | 'link' | 'mention';
+export type SegmentKind = 'text' | 'code' | 'bold' | 'italic' | 'link' | 'mention' | 'channel';
 
 export interface Segment {
   kind: SegmentKind;
@@ -18,8 +18,10 @@ export interface Segment {
 }
 
 // Order matters: code before emphasis, bold before italic, and a mention may not swallow the
-// `@` of an email (hence the boundary check below).
-const PATTERN = /(`[^`\n]+`)|(\*\*[^*\n]+\*\*)|(\*[^*\n]+\*)|(_[^_\n]+_)|(https?:\/\/[^\s<>"]+)|(^|[\s(])@([a-z0-9_.-]{2,32})/gi;
+// `@` of an email (hence the boundary check below). A `#` reference must start with a letter, so
+// "issue #42" stays text while `#new-builds` becomes a link to the channel.
+const PATTERN =
+  /(`[^`\n]+`)|(\*\*[^*\n]+\*\*)|(\*[^*\n]+\*)|(_[^_\n]+_)|(https?:\/\/[^\s<>"]+)|(^|[\s(])@([a-z0-9_.-]{2,32})|(^|[\s(])#([a-z][a-z0-9_-]{1,31})(?![a-z0-9_-])/gi;
 
 /** Trailing punctuation belongs to the sentence, not to the URL. */
 function trimUrl(url: string): { url: string; tail: string } {
@@ -44,7 +46,7 @@ export function parseSegments(input: string): Segment[] {
 
   PATTERN.lastIndex = 0;
   while ((m = PATTERN.exec(text)) !== null) {
-    const [whole, code, bold, italic, underscore, url, boundary, handle] = m;
+    const [whole, code, bold, italic, underscore, url, boundary, handle, chBoundary, channel] = m;
     if (m.index > last) pushText(text.slice(last, m.index));
 
     if (code) {
@@ -60,6 +62,10 @@ export function parseSegments(input: string): Segment[] {
       out.push({ kind: 'link', text: clean, href: clean });
       pushText(tail);
       // LastIndex has to account for the tail we just consumed.
+      PATTERN.lastIndex = m.index + whole.length;
+    } else if (channel) {
+      pushText(chBoundary ?? '');
+      out.push({ kind: 'channel', text: `#${channel}` });
       PATTERN.lastIndex = m.index + whole.length;
     } else if (handle) {
       pushText(boundary ?? '');

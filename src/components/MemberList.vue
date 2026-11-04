@@ -1,9 +1,37 @@
 <script setup lang="ts">
 import { computed } from 'vue';
-import { members } from '../data/mock';
+import { members as mockMembers, type Author } from '../data/mock';
 
-const online = computed(() => members.filter((m) => m.status !== 'offline'));
-const offline = computed(() => members.filter((m) => m.status === 'offline'));
+/**
+ * Live member roster, or the demo one when there is no session. Presence is not wired (it needs
+ * the server's presence channel), so everybody is listed in join order rather than split into
+ * online and offline: a made-up "online" heading would be worse than none.
+ */
+const props = defineProps<{ members?: Author[] }>();
+
+interface Row {
+  name: string;
+  initial: string;
+  color: string;
+  role: 'admin' | 'mod' | null;
+  avatarUrl?: string;
+  status: 'member' | 'online' | 'idle' | 'offline';
+}
+
+const roster = computed<Row[]>(() =>
+  props.members?.length
+    ? props.members.map((m) => ({
+        name: m.name,
+        initial: m.initial,
+        color: m.color,
+        role: m.role ?? null,
+        avatarUrl: m.avatarUrl,
+        status: 'member',
+      }))
+    : (mockMembers as Row[])
+);
+const online = computed(() => roster.value.filter((m) => m.status !== 'offline'));
+const offline = computed(() => roster.value.filter((m) => m.status === 'offline'));
 </script>
 
 <template>
@@ -11,7 +39,10 @@ const offline = computed(() => members.filter((m) => m.status === 'offline'));
     <section v-for="g in [{ t: `Online — ${online.length}`, list: online }, { t: `Offline — ${offline.length}`, list: offline }]" :key="g.t">
       <div class="title">{{ g.t }}</div>
       <div v-for="m in g.list" :key="m.name" class="row" :class="{ dim: m.status === 'offline' }">
-        <div class="av" :style="{ background: m.color }">{{ m.initial }}</div>
+        <div class="av" :style="m.avatarUrl ? undefined : { background: m.color }">
+          <img v-if="m.avatarUrl" :src="m.avatarUrl" alt="" loading="lazy" referrerpolicy="no-referrer" />
+          <template v-else>{{ m.initial }}</template>
+        </div>
         <div class="who">
           <span class="name">{{ m.name }}</span>
           <span v-if="m.role" class="role" :class="m.role">{{ m.role === 'admin' ? 'admin' : 'mod' }}</span>
@@ -47,6 +78,7 @@ const offline = computed(() => members.filter((m) => m.status === 'offline'));
 }
 .row:hover { background: var(--sf-hover); }
 .row.dim { opacity: 0.45; }
+.av img { width: 100%; height: 100%; border-radius: inherit; object-fit: cover; display: block; }
 .av {
   width: 28px; height: 28px;
   display: grid; place-items: center;

@@ -970,6 +970,56 @@ export interface NotificationPrefs {
   pushDms: boolean;
 }
 
+/**
+ * One profile by handle, for the card behind a tapped `@mention`. A mention can name someone who
+ * is not in the current page (or not in this channel at all), so it is looked up rather than read
+ * out of whatever happens to be rendered.
+ */
+/**
+ * Everybody who has joined a server, as the client should draw them.
+ *
+ * `user_servers_select_co_members` lets a member read the rows of servers they belong to, so one
+ * query answers "who is here" — no per-channel guessing. Rows are ordered by join time, which is
+ * also the only ordering the server offers.
+ */
+export async function fetchServerMembers(session: Session, serverId: string): Promise<Author[]> {
+  const rows = await rest<Row[]>(
+    session,
+    'user_servers',
+    `server_id=eq.${encodeURIComponent(serverId)}&status=eq.accepted` +
+      '&select=created_at,user:profiles(id,username,display_name,avatar_url,color,is_admin,is_moderator)' +
+      '&order=created_at.asc&limit=200'
+  ).catch(() => [] as Row[]);
+  const people: Author[] = [];
+  for (const row of rows) {
+    const profile = row.user as Row | null;
+    if (!profile) continue;
+    people.push(toAuthor(profile, session));
+  }
+  return people;
+}
+
+export async function fetchProfileByUsername(
+  session: Session,
+  username: string
+): Promise<(Author & { username?: string; domain?: string }) | null> {
+  const handle = username.replace(/^@/, '').trim();
+  if (!handle) return null;
+  const rows = await rest<Row[]>(
+    session,
+    'profiles',
+    `username=eq.${encodeURIComponent(handle)}` +
+      '&select=id,username,display_name,avatar_url,color,is_admin,is_moderator,domain&limit=1'
+  ).catch(() => [] as Row[]);
+  const row = rows[0];
+  if (!row) return null;
+  return {
+    ...toAuthor(row, session),
+    username: typeof row.username === 'string' ? row.username : undefined,
+    domain: typeof row.domain === 'string' ? row.domain : undefined,
+  };
+}
+
 export async function fetchNotificationPrefs(
   session: Session,
   profileId: string

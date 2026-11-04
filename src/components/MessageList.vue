@@ -20,6 +20,8 @@ const emit = defineEmits<{
   (e: 'load-older'): void;
   (e: 'reply', m: Message): void;
   (e: 'react', m: Message, emoji: string, mine: boolean): void;
+  (e: 'mention', handle: string): void;
+  (e: 'channel', name: string): void;
   (e: 'edit', m: Message): void;
   (e: 'delete', m: Message): void;
 }>();
@@ -189,7 +191,22 @@ watch(
               <code v-if="seg.kind === 'code'">{{ seg.text }}</code>
               <strong v-else-if="seg.kind === 'bold'">{{ seg.text }}</strong>
               <em v-else-if="seg.kind === 'italic'">{{ seg.text }}</em>
-              <span v-else-if="seg.kind === 'mention'" class="mention">{{ seg.text }}</span>
+              <button
+                v-else-if="seg.kind === 'mention'"
+                type="button"
+                class="mention mention-btn"
+                @click.stop="emit('mention', seg.text.slice(1))"
+              >
+                {{ seg.text }}
+              </button>
+              <button
+                v-else-if="seg.kind === 'channel'"
+                type="button"
+                class="mention channel-btn"
+                @click.stop="emit('channel', seg.text.slice(1))"
+              >
+                {{ seg.text }}
+              </button>
               <a
                 v-else-if="seg.kind === 'link' && safeHref(seg.href)"
                 :href="safeHref(seg.href) ?? undefined"
@@ -296,6 +313,18 @@ watch(
   box-shadow: inset 2px 0 0 var(--primary-main);
 }
 .msg.mention::before { display: none; }
+/* A mention or a #channel in the text is a link to something: it answers a tap. */
+.mention-btn,
+.channel-btn {
+  padding: 0 3px;
+  border-radius: var(--radius-xs);
+  background: var(--primary-container);
+  color: var(--primary-on-container);
+  font: inherit;
+  cursor: pointer;
+}
+.mention-btn:hover,
+.channel-btn:hover { text-decoration: underline; }
 .avatar-col { position: relative; display: flex; justify-content: center; }
 .avatar {
   width: 38px; height: 38px;
