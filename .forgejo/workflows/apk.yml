@@ -79,6 +79,9 @@ jobs:
           npm ci 2>&1 | tee /tmp/ci-logs/npm.log
           # gen/android is not committed: it is generated per platform by the CLI.
           [ -d src-tauri/gen/android ] || npx tauri android init --ci 2>&1 | tee /tmp/ci-logs/init.log
+          # vue-tsc catches what esbuild happily transpiles: a wrong type passed to a
+          # component, an event nobody declared, a ref dereferenced from a template scope.
+          npm run typecheck 2>&1 | tee /tmp/ci-logs/types.log
           npm run build 2>&1 | tee /tmp/ci-logs/web.log
           # Split per ABI and ship only arm64-v8a: one universal debug APK is ~124 MiB, the
           # arm64 one is a quarter of that, and no phone this client runs on is 32-bit.

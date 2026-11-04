@@ -273,7 +273,10 @@ function reset() {
         <p v-if="error" class="error">{{ error }}</p>
       </form>
 
-      <div v-else class="found">
+      <!-- `v-else` here was the negation of `!instance && !probing`, which is still true while
+           probing (instance is null then) — the block rendered with no instance and threw on
+           `instance.name` for the fraction of a second the lookup takes. -->
+      <div v-else-if="instance" class="found">
         <div class="inst">
           <div class="inst-avatar">{{ instance.name.slice(0, 1) }}</div>
           <div class="inst-text">

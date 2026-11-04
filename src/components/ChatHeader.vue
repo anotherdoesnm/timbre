@@ -3,7 +3,12 @@ import Icon from './Icon.vue';
 import type { Channel } from '../data/mock';
 
 defineProps<{ channel: Channel; membersOpen: boolean; live?: boolean }>();
-const emit = defineEmits<{ (e: 'toggle-members'): void; (e: 'back'): void; (e: 'search'): void }>();
+const emit = defineEmits<{
+  (e: 'toggle-members'): void;
+  (e: 'back'): void;
+  (e: 'search'): void;
+  (e: 'notifications'): void;
+}>();
 </script>
 
 <template>
@@ -18,11 +23,15 @@ const emit = defineEmits<{ (e: 'toggle-members'): void; (e: 'back'): void; (e: '
     </div>
     <div class="right">
       <button class="action" title="Search" @click="emit('search')"><Icon name="search" :size="18" /></button>
-      <button class="action" title="Notifications"><Icon name="bell" :size="18" /></button>
+      <!-- The bell used to be decoration; it now opens the account sheet, which is where the
+           notification switch lives. The old "More" button is gone for the same reason: a control
+           that does nothing is worse than no control. -->
+      <button class="action" title="Notifications" @click="emit('notifications')">
+        <Icon name="bell" :size="18" />
+      </button>
       <button class="action" :class="{ on: membersOpen }" title="Members" @click="emit('toggle-members')">
         <Icon name="users" :size="18" />
       </button>
-      <button class="action" title="More"><Icon name="dots" :size="18" /></button>
     </div>
   </header>
 </template>

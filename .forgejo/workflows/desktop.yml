@@ -55,6 +55,7 @@ jobs:
           set -eo pipefail
           mkdir -p /tmp/ci-logs
           npm ci 2>&1 | tee /tmp/ci-logs/npm.log
+          npm run typecheck 2>&1 | tee /tmp/ci-logs/types.log
           npx tauri build --bundles appimage 2>&1 | tee /tmp/ci-logs/appimage.log
 
       - name: publish

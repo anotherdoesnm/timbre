@@ -845,6 +845,7 @@ watch([activeServer, activeChannel], () => {
         :members-open="membersOpen"
         :live="live"
         @search="openSearch"
+        @notifications="openAccount"
         @toggle-members="membersOpen = !membersOpen"
         @back="closeChannel"
       />

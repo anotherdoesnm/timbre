@@ -122,8 +122,9 @@ is served from the instance's own origin, which is what `timbre.doesnmlab.xyz` d
 ## Design tokens
 
 Colours come from Cinny (AGPL-3.0): `src/colors.css.ts` → `darkTheme`, the `folds` scale. They are
-rewritten as plain CSS variables so the SFCs can use them without `vanilla-extract`. If this skin
-ships, it is a derivative work and the sources stay AGPL.
+rewritten as plain CSS variables so the SFCs can use them without `vanilla-extract`. Both Cinny and
+Harmony are AGPL-3.0, and Timbre is a derivative of what it borrows from them — see
+[`LICENSE`](LICENSE).
 
 Font: Inter (variable, latin + cyrillic) in `public/fonts/` — local, no CDN.
 
@@ -146,6 +147,21 @@ for f in *.deb; do dpkg-deb -x "$f" root/; done
 
 ## What is not there yet
 
-See [`ROADMAP.md`](ROADMAP.md): no realtime updates, no markdown/replies/reactions, no in-client
-registration, no unread state or settings screen, and E2EE channels are a placeholder by design
-(no downgrade) with upstream's `src/services/encryption/` as the plan.
+See [`ROADMAP.md`](ROADMAP.md). Missing, in the order it hurts:
+
+- **push notifications.** The web build could use Web Push (a service worker and a subscription per
+  device, neither wired yet); the Android shell cannot, because a WebView has no `PushManager`.
+  Notifications currently arrive while the app is open — title badge, system notification where the
+  platform has one, toast and vibration in the shell.
+- **E2EE** channels are a placeholder by design (no downgrade); upstream's
+  `src/services/encryption/` is the plan.
+- **voice**, **microblog**, and server/channel management: the instance has them, this client shows
+  what it can read and nothing else.
+
+## License
+
+Timbre is licensed under the **GNU Affero General Public License v3.0 only**
+(`AGPL-3.0-only`); the full text is in [`LICENSE`](LICENSE). It is a client for
+[Harmony](https://github.com/y4my4my4m/harmony) and borrows its colour tokens from
+[Cinny](https://github.com/cinnyapp/cinny), both AGPL-3.0. Anything ported from either keeps its
+licence and the sources here stay open.
