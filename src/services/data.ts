@@ -62,6 +62,12 @@ export function renderContentParts(content: unknown): RenderedContent {
       texts.push(o.url);
       continue;
     }
+    // A sticker is an image with a name (`{id, url, name, width, height}`, shipped in 1.9.2). It
+    // renders like any other picture here rather than as the empty bubble an unhandled type leaves.
+    if (type === 'sticker' && typeof o.url === 'string' && o.url) {
+      images.push(o.url);
+      continue;
+    }
     // A part with a `path` is re-signed by the caller (links expire); one without a path only has
     // its URL to go on.
     if (
@@ -79,6 +85,11 @@ export function renderContentParts(content: unknown): RenderedContent {
     if (typeof o.content === 'string') {
       texts.push(o.content);
     }
+  }
+  // Whatever Harmony ships next, a message must not arrive as an empty bubble: the parts this
+  // client does not know are exactly the ones a user cannot report as "invisible".
+  if (!texts.length && !images.length && parts.length) {
+    texts.push('[message content this client cannot render]');
   }
   return { text: texts.join(''), images };
 }
