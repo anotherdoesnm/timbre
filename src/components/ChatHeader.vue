@@ -2,12 +2,12 @@
 import Icon from './Icon.vue';
 import type { Channel } from '../data/mock';
 
-defineProps<{ channel: Channel; membersOpen: boolean; live?: boolean }>();
+defineProps<{ channel: Channel; membersOpen: boolean; live?: boolean; muted?: boolean }>();
 const emit = defineEmits<{
   (e: 'toggle-members'): void;
   (e: 'back'): void;
   (e: 'search'): void;
-  (e: 'notifications'): void;
+  (e: 'toggle-mute'): void;
 }>();
 </script>
 
@@ -23,11 +23,16 @@ const emit = defineEmits<{
     </div>
     <div class="right">
       <button class="action" title="Search" @click="emit('search')"><Icon name="search" :size="18" /></button>
-      <!-- The bell used to be decoration; it now opens the account sheet, which is where the
-           notification switch lives. The old "More" button is gone for the same reason: a control
-           that does nothing is worse than no control. -->
-      <button class="action" title="Notifications" @click="emit('notifications')">
-        <Icon name="bell" :size="18" />
+      <!-- The bell mutes this channel. Notification *permission* lives in the account sheet, and
+           the old "More" button is gone: a control that does nothing is worse than no control. -->
+      <button
+        class="action"
+        :class="{ off: muted }"
+        :title="muted ? 'Unmute this channel' : 'Mute this channel'"
+        :aria-pressed="muted ? 'true' : 'false'"
+        @click="emit('toggle-mute')"
+      >
+        <Icon :name="muted ? 'bell-off' : 'bell'" :size="18" />
       </button>
       <button class="action" :class="{ on: membersOpen }" title="Members" @click="emit('toggle-members')">
         <Icon name="users" :size="18" />

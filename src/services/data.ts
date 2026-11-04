@@ -876,6 +876,86 @@ export async function fetchUnreadCounts(session: Session): Promise<Record<string
   return out;
 }
 
+/**
+ * Mute or unmute one channel.
+ *
+ * The unique index behind `notification_channels` is partial (`WHERE channel_id IS NOT NULL
+ * AND conversation_id IS NULL`), which PostgREST's `on_conflict` cannot address, so this tries an
+ * update first and inserts only when no row was returned. `muted_until` is cleared both ways: an
+ * indefinite mute, and un-muting something that was muted until Friday.
+ */
+export async function setChannelMute(
+  session: Session,
+  profileId: string,
+  serverId: string,
+  channelId: string,
+  muted: boolean
+): Promise<void> {
+  const filter = `user_id=eq.${encodeURIComponent(profileId)}&channel_id=eq.${encodeURIComponent(channelId)}`;
+  const body = JSON.stringify({ muted, muted_until: null });
+  const patch = await fetch(`${session.supabaseUrl}/rest/v1/notification_channels?${filter}`, {
+    method: 'PATCH',
+    headers: {
+      apikey: session.anonKey,
+      Authorization: `Bearer ${session.accessToken}`,
+      'Content-Type': 'application/json',
+      Prefer: 'return=representation',
+    },
+    body,
+  });
+  if (!patch.ok) {
+    const text = await patch.text().catch(() => '');
+    throw new Error(`mute: ${patch.status} ${text.slice(0, 120)}`);
+  }
+  const updated = (await patch.json().catch(() => [])) as unknown[];
+  if (Array.isArray(updated) && updated.length) return;
+
+  const insert = await fetch(`${session.supabaseUrl}/rest/v1/notification_channels`, {
+    method: 'POST',
+    headers: {
+      apikey: session.anonKey,
+      Authorization: `Bearer ${session.accessToken}`,
+      'Content-Type': 'application/json',
+      Prefer: 'return=minimal',
+    },
+    body: JSON.stringify({ user_id: profileId, server_id: serverId, channel_id: channelId, muted, muted_until: null }),
+  });
+  if (!insert.ok) {
+    const text = await insert.text().catch(() => '');
+    throw new Error(`mute: ${insert.status} ${text.slice(0, 120)}`);
+  }
+}
+
+/**
+ * Channels this person has muted, from `notification_channels`.
+ *
+ * It is a separate query because `get_unread_counts()` returns a row only for channels that have
+ * unread messages (`WHERE n > 0 OR mentions > 0`) — so the channel you muted precisely because it
+ * was quiet would be missing from it, and the switch would read as off.
+ */
+export async function fetchMutedChannels(
+  session: Session,
+  profileId: string
+): Promise<Record<string, true>> {
+  const now = Date.now();
+  const rows = await rest<Row[]>(
+    session,
+    'notification_channels',
+    `user_id=eq.${encodeURIComponent(profileId)}` +
+      '&muted=eq.true&select=channel_id,conversation_id,muted_until'
+  ).catch(() => [] as Row[]);
+  const out: Record<string, true> = {};
+  for (const row of rows) {
+    const id = typeof row.channel_id === 'string' ? row.channel_id : null;
+    if (!id) continue;
+    // A mute with an end date is only a mute until then; the instance keeps the row.
+    const until = typeof row.muted_until === 'string' ? Date.parse(row.muted_until) : null;
+    if (until !== null && Number.isFinite(until) && until <= now) continue;
+    out[id] = true;
+  }
+  return out;
+}
+
 /** Moves the read cursor; the instance recomputes the counters from it. */
 export async function markChannelRead(session: Session, channelId: string, messageId?: string | null): Promise<void> {
   try {

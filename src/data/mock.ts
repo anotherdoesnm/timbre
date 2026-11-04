@@ -40,6 +40,8 @@ export interface Channel {
   encrypted?: boolean;
   unread?: number;
   mention?: number;
+  /** Notifications for this channel are off; the unread count still moves. */
+  muted?: boolean;
 }
 
 export interface Server {

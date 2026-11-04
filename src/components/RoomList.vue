@@ -50,6 +50,7 @@ const groups = computed(() => {
           <Icon :name="c.kind === 'voice' ? 'volume' : 'hash'" :size="16" />
           <span class="name">{{ c.name }}</span>
           <Icon v-if="c.encrypted" name="lock" :size="13" class="lock" />
+          <Icon v-if="c.muted" name="bell-off" :size="13" class="muted-mark" />
           <span v-if="c.mention" class="badge mention">{{ c.mention }}</span>
           <span v-else-if="c.unread" class="badge" />
         </button>
@@ -142,6 +143,7 @@ const groups = computed(() => {
 }
 .row:hover { background: var(--sf-hover); color: var(--text); }
 .row.active { background: var(--sfv-active); color: var(--text); }
+.muted-mark { color: var(--text-tertiary); flex: none; }
 .row.unread { color: var(--text); }
 .row.unread .name { font-weight: 600; }
 .name { flex: 1; font-size: var(--fs-base); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

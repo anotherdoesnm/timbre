@@ -30,6 +30,8 @@ import {
   updateProfile,
   uploadAvatar,
   avatarUrl as avatarUrlOf,
+  setChannelMute,
+  fetchMutedChannels,
   type SearchHit,
   type UnreadState,
   type UploadedFile,
@@ -113,6 +115,8 @@ const unread = ref<Record<string, UnreadState>>({});
 // Messages that landed in a channel this client is not showing. The server counters only move
 // when something re-reads them, and a badge that appears a minute late is not a notification.
 const localUnread = ref<Record<string, number>>({});
+// Channels muted on the instance; a quiet channel never appears in the unread counters.
+const mutedChannels = ref<Record<string, true>>({});
 /** In-app bubble: the Android shell has no window title to put a count in. */
 const toast = ref<{ text: string; channelId: string } | null>(null);
 let toastTimer: ReturnType<typeof setTimeout> | null = null;
@@ -177,6 +181,7 @@ async function catchUp(): Promise<void> {
   if (!s || !live.value) return;
   try {
     unread.value = await fetchUnreadCounts(s);
+    if (myProfileId.value) mutedChannels.value = await fetchMutedChannels(s, myProfileId.value);
     if (activeChannel.value) await openChannel(activeChannel.value);
   } catch {
     /* still unreachable; the next resume tries again */
@@ -315,8 +320,9 @@ const channels = computed(() => {
     const state = unread.value[c.id];
     const fresh = localUnread.value[c.id] ?? 0;
     const total = (state?.unread ?? 0) + fresh;
-    if (!total && !state) return c;
-    return { ...c, unread: total, mention: state?.mentions };
+    const muted = mutedChannels.value[c.id] === true;
+    if (!total && !state && !muted) return c;
+    return { ...c, unread: total, mention: state?.mentions, muted: mutedChannels.value[c.id] === true };
   });
 });
 const channel = computed(
@@ -474,6 +480,7 @@ async function boot() {
       live.value = true;
       activeServer.value = list[0].id;
       unread.value = await fetchUnreadCounts(s);
+      mutedChannels.value = await fetchMutedChannels(s, String(profile?.id ?? ''));
       const chans = await fetchChannels(s, list[0].id);
       liveChannels.value[list[0].id] = chans;
       const firstText = chans.find((c) => c.kind === 'text') ?? chans[0];
@@ -628,6 +635,8 @@ function onLiveEvent(channelId: string, event: MessageEvent): void {
   if (event.op !== 'INSERT') return;
 
   const where = channelById(channelId);
+  // A muted channel still counts unread messages; it just does not interrupt.
+  if (mutedChannels.value[channelId]) return;
   const named = mentions(
     record.content,
     mentionNames(me.value.username, me.value.name),
@@ -652,6 +661,31 @@ watch(
   (count) => setTitleBadge(count),
   { immediate: true }
 );
+
+/** Mute is a per-user row on the instance, so it follows the account to every other client. */
+async function toggleMute(): Promise<void> {
+  const s = session.value;
+  const ch = channel.value;
+  const id = myProfileId.value;
+  if (!s || !ch || !id || !activeServer.value) return;
+  const wasMuted = mutedChannels.value[ch.id] === true;
+  const apply = (muted: boolean): void => {
+    const next = { ...mutedChannels.value };
+    if (muted) next[ch.id] = true;
+    else delete next[ch.id];
+    mutedChannels.value = next;
+  };
+  // Optimistic: the bell must answer the tap, not the round trip.
+  apply(!wasMuted);
+  try {
+    await setChannelMute(s, id, activeServer.value, ch.id, !wasMuted);
+  } catch (e) {
+    // Put the switch back: showing the opposite of what the instance thinks invites a re-tap that
+    // makes it worse.
+    apply(wasMuted);
+    loadError.value = e instanceof Error ? e.message : String(e);
+  }
+}
 
 async function enableNotifications(): Promise<void> {
   notifyState.value = await requestNotify();
@@ -843,9 +877,10 @@ watch([activeServer, activeChannel], () => {
       <ChatHeader
         :channel="channel"
         :members-open="membersOpen"
+        :muted="!!mutedChannels[channel.id]"
         :live="live"
         @search="openSearch"
-        @notifications="openAccount"
+        @toggle-mute="toggleMute"
         @toggle-members="membersOpen = !membersOpen"
         @back="closeChannel"
       />
