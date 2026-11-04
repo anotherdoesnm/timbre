@@ -127,7 +127,9 @@ function pick(event: Event): void {
   max-width: 420px;
   max-height: 70vh;
   overflow-y: auto;
-  padding: var(--sp-200) var(--sp-200) var(--sp-500);
+  /* Sheets are fixed to the viewport, so the parent's nav-bar padding does not apply: the
+     last row would sit under the Android navigation bar without this. */
+  padding: var(--sp-200) var(--sp-200) calc(var(--sp-500) + var(--nav-inset, 0px));
   background: var(--sf-container);
   border-radius: var(--radius-xl) var(--radius-xl) 0 0;
   box-shadow: var(--shadow-3);
