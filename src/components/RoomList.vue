@@ -18,6 +18,7 @@ const emit = defineEmits<{
   (e: 'servers'): void;
   (e: 'account'): void;
   (e: 'notifications'): void;
+  (e: 'new-dm'): void;
 }>();
 
 const groups = computed(() => {
@@ -48,8 +49,13 @@ const groups = computed(() => {
     <div class="scroll">
       <!-- Direct conversations come first: a message addressed to you is more urgent than a
            channel somebody else is talking in. -->
-      <section v-if="props.dms?.length" class="group">
-        <div class="group-title">Direct messages</div>
+      <section class="group">
+        <div class="group-title dm-title">
+          <span>Direct messages</span>
+          <button class="new-dm" title="New message" aria-label="New message" @click="emit('new-dm')">
+            <Icon name="plus" :size="14" />
+          </button>
+        </div>
         <button
           v-for="d in props.dms"
           :key="d.id"
@@ -66,6 +72,7 @@ const groups = computed(() => {
           <span v-if="d.mentions" class="badge mention">{{ d.mentions }}</span>
           <span v-else-if="d.unread" class="badge" />
         </button>
+        <p v-if="!props.dms?.length" class="dm-empty">No conversations yet</p>
       </section>
 
       <section v-for="g in groups" :key="g.title" class="group">
@@ -187,6 +194,9 @@ const groups = computed(() => {
 .row:hover { background: var(--sf-hover); color: var(--text); }
 .row.active { background: var(--sfv-active); color: var(--text); }
 .muted-mark { color: var(--text-tertiary); flex: none; }
+.dm-title { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-200); }
+.new-dm { padding: 2px; color: var(--text-tertiary); }
+.dm-empty { margin: 0; padding: var(--sp-100) var(--sp-300) var(--sp-200); color: var(--text-tertiary); font-size: var(--fs-xs); }
 .dm-avatar {
   width: 18px;
   height: 18px;

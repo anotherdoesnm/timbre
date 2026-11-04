@@ -11,6 +11,7 @@ import AccountSheet from './components/AccountSheet.vue';
 import SearchPanel from './components/SearchPanel.vue';
 import ProfileCard from './components/ProfileCard.vue';
 import NotificationsPanel from './components/NotificationsPanel.vue';
+import NewDmSheet from './components/NewDmSheet.vue';
 import AuthScreen from './components/AuthScreen.vue';
 import AuthCallback from './components/AuthCallback.vue';
 import { channels as mockChannels, messages as mockMessages, servers as mockServers, type Author } from './data/mock';
@@ -147,6 +148,7 @@ const conversationIds = computed(() => new Set(conversations.value.map((c) => c.
 const isDirect = (id: string): boolean => conversationIds.value.has(id);
 
 /** What the instance says happened while the app was closed. */
+const newDmOpen = ref(false);
 const notificationsOpen = ref(false);
 const notifications = ref<NotificationItem[]>([]);
 const notificationsLoading = ref(false);
@@ -358,7 +360,8 @@ async function onAttach(file: File): Promise<void> {
   if (!s || !ch || !myProfileId.value) return;
   uploading.value = true;
   try {
-    const uploaded = await uploadAttachment(s, ch.id, myProfileId.value, file);
+    const room = isDirect(ch.id) ? `d/${ch.id}` : `c/${ch.id}`;
+    const uploaded = await uploadAttachment(s, room, myProfileId.value, file);
     attached.value = [...attached.value, uploaded];
   } catch (e) {
     loadError.value = e instanceof Error ? e.message : String(e);
@@ -832,6 +835,7 @@ async function startDirect(person: Author): Promise<void> {
     const id = await createDirectConversation(s, me, person.id);
     if (!id) return;
     membersOpen.value = false;
+    newDmOpen.value = false;
     await loadConversations();
     pickChannel(id);
   } catch (e) {
@@ -1062,7 +1066,7 @@ async function onSend(
   const id = reuseId ?? (globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`);
   try {
     if (isDirect(ch.id)) {
-      await sendConversationMessage(s, ch.id, myProfileId.value, body, id);
+      await sendConversationMessage(s, ch.id, myProfileId.value, body, id, files);
     } else {
       await sendMessage(s, ch.id, myProfileId.value, body, replyTo, files, id);
     }
@@ -1124,6 +1128,7 @@ watch([activeServer, activeChannel], () => {
       @notifications="openNotifications"
       :unread-notifications="unreadNotifications"
       :dms="live ? conversations : undefined"
+      @new-dm="newDmOpen = true"
     />
     <main v-if="channel" class="chat">
       <ChatHeader
@@ -1179,6 +1184,14 @@ watch([activeServer, activeChannel], () => {
     <div v-else-if="membersOpen && narrow" class="members-backdrop" @click.self="membersOpen = false">
       <MemberList class="members-overlay" :members="members" @select="startDirect" />
     </div>
+    <NewDmSheet
+      v-if="newDmOpen"
+      :members="members ?? []"
+      :me-id="myProfileId"
+      :live="live"
+      @pick="startDirect"
+      @close="newDmOpen = false"
+    />
     <NotificationsPanel
       v-if="notificationsOpen"
       :items="notifications"

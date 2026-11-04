@@ -479,12 +479,17 @@ export interface UploadedFile {
 /** Attachments live in the instance's `message_media` bucket, at c/<channel>/<profile>/<uuid>.<ext>. */
 export async function uploadAttachment(
   session: Session,
-  channelId: string,
+  /**
+   * The room an attachment belongs to: `c/<channelId>` or `d/<conversationId>`. The bucket's
+   * policies read that first segment, and a DM's objects live under `d/`
+   * (`messageMediaPath` in the official client).
+   */
+  room: string,
   profileId: string,
   file: File
 ): Promise<UploadedFile> {
   const ext = (file.name.split('.').pop() ?? 'bin').toLowerCase().replace(/[^a-z0-9]/g, '') || 'bin';
-  const path = `c/${channelId}/${profileId}/${crypto.randomUUID()}.${ext}`;
+  const path = `${room}/${profileId}/${crypto.randomUUID()}.${ext}`;
   const res = await fetch(`${session.supabaseUrl}/storage/v1/object/message_media/${path}`, {
     method: 'POST',
     headers: {
@@ -1157,8 +1162,14 @@ export async function sendConversationMessage(
   conversationId: string,
   userId: string,
   content: string,
-  id?: string
+  id?: string,
+  files: UploadedFile[] = []
 ): Promise<void> {
+  // The same part shape a channel message uses: other clients render the attachment from `url` and
+  // classify it by `fileType`, and a year-long link is what they read verbatim.
+  const signed = files.length
+    ? await signMedia(session, files.map((f) => f.path), 365 * 24 * 60 * 60)
+    : {};
   const res = await fetch(`${session.supabaseUrl}/rest/v1/messages`, {
     method: 'POST',
     headers: {
@@ -1171,7 +1182,19 @@ export async function sendConversationMessage(
       ...(id ? { id } : {}),
       conversation_id: conversationId,
       user_id: userId,
-      content: content ? [{ type: 'text', text: content }] : [],
+      content: [
+        ...(content ? [{ type: 'text', text: content }] : []),
+        ...files.map((f) => ({
+          type: 'file',
+          path: f.path,
+          ...(signed[f.path] ? { url: signed[f.path] } : {}),
+          fileName: f.name,
+          fileSize: f.size,
+          fileType: kindOf(f.contentType),
+          mime_type: f.contentType,
+        })),
+      ],
+      ...(files.length ? { media_paths: files.map((f) => f.path) } : {}),
     }),
   });
   // The same idempotency contract as a channel send.
