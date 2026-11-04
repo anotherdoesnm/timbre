@@ -39,6 +39,7 @@ import {
   fetchServerMembers,
   fetchNotifications,
   markAllNotificationsRead,
+  markNotificationsRead,
   type NotificationItem,
   setDnd,
   type SearchHit,
@@ -139,7 +140,7 @@ const notificationsOpen = ref(false);
 const notifications = ref<NotificationItem[]>([]);
 const notificationsLoading = ref(false);
 const notificationsError = ref('');
-const unreadNotifications = computed(() => notifications.value.filter((n) => !n.isRead).length);
+const unreadNotifications = ref(0);
 
 /** The server's roster, kept per server so switching back does not refetch it. */
 const liveMembers = ref<Record<string, Author[]>>({});
@@ -231,6 +232,7 @@ async function catchUp(): Promise<void> {
       mutedChannels.value = await fetchMutedChannels(s, myProfileId.value);
       prefs.value = await fetchNotificationPrefs(s, myProfileId.value);
     }
+    void loadNotifications({ silent: true });
     if (activeChannel.value) await openChannel(activeChannel.value);
   } catch {
     /* still unreachable; the next resume tries again */
@@ -535,6 +537,7 @@ async function boot() {
       mutedChannels.value = await fetchMutedChannels(s, String(profile?.id ?? ''));
       liveMembers.value = { [list[0].id]: await fetchServerMembers(s, list[0].id) };
       prefs.value = await fetchNotificationPrefs(s, String(profile?.id ?? ''));
+      void loadNotifications({ silent: true });
       const chans = await fetchChannels(s, list[0].id);
       liveChannels.value[list[0].id] = chans;
       const firstText = chans.find((c) => c.kind === 'text') ?? chans[0];
@@ -784,14 +787,15 @@ async function openNotifications(): Promise<void> {
   await loadNotifications();
 }
 
-async function loadNotifications(): Promise<void> {
+async function loadNotifications(opts: { silent?: boolean } = {}): Promise<void> {
   const s = session.value;
   const id = myProfileId.value;
   if (!s || !id) return;
-  notificationsLoading.value = true;
+  notificationsLoading.value = !opts.silent;
   notificationsError.value = '';
   try {
     notifications.value = await fetchNotifications(s, id, { limit: 40 });
+    unreadNotifications.value = notifications.value.filter((n) => !n.isRead).length;
   } catch (e) {
     notificationsError.value = e instanceof Error ? e.message : String(e);
   } finally {
@@ -818,7 +822,10 @@ async function openNotification(item: NotificationItem): Promise<void> {
     );
     const s = session.value;
     const id = myProfileId.value;
-    if (s && id) void markAllNotificationsRead(s, id).catch(() => undefined);
+    if (s && id) {
+      unreadNotifications.value = Math.max(0, unreadNotifications.value - 1);
+      void markNotificationsRead(s, id, [item.id]).catch(() => undefined);
+    }
   }
 }
 
@@ -827,6 +834,7 @@ async function markEveryNotificationRead(): Promise<void> {
   const id = myProfileId.value;
   if (!s || !id) return;
   notifications.value = notifications.value.map((n) => ({ ...n, isRead: true }));
+  unreadNotifications.value = 0;
   try {
     await markAllNotificationsRead(s, id);
   } catch (e) {

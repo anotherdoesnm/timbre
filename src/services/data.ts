@@ -1138,6 +1138,55 @@ export async function fetchNotifications(
   });
 }
 
+/**
+ * How many notifications are unread.
+ *
+ * `get_unread_notification_count` is not granted to the authenticated role on a real instance
+ * (`42501 permission denied for function`), so the count comes from the list itself — which also
+ * warms the panel. Kept for deployments where it is granted.
+ */
+export async function fetchUnreadNotificationCount(
+  session: Session,
+  profileId: string
+): Promise<number> {
+  try {
+    const count = await rpc<number>(session, 'get_unread_notification_count', { p_user_id: profileId });
+    return typeof count === 'number' ? count : 0;
+  } catch {
+    return 0;
+  }
+}
+
+/**
+ * Marks specific entries read. Opening one notification must not clear the other twenty-six, which
+ * is what the instance's "all read" helper would do.
+ */
+export async function markNotificationsRead(
+  session: Session,
+  profileId: string,
+  ids: string[]
+): Promise<void> {
+  if (!ids.length) return;
+  const list = ids.map(encodeURIComponent).join(',');
+  const res = await fetch(
+    `${session.supabaseUrl}/rest/v1/notifications?user_id=eq.${encodeURIComponent(profileId)}&id=in.(${list})`,
+    {
+      method: 'PATCH',
+      headers: {
+        apikey: session.anonKey,
+        Authorization: `Bearer ${session.accessToken}`,
+        'Content-Type': 'application/json',
+        Prefer: 'return=minimal',
+      },
+      body: JSON.stringify({ is_read: true }),
+    }
+  );
+  if (!res.ok) {
+    const body = await res.text().catch(() => '');
+    throw new Error(`notifications: ${res.status} ${body.slice(0, 120)}`);
+  }
+}
+
 /** Clears the whole list's unread state through the instance's own helper. */
 export async function markAllNotificationsRead(session: Session, profileId: string): Promise<void> {
   await rpc(session, 'mark_all_notifications_read', { p_user_id: profileId });
