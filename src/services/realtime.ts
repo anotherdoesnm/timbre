@@ -44,6 +44,8 @@ export interface Subscription {
 export interface LiveConnection {
   /** Messages of one channel. Subscribing to a channel twice is a no-op. */
   subscribe(channelId: string, onEvent: (event: MessageEvent) => void): Subscription;
+  /** The same for a direct conversation, whose topic is `dm-conversation-<id>`. */
+  subscribeConversation(conversationId: string, onEvent: (event: MessageEvent) => void): Subscription;
   close(): void;
 }
 
@@ -63,12 +65,16 @@ export function connectRealtime(session: Session): LiveConnection {
   const client = clientFor(session);
   const open = new Map<string, RealtimeChannel>();
 
-  return {
-    subscribe(channelId: string, onEvent: (event: MessageEvent) => void): Subscription {
-      if (!channelId) return { close() {} };
-      if (open.has(channelId)) return { close() {} };
+  /** One implementation for both: only the topic prefix and the key differ. */
+  function subscribeTopic(
+    key: string,
+    topic: string,
+    onEvent: (event: MessageEvent) => void
+  ): Subscription {
+    if (!key) return { close() {} };
+    if (open.has(key)) return { close() {} };
 
-      const channel: RealtimeChannel = client.channel(`channel-messages-${channelId}`, {
+      const channel: RealtimeChannel = client.channel(topic, {
         config: { private: true, broadcast: { self: true } },
       });
       channel
@@ -85,10 +91,10 @@ export function connectRealtime(session: Session): LiveConnection {
         })
         .subscribe();
 
-      open.set(channelId, channel);
+      open.set(key, channel);
       return {
         close() {
-          open.delete(channelId);
+          open.delete(key);
           try {
             client.removeChannel(channel);
           } catch {
@@ -96,6 +102,14 @@ export function connectRealtime(session: Session): LiveConnection {
           }
         },
       };
+  }
+
+  return {
+    subscribe(channelId, onEvent) {
+      return subscribeTopic(channelId, `channel-messages-${channelId}`, onEvent);
+    },
+    subscribeConversation(conversationId, onEvent) {
+      return subscribeTopic(conversationId, `dm-conversation-${conversationId}`, onEvent);
     },
 
     close() {

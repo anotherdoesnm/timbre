@@ -555,12 +555,28 @@ export async function fetchMessages(
   channelId: string,
   opts: { limit?: number; before?: string } = {}
 ): Promise<MessagePage> {
+  return fetchMessagePage(session, `channel_id=eq.${encodeURIComponent(channelId)}`, opts);
+}
+
+/** The same page, from a direct conversation: `messages.conversation_id` instead of a channel. */
+export async function fetchConversationMessages(
+  session: Session,
+  conversationId: string,
+  opts: { limit?: number; before?: string } = {}
+): Promise<MessagePage> {
+  return fetchMessagePage(session, `conversation_id=eq.${encodeURIComponent(conversationId)}`, opts);
+}
+
+async function fetchMessagePage(
+  session: Session,
+  scope: string,
+  opts: { limit?: number; before?: string } = {}
+): Promise<MessagePage> {
   const limit = Math.min(Math.max(opts.limit ?? 50, 1), 200);
   const rows = await rest<Row[]>(
     session,
     'messages',
-    `channel_id=eq.${encodeURIComponent(channelId)}` +
-      '&is_deleted=eq.false' +
+    `${scope}&is_deleted=eq.false` +
       `&order=created_at.desc&limit=${limit}` +
       (opts.before ? `&created_at=lt.${encodeURIComponent(opts.before)}` : '') +
       '&select=id,created_at,updated_at,content,encrypted,user_id,is_system,metadata,reply_to'
@@ -863,6 +879,7 @@ export interface UnreadState {
 export async function fetchUnreadCounts(session: Session): Promise<Record<string, UnreadState>> {
   let rows: {
     channel_id: string | null;
+    conversation_id: string | null;
     unread_messages: number | null;
     unread_mentions: number | null;
     last_read_at: string | null;
@@ -875,9 +892,12 @@ export async function fetchUnreadCounts(session: Session): Promise<Record<string
   }
   const out: Record<string, UnreadState> = {};
   for (const row of rows) {
-    if (!row.channel_id) continue;
-    out[row.channel_id] = {
-      channelId: row.channel_id,
+    // The same RPC answers for conversations: `channel_id` is null and `conversation_id` is set,
+    // and the sidebar keys both by id, so one map serves the two lists.
+    const key = row.channel_id ?? row.conversation_id;
+    if (!key) continue;
+    out[key] = {
+      channelId: key,
       unread: Number(row.unread_messages ?? 0),
       mentions: Number(row.unread_mentions ?? 0),
       lastReadAt: row.last_read_at,
@@ -1049,6 +1069,118 @@ const SECURITY_TITLES: Record<string, string> = {
   recovery_codes_regenerated: 'Recovery codes regenerated',
   password_changed: 'Password changed',
 };
+
+/** One direct conversation, as the sidebar needs it. */
+export interface Conversation {
+  id: string;
+  type: string;
+  title: string;
+  /** The other person in a direct conversation; absent for a group. */
+  other?: { id?: string; name: string; initial: string; color: string; avatarUrl?: string; handle: string };
+  lastText: string;
+  lastAt: string;
+  unread: number;
+  mentions: number;
+  muted: boolean;
+}
+
+/**
+ * The account's conversations, in one call (`get_user_conversations` brings the participants, the
+ * last message and the counters together). Hidden conversations are dropped, as the official
+ * client does: hiding one is a deliberate act.
+ */
+export async function fetchConversations(session: Session): Promise<Conversation[]> {
+  const rows = await rpc<
+    {
+      conversation_id?: string;
+      type?: string;
+      name?: string | null;
+      is_muted?: boolean;
+      hidden_at?: string | null;
+      last_message?: Record<string, unknown> | null;
+      other_participants?: unknown;
+      unread_messages?: number;
+      unread_mentions?: number;
+      updated_at?: string;
+    }[]
+  >(session, 'get_user_conversations', {});
+
+  return (rows ?? [])
+    .filter((row) => typeof row.conversation_id === 'string' && !row.hidden_at)
+    .map((row) => {
+      const others = Array.isArray(row.other_participants) ? row.other_participants : [];
+      const profiles = others
+        .map((entry) => {
+          const wrapper = entry as { profile?: Row } | Row;
+          return (wrapper as { profile?: Row }).profile ?? (wrapper as Row);
+        })
+        .filter((p): p is Row => !!p && typeof p === 'object' && typeof (p as Row).id === 'string');
+      const first = profiles[0];
+      const author = first ? toAuthor(first, session) : null;
+      const handle = first
+        ? `@${String(first.username ?? '')}${typeof first.domain === 'string' && first.domain ? `@${first.domain}` : ''}`
+        : '';
+      const last = (row.last_message ?? {}) as Record<string, unknown>;
+      const parts = Array.isArray(last.content) ? renderContentParts(last.content) : { text: '' };
+      const title = author?.name || (typeof row.name === 'string' && row.name) || 'Conversation';
+      return {
+        id: String(row.conversation_id),
+        type: String(row.type ?? 'direct'),
+        title,
+        other: author ? { id: author.id, name: author.name, initial: author.initial, color: author.color, avatarUrl: author.avatarUrl, handle } : undefined,
+        lastText: String(parts.text ?? '').slice(0, 140),
+        lastAt: String(last.created_at ?? row.updated_at ?? ''),
+        unread: Number(row.unread_messages ?? 0),
+        mentions: Number(row.unread_mentions ?? 0),
+        muted: row.is_muted === true,
+      } satisfies Conversation;
+    })
+    .sort((a, b) => (b.lastAt || '').localeCompare(a.lastAt || ''));
+}
+
+/** Opens the direct conversation with somebody, creating it the first time. */
+export async function createDirectConversation(
+  session: Session,
+  meId: string,
+  otherId: string
+): Promise<string | null> {
+  const id = await rpc<string>(session, 'create_or_get_direct_conversation', {
+    user1_uuid: meId,
+    user2_uuid: otherId,
+  });
+  return typeof id === 'string' && id ? id : null;
+}
+
+/** A message in a direct conversation. Same shape as a channel message, different column. */
+export async function sendConversationMessage(
+  session: Session,
+  conversationId: string,
+  userId: string,
+  content: string,
+  id?: string
+): Promise<void> {
+  const res = await fetch(`${session.supabaseUrl}/rest/v1/messages`, {
+    method: 'POST',
+    headers: {
+      apikey: session.anonKey,
+      Authorization: `Bearer ${session.accessToken}`,
+      'Content-Type': 'application/json',
+      Prefer: 'return=minimal',
+    },
+    body: JSON.stringify({
+      ...(id ? { id } : {}),
+      conversation_id: conversationId,
+      user_id: userId,
+      content: content ? [{ type: 'text', text: content }] : [],
+    }),
+  });
+  // The same idempotency contract as a channel send.
+  if (res.status === 409 || res.status === 23505) return;
+  if (!res.ok) {
+    const body = await res.text().catch(() => '');
+    throw new Error(`send: ${res.status} ${body.slice(0, 200)}`);
+  }
+}
 
 /** One entry of the instance's notification list, flattened for the panel. */
 export interface NotificationItem {
@@ -1252,6 +1384,22 @@ export async function setDnd(session: Session, profileId: string, enabled: boole
   if (!res.ok) {
     const body = await res.text().catch(() => '');
     throw new Error(`dnd: ${res.status} ${body.slice(0, 120)}`);
+  }
+}
+
+/** The same cursor move for a direct conversation. */
+export async function markConversationRead(
+  session: Session,
+  conversationId: string,
+  messageId?: string | null
+): Promise<void> {
+  try {
+    await rpc(session, 'mark_conversation_as_read', {
+      p_conversation_id: conversationId,
+      p_message_id: messageId ?? null,
+    });
+  } catch {
+    /* an unread counter is not worth breaking the screen over */
   }
 }
 

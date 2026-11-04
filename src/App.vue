@@ -38,6 +38,12 @@ import {
   fetchProfileByUsername,
   fetchServerMembers,
   fetchNotifications,
+  fetchConversations,
+  fetchConversationMessages,
+  sendConversationMessage,
+  markConversationRead,
+  createDirectConversation,
+  type Conversation,
   markAllNotificationsRead,
   markNotificationsRead,
   type NotificationItem,
@@ -135,6 +141,11 @@ const mutedChannels = ref<Record<string, true>>({});
 // Do-not-disturb, including the daily window: a muted channel is quiet, the whole account is
 // quiet inside it.
 const prefs = ref<{ dndEnabled: boolean; dndStart: string | null; dndEnd: string | null } | null>(null);
+/** Direct conversations, newest activity first; the sidebar draws them above the channels. */
+const conversations = ref<Conversation[]>([]);
+const conversationIds = computed(() => new Set(conversations.value.map((c) => c.id)));
+const isDirect = (id: string): boolean => conversationIds.value.has(id);
+
 /** What the instance says happened while the app was closed. */
 const notificationsOpen = ref(false);
 const notifications = ref<NotificationItem[]>([]);
@@ -233,6 +244,7 @@ async function catchUp(): Promise<void> {
       prefs.value = await fetchNotificationPrefs(s, myProfileId.value);
     }
     void loadNotifications({ silent: true });
+    void loadConversations();
     if (activeChannel.value) await openChannel(activeChannel.value);
   } catch {
     /* still unreachable; the next resume tries again */
@@ -379,9 +391,21 @@ const channels = computed(() => {
     return { ...c, unread: total, mention: state?.mentions, muted: mutedChannels.value[c.id] === true };
   });
 });
-const channel = computed(
-  () => channels.value.find((c) => c.id === activeChannel.value) ?? channels.value[0] ?? null
-);
+const channel = computed(() => {
+  const direct = conversations.value.find((c) => c.id === activeChannel.value);
+  if (direct) {
+    // The chat pane is channel-shaped; a conversation wears a channel of its own so the header,
+    // the composer and the message list need no second branch.
+    return {
+      id: direct.id,
+      name: direct.title,
+      kind: 'text' as const,
+      category: 'Direct messages',
+      encrypted: false,
+    };
+  }
+  return channels.value.find((c) => c.id === activeChannel.value) ?? channels.value[0] ?? null;
+});
 const channelMessages = computed(() => {
   if (!channel.value) return [];
   if (session.value) return live.value ? liveMessages.value[channel.value.id] ?? [] : [];
@@ -399,7 +423,9 @@ async function openChannel(channelId: string): Promise<void> {
   const state = unread.value[channelId];
   const pending = state?.unread ?? 0;
   const limit = pending > 0 ? Math.min(pending + 20, 120) : 50;
-  const page = await fetchMessages(s, channelId, { limit });
+  const page = isDirect(channelId)
+    ? await fetchConversationMessages(s, channelId, { limit })
+    : await fetchMessages(s, channelId, { limit });
   const reactions = await fetchReactions(s, page.messages.map((m) => m.id));
   liveMessages.value[channelId] = page.messages.map((m) => ({ ...m, reactions: reactions[m.id] }));
   cursors.value[channelId] = { oldest: page.oldest, hasMore: page.hasMore };
@@ -407,7 +433,9 @@ async function openChannel(channelId: string): Promise<void> {
     pending > 0 ? page.messages[Math.max(0, page.messages.length - pending)]?.id ?? null : null;
   if (pending > 0) {
     const newest = page.messages[page.messages.length - 1];
-    void markChannelRead(s, channelId, newest?.id ?? null);
+    void (isDirect(channelId)
+      ? markConversationRead(s, channelId, newest?.id ?? null)
+      : markChannelRead(s, channelId, newest?.id ?? null));
     delete unread.value[channelId];
   }
   // Opening the channel is reading it, whichever counter noticed the message first.
@@ -536,8 +564,10 @@ async function boot() {
       unread.value = await fetchUnreadCounts(s);
       mutedChannels.value = await fetchMutedChannels(s, String(profile?.id ?? ''));
       liveMembers.value = { [list[0].id]: await fetchServerMembers(s, list[0].id) };
+      await loadConversations();
       prefs.value = await fetchNotificationPrefs(s, String(profile?.id ?? ''));
       void loadNotifications({ silent: true });
+    void loadConversations();
       const chans = await fetchChannels(s, list[0].id);
       liveChannels.value[list[0].id] = chans;
       const firstText = chans.find((c) => c.kind === 'text') ?? chans[0];
@@ -643,6 +673,9 @@ function ensureLive(): void {
       liveConn.subscribe(c.id, (event) => onLiveEvent(c.id, event));
     }
   }
+  for (const conversation of conversations.value) {
+    liveConn.subscribeConversation(conversation.id, (event) => onLiveEvent(conversation.id, event));
+  }
 }
 
 function channelById(id: string): { name: string; serverId: string } | null {
@@ -650,6 +683,8 @@ function channelById(id: string): { name: string; serverId: string } | null {
     const hit = chans.find((c) => c.id === id);
     if (hit) return { name: hit.name, serverId };
   }
+  const direct = conversations.value.find((c) => c.id === id);
+  if (direct) return { name: direct.title, serverId: activeServer.value };
   return null;
 }
 
@@ -778,6 +813,32 @@ async function toggleMute(): Promise<void> {
  * Tapping `@name` looks the person up rather than trusting the rendered page: a mention can point
  * at someone who has not spoken in this channel, and a federated handle carries its own instance.
  */
+async function loadConversations(): Promise<void> {
+  const s = session.value;
+  if (!s || !live.value) return;
+  try {
+    conversations.value = await fetchConversations(s);
+  } catch {
+    /* a sidebar section is not worth an error banner */
+  }
+}
+
+/** From the member list: open the conversation with somebody, creating it the first time. */
+async function startDirect(person: Author): Promise<void> {
+  const s = session.value;
+  const me = myProfileId.value;
+  if (!s || !me || !person.id || person.id === me) return;
+  try {
+    const id = await createDirectConversation(s, me, person.id);
+    if (!id) return;
+    membersOpen.value = false;
+    await loadConversations();
+    pickChannel(id);
+  } catch (e) {
+    loadError.value = e instanceof Error ? e.message : String(e);
+  }
+}
+
 /**
  * Opens the notification list, refreshing it: a count in the header is only useful if tapping it
  * answers "what happened", not "what happened when the app started".
@@ -1000,11 +1061,17 @@ async function onSend(
   const replyTo = replyArg !== undefined ? replyArg : replyTarget.value?.id ?? null;
   const id = reuseId ?? (globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`);
   try {
-    await sendMessage(s, ch.id, myProfileId.value, body, replyTo, files, id);
+    if (isDirect(ch.id)) {
+      await sendConversationMessage(s, ch.id, myProfileId.value, body, id);
+    } else {
+      await sendMessage(s, ch.id, myProfileId.value, body, replyTo, files, id);
+    }
     failedSend.value = null;
     replyTarget.value = null;
     attached.value = [];
-    const page = await fetchMessages(s, ch.id);
+    const page = isDirect(ch.id)
+      ? await fetchConversationMessages(s, ch.id)
+      : await fetchMessages(s, ch.id);
     liveMessages.value[ch.id] = page.messages;
     lastLoad = Date.now();
   } catch (e) {
@@ -1056,6 +1123,7 @@ watch([activeServer, activeChannel], () => {
       @account="openAccount"
       @notifications="openNotifications"
       :unread-notifications="unreadNotifications"
+      :dms="live ? conversations : undefined"
     />
     <main v-if="channel" class="chat">
       <ChatHeader
@@ -1107,9 +1175,9 @@ watch([activeServer, activeChannel], () => {
     <main v-else class="chat empty">
       <p>{{ loading ? 'Loading…' : 'No channels, or none visible to this session.' }}</p>
     </main>
-    <MemberList v-if="membersOpen && !narrow" :members="members" />
+    <MemberList v-if="membersOpen && !narrow" :members="members" @select="startDirect" />
     <div v-else-if="membersOpen && narrow" class="members-backdrop" @click.self="membersOpen = false">
-      <MemberList class="members-overlay" :members="members" />
+      <MemberList class="members-overlay" :members="members" @select="startDirect" />
     </div>
     <NotificationsPanel
       v-if="notificationsOpen"

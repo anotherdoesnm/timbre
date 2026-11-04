@@ -2,6 +2,7 @@
 import { computed } from 'vue';
 import Icon from './Icon.vue';
 import type { Channel } from '../data/mock';
+import type { Conversation } from '../services/data';
 
 const props = defineProps<{
   serverName: string;
@@ -10,6 +11,7 @@ const props = defineProps<{
   me?: { name: string; role: 'admin' | 'mod' | null };
   live?: boolean;
   unreadNotifications?: number;
+  dms?: Conversation[];
 }>();
 const emit = defineEmits<{
   (e: 'select', id: string): void;
@@ -44,6 +46,28 @@ const groups = computed(() => {
     </div>
 
     <div class="scroll">
+      <!-- Direct conversations come first: a message addressed to you is more urgent than a
+           channel somebody else is talking in. -->
+      <section v-if="props.dms?.length" class="group">
+        <div class="group-title">Direct messages</div>
+        <button
+          v-for="d in props.dms"
+          :key="d.id"
+          class="row dm"
+          :class="{ active: d.id === activeId, unread: !!d.unread && d.id !== activeId }"
+          @click="emit('select', d.id)"
+        >
+          <span class="dm-avatar" :style="d.other?.avatarUrl ? undefined : { background: d.other?.color ?? 'var(--primary-main)' }">
+            <img v-if="d.other?.avatarUrl" :src="d.other.avatarUrl" alt="" referrerpolicy="no-referrer" />
+            <template v-else>{{ d.other?.initial ?? d.title.slice(0, 1).toUpperCase() }}</template>
+          </span>
+          <span class="name">{{ d.title }}</span>
+          <Icon v-if="d.muted" name="bell-off" :size="13" class="muted-mark" />
+          <span v-if="d.mentions" class="badge mention">{{ d.mentions }}</span>
+          <span v-else-if="d.unread" class="badge" />
+        </button>
+      </section>
+
       <section v-for="g in groups" :key="g.title" class="group">
         <div class="group-title">{{ g.title }}</div>
         <button
@@ -163,6 +187,19 @@ const groups = computed(() => {
 .row:hover { background: var(--sf-hover); color: var(--text); }
 .row.active { background: var(--sfv-active); color: var(--text); }
 .muted-mark { color: var(--text-tertiary); flex: none; }
+.dm-avatar {
+  width: 18px;
+  height: 18px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border-radius: var(--radius-round);
+  color: var(--primary-on);
+  font-size: 9px;
+  font-weight: 700;
+  overflow: hidden;
+}
+.dm-avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .row.unread { color: var(--text); }
 .row.unread .name { font-weight: 600; }
 .name { flex: 1; font-size: var(--fs-base); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

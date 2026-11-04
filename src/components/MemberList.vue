@@ -8,6 +8,7 @@ import { members as mockMembers, type Author } from '../data/mock';
  * online and offline: a made-up "online" heading would be worse than none.
  */
 const props = defineProps<{ members?: Author[] }>();
+const emit = defineEmits<{ (e: 'select', person: Author): void }>();
 
 interface Row {
   name: string;
@@ -40,7 +41,14 @@ const offline = computed(() => roster.value.filter((m) => m.status === 'offline'
   <aside class="members">
     <section v-for="g in [{ t: `Online — ${online.length}`, list: online }, { t: `Offline — ${offline.length}`, list: offline }]" :key="g.t">
       <div class="title">{{ g.t }}</div>
-      <div v-for="m in g.list" :key="m.name" class="row" :class="{ dim: m.status === 'offline' }">
+      <button
+        v-for="m in g.list"
+        :key="m.name"
+        class="row"
+        :class="{ dim: m.status === 'offline' }"
+        :disabled="!props.members?.length"
+        @click="emit('select', (props.members ?? []).find((p) => p.name === m.name) ?? { name: m.name, initial: m.initial, color: m.color })"
+      >
         <div class="av" :style="!m.avatarUrl || broken[m.name] ? { background: m.color } : undefined">
           <img
             v-if="m.avatarUrl && !broken[m.name]"
@@ -57,7 +65,7 @@ const offline = computed(() => roster.value.filter((m) => m.status === 'offline'
           <span v-if="m.role" class="role" :class="m.role">{{ m.role === 'admin' ? 'admin' : 'mod' }}</span>
         </div>
         <span v-if="m.status === 'idle'" class="idle" title="Away" />
-      </div>
+      </button>
     </section>
   </aside>
 </template>
