@@ -38,6 +38,14 @@ export function renderContentParts(content: unknown): RenderedContent {
     if (!part || typeof part !== 'object') continue;
     const o = part as Record<string, unknown>;
     const type = String(o.type ?? '');
+    // A mention is a part of its own — `{type:'mention', username, domain, userId}` — with no
+    // `text`, so a message that is only a mention rendered as an empty bubble: the @name was
+    // there in the official client and simply absent here.
+    if (type === 'mention') {
+      const handle = typeof o.username === 'string' ? o.username : typeof o.name === 'string' ? o.name : '';
+      if (handle) texts.push(`@${handle}`);
+      continue;
+    }
     // A part with a `path` is re-signed by the caller (links expire); one without a path only has
     // its URL to go on.
     if (
@@ -110,6 +118,10 @@ export function renderContent(content: unknown): string {
     if (typeof part === 'string') return part;
     if (part && typeof part === 'object') {
       const o = part as Record<string, unknown>;
+      if (String(o.type ?? '') === 'mention') {
+        const handle = typeof o.username === 'string' ? o.username : typeof o.name === 'string' ? o.name : '';
+        if (handle) return `@${handle}`;
+      }
       for (const key of ['text', 'content', 'value', 'body']) {
         if (typeof o[key] === 'string') return o[key] as string;
       }
