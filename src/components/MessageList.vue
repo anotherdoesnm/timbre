@@ -47,6 +47,8 @@ const brokenAvatars = ref<Record<string, true>>({});
 const QUICK_EMOJI = ['👍', '❤️', '😂', '🎉', '🔥', '👀', '🙏', '✅', '😅', '🤔', '😮', '💀'];
 const pickerFor = ref<string | null>(null);
 const menuFor = ref<string | null>(null);
+// The attachment currently shown full-screen, if any.
+const lightbox = ref<string | null>(null);
 function isMine(m: Message): boolean {
   return !!props.myId && m.author.id === props.myId;
 }
@@ -225,9 +227,11 @@ watch(
           </div>
           <div v-if="m.images?.length" class="images">
             <template v-for="(src, i) in m.images" :key="i">
-              <a v-if="!broken[src]" :href="src" target="_blank" rel="noreferrer noopener" class="shot">
+              <!-- Opening the image in place beats `target="_blank"`: inside the shell a new
+                   window is an external browser at best, and a dead end at worst. -->
+              <button v-if="!broken[src]" class="shot" type="button" @click="lightbox = src">
                 <img :src="src" alt="" loading="lazy" referrerpolicy="no-referrer" @error="broken[src] = true" />
-              </a>
+              </button>
               <span v-else class="shot-missing">Attachment unavailable — the link has expired</span>
             </template>
           </div>
@@ -253,6 +257,12 @@ watch(
       </article>
       </template>
     </template>
+  </div>
+  <div v-if="lightbox" class="lightbox" @click="lightbox = null">
+    <img :src="lightbox" alt="" referrerpolicy="no-referrer" />
+    <button class="lb-close" aria-label="Close" @click.stop="lightbox = null">
+      <Icon name="close" :size="20" />
+    </button>
   </div>
 </template>
 
@@ -438,7 +448,33 @@ watch(
   color: var(--text-tertiary);
   font-size: var(--fs-xs);
 }
-.shot { display: block; }
+.shot { display: block; padding: 0; background: none; }
+/* Above the sheets and the composer: what you tapped came from the message, so it owns the
+   screen until dismissed. */
+.lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: grid;
+  place-items: center;
+  padding: var(--sp-300);
+  background: rgb(0 0 0 / 0.92);
+  animation: fade-in 120ms ease-out;
+}
+@keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
+.lightbox img { max-width: 100%; max-height: 100%; object-fit: contain; }
+.lb-close {
+  position: absolute;
+  top: calc(var(--sp-400) + env(safe-area-inset-top, 0px));
+  right: var(--sp-300);
+  width: 36px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--radius-round);
+  background: rgb(0 0 0 / 0.55);
+  color: #fff;
+}
 .shot-missing {
   display: inline-block;
   padding: var(--sp-200) var(--sp-300);
