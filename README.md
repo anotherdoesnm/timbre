@@ -145,9 +145,21 @@ mkdir -p .libs && cd .libs && apt-get download libglib2.0-0 libnss3 libxi6 libwa
 for f in *.deb; do dpkg-deb -x "$f" root/; done
 ```
 
+## Install
+
+Every release publishes an APK (arm64), an AppImage and a Windows installer as release assets:
+
+- **Android** — download the `.apk` from [Releases](https://github.com/anotherdoesnm/timbre/releases)
+  and open it. Android will warn that it comes from outside the store; allow it for this app.
+  The APK is signed with a release key kept in CI secrets, so updates install over each other —
+  but the first build after 0.9.0 changed the key, so uninstall an older build once.
+- **Linux / Windows** — the AppImage and the `.exe` installer from the same place.
+- **Web** — any instance that serves this build as its frontend; `timbre.doesnmlab.xyz` is one.
+
 ## What is not there yet
 
-See [`ROADMAP.md`](ROADMAP.md). Missing, in the order it hurts:
+See [`CHANGELOG.md`](CHANGELOG.md) for what a release contains and [`ROADMAP.md`](ROADMAP.md) for
+the comparison with the official client. Missing, in the order it hurts:
 
 - **push notifications.** The web build could use Web Push (a service worker and a subscription per
   device, neither wired yet); the Android shell cannot, because a WebView has no `PushManager`.
@@ -155,8 +167,16 @@ See [`ROADMAP.md`](ROADMAP.md). Missing, in the order it hurts:
   platform has one, toast and vibration in the shell.
 - **E2EE** channels are a placeholder by design (no downgrade); upstream's
   `src/services/encryption/` is the plan.
-- **voice**, **microblog**, and server/channel management: the instance has them, this client shows
-  what it can read and nothing else.
+- **voice**, **microblog**, **drive**, and server/channel management: the instance has them, this
+  client shows what it can read and nothing else.
+- **GIF** search needs klipy keys on the instance; without them the client simply offers no GIF
+  picker.
+
+## Privacy
+
+The client talks to one address — the instance you sign in to — and stores the session (an access
+token and a refresh token) in the app's own storage on the device. There is no telemetry, no
+analytics and no third-party request: the only outside call is to the instance itself.
 
 ## License
 

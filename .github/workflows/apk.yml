@@ -61,20 +61,43 @@ jobs:
           echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/${NDK_VERSION}" >> "$GITHUB_ENV"
           ls "$ANDROID_HOME/ndk"
 
-      - name: debug keystore
+      - name: signing key
+        if: false
+        # The key is not in the repository any more: it lives in this repository's secrets, and the
+        # old committed debug key was retired with 0.9.0. The password never enters the log — only
+        # the digest of the file, which is enough to tell two keys apart.
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
           set -eo pipefail
+          if [ -z "$KEYSTORE_B64" ]; then
+            echo "ОШИБКА: нет секрета ANDROID_KEYSTORE_BASE64" >&2
+            exit 1
+          fi
           mkdir -p "$HOME/.android"
-          cp src-tauri/debug.keystore "$HOME/.android/debug.keystore"
+          printf '%s' "$KEYSTORE_B64" | base64 -d > "$HOME/.android/debug.keystore"
           chmod 600 "$HOME/.android/debug.keystore"
           sha256sum "$HOME/.android/debug.keystore"
+          keystore_password="$KEYSTORE_PASSWORD" key_alias="$KEY_ALIAS" key_password="$KEY_PASSWORD" \
+            keytool -list -keystore "$HOME/.android/debug.keystore" -storepass:env keystore_password | tail -2
+
+      - name: init the android project
+        run: |
+          set -eo pipefail
+          npm ci
+          [ -d src-tauri/gen/android ] || npx tauri android init --ci
+      - name: dump the generated android project
+        run: |
+          cat src-tauri/gen/android/app/build.gradle.kts || true
+          echo "=== gradle.properties"
+          cat src-tauri/gen/android/gradle.properties || true
 
       - name: build the debug APK
         run: |
           set -eo pipefail
-          npm ci
-          # gen/android is not committed: it is generated per platform by the CLI.
-          [ -d src-tauri/gen/android ] || npx tauri android init --ci
           # vue-tsc catches what esbuild happily transpiles: a wrong type passed to a
           # component, an event nobody declared, a ref dereferenced from a template scope.
           npm run typecheck

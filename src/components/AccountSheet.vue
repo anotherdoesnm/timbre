@@ -25,6 +25,9 @@ const emit = defineEmits<{
 }>();
 
 const draft = ref(props.name);
+// The two things every bug report needs, printed from the build itself rather than remembered.
+const version = __APP_VERSION__;
+const sha = __BUILD_SHA__;
 // A rename is a two-step thing on a phone (type, then save); the button stays dead until the
 // text actually differs, so a stray tap cannot rewrite the name.
 const dirty = computed(() => draft.value.trim() !== '' && draft.value.trim() !== props.name);
@@ -122,6 +125,8 @@ function pick(event: Event): void {
         <Icon name="inbox" :size="16" />
         <span>Notification settings<span class="hint-inline"> — which events interrupt</span></span>
       </button>
+
+      <p class="build">Timbre {{ version }} · {{ sha }}</p>
 
       <button class="row danger" :disabled="busy" @click="emit('signout')">
         <Icon name="close" :size="16" />
@@ -238,5 +243,6 @@ header {
 .row:active { background: var(--sfv-container); }
 .row.danger { color: var(--critical); }
 .hint-inline { color: var(--text-tertiary); font-size: var(--fs-sm); }
+.build { margin: var(--sp-300) 0 var(--sp-100); color: var(--text-tertiary); font-size: var(--fs-xs); }
 .hint { margin: 0; padding: var(--sp-100) var(--sp-300) var(--sp-200); color: var(--text-tertiary); font-size: var(--fs-sm); }
 </style>

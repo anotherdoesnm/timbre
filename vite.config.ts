@@ -1,4 +1,13 @@
+import { readFileSync } from 'node:fs';
 import { defineConfig, type Plugin } from 'vite';
+
+function pkgVersion(): string {
+  try {
+    return JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8')).version as string;
+  } catch {
+    return '0.0.0';
+  }
+}
 import vue from '@vitejs/plugin-vue';
 
 /**
@@ -58,4 +67,10 @@ function instanceProxy(): Plugin {
 export default defineConfig({
   plugins: [vue(), instanceProxy()],
   server: { port: 5173 },
+  define: {
+    // The version and the commit are the two things a bug report needs; CI passes the commit,
+    // a local build says "dev" rather than inventing one.
+    __APP_VERSION__: JSON.stringify(pkgVersion()),
+    __BUILD_SHA__: JSON.stringify((process.env.GITHUB_SHA ?? process.env.TIMBRE_SHA ?? 'dev').slice(0, 7)),
+  },
 });
