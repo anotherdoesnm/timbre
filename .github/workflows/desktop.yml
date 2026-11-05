@@ -1,0 +1,134 @@
+# Desktop bundles: AppImage (Linux) and an NSIS installer (Windows, cross-compiled
+# from Linux).
+#
+# 2026-11-05: moved from runnerd (`rust` label) to GitHub-hosted runners. The WebKitGTK
+# and mingw/nsis stacks are still installed inside the job — ubuntu-latest has neither —
+# but checkout, Rust, Node and caching are now the standard actions, and the bundles
+# leave as artifacts (plus release assets on a tag) instead of PUTs to the LAN cache.
+
+name: desktop
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ['v*']
+
+concurrency:
+  group: desktop-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: webkit build dependencies
+        run: |
+          set -eo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends \
+            libwebkit2gtk-4.1-dev libssl-dev librsvg2-dev \
+            libayatana-appindicator3-dev libxdo-dev patchelf file
+          pkg-config --modversion webkit2gtk-4.1
+
+      - name: build the AppImage
+        run: |
+          set -eo pipefail
+          npm ci
+          npm run typecheck
+          npx tauri build --bundles appimage
+
+      - name: collect
+        run: |
+          set -eo pipefail
+          src=$(find src-tauri/target -name '*.AppImage' -print -quit)
+          [ -n "$src" ] || { echo "ОШИБКА: AppImage не собрался" >&2; exit 1; }
+          mkdir -p out && cp "$src" out/ && ls -l out
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: timbre-appimage
+          path: out/*.AppImage
+          if-no-files-found: error
+
+      - name: attach to the release on a tag
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: out/*.AppImage
+          prerelease: true
+
+  windows:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-gnu
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: mingw and nsis
+        run: |
+          set -eo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends mingw-w64 nsis
+          x86_64-w64-mingw32-gcc --version | head -1
+          makensis -VERSION
+
+      - name: build the installer
+        run: |
+          set -eo pipefail
+          npm ci
+          # Debian's nsis is missing Include/Win/RestartManager.nsh, which Tauri's
+          # installer script includes; without it makensis aborts on line 27.
+          sudo mkdir -p /usr/share/nsis/Include/Win
+          sudo curl -fsSL -o /usr/share/nsis/Include/Win/RestartManager.nsh \
+            https://raw.githubusercontent.com/kichik/nsis/master/Include/Win/RestartManager.nsh || true
+          npx tauri build --target x86_64-pc-windows-gnu --bundles nsis || {
+            echo "ПРЕДУПРЕЖДЕНИЕ: NSIS не собрался — публикую голый exe" >&2
+            npx tauri build --target x86_64-pc-windows-gnu --no-bundle
+          }
+
+      - name: collect
+        run: |
+          set -eo pipefail
+          src=$(find src-tauri/target -name '*-setup.exe' -print -quit)
+          [ -n "$src" ] || src=$(find src-tauri/target -name 'timbre.exe' -print -quit)
+          [ -n "$src" ] || { echo "ОШИБКА: установщик не собрался" >&2; exit 1; }
+          mkdir -p out && cp "$src" out/ && ls -l out
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: timbre-windows
+          path: out/*.exe
+          if-no-files-found: error
+
+      - name: attach to the release on a tag
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: out/*.exe
+          prerelease: true
