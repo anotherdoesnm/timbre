@@ -175,3 +175,5 @@ jobs:
         with:
           files: out/*.apk
           prerelease: true
+          # The changelog is the release note: one place to write it, no copy to drift.
+          body_path: CHANGELOG.md

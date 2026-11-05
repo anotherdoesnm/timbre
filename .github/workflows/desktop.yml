@@ -138,6 +138,7 @@ jobs:
         with:
           files: out/*.exe
           prerelease: true
+          body_path: CHANGELOG.md
 
       - name: tell #new-builds
         # Channel webhook, Discord-compatible body. The URL is a repository secret; without it the
