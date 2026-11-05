@@ -13,6 +13,7 @@ import ProfileCard from './components/ProfileCard.vue';
 import NotificationsPanel from './components/NotificationsPanel.vue';
 import NewDmSheet from './components/NewDmSheet.vue';
 import PinnedPanel from './components/PinnedPanel.vue';
+import { fetchCustomEmojis, type CustomEmoji } from './services/emoji';
 import AuthScreen from './components/AuthScreen.vue';
 import AuthCallback from './components/AuthCallback.vue';
 import { channels as mockChannels, messages as mockMessages, servers as mockServers, type Author } from './data/mock';
@@ -153,6 +154,7 @@ const conversationIds = computed(() => new Set(conversations.value.map((c) => c.
 const isDirect = (id: string): boolean => conversationIds.value.has(id);
 
 /** What the instance says happened while the app was closed. */
+const customEmoji = ref<CustomEmoji[]>([]);
 const newDmOpen = ref(false);
 // Pins belong to the open room, whatever kind of room it is.
 const pinnedOpen = ref(false);
@@ -582,6 +584,7 @@ async function boot() {
       await loadConversations();
       prefs.value = await fetchNotificationPrefs(s, String(profile?.id ?? ''));
       void loadNotifications({ silent: true });
+      void fetchCustomEmojis(s).then((list: CustomEmoji[]) => (customEmoji.value = list)).catch(() => undefined);
     void loadConversations();
       const chans = await fetchChannels(s, list[0].id);
       liveChannels.value[list[0].id] = chans;
@@ -1217,6 +1220,7 @@ watch([activeServer, activeChannel], () => {
         :loading-older="loadingOlder"
         @load-older="loadOlder(channel.id)"
         :my-id="myProfileId"
+        :custom-emoji="customEmoji"
         @reply="(m) => (replyTarget = { id: m.id, author: m.author.name, text: m.text.slice(0, 120) })"
         @edit="(m) => (editing = { id: m.id, text: m.text })"
         @delete="onDeleteMessage"
@@ -1232,6 +1236,7 @@ watch([activeServer, activeChannel], () => {
         :reply-to="replyTarget"
         :attached="attached"
         :uploading="uploading"
+        :custom-emoji="customEmoji"
         :draft-instance="session?.instance"
         :draft-channel="channel.id"
         :editing="editing"

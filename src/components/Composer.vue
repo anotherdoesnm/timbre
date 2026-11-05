@@ -2,6 +2,8 @@
 import { ref, watch } from 'vue';
 import Icon from './Icon.vue';
 import { clearDraft, loadDraft, saveDraft } from '../services/drafts';
+import EmojiPicker from './EmojiPicker.vue';
+import type { CustomEmoji } from '../services/emoji';
 
 const props = defineProps<{
   disabled?: boolean;
@@ -16,6 +18,8 @@ const props = defineProps<{
   /** Draft identity: the instance and channel the text belongs to. */
   draftInstance?: string;
   draftChannel?: string;
+  /** Custom emoji of the instance, for the picker. */
+  customEmoji?: CustomEmoji[];
 }>();
 const emit = defineEmits<{
   (e: 'send', text: string): void;
@@ -26,6 +30,7 @@ const emit = defineEmits<{
   (e: 'cancel-edit'): void;
 }>();
 const text = ref(loadDraft(props.draftInstance, props.draftChannel));
+const emojiOpen = ref(false);
 const fileInput = ref<HTMLInputElement | null>(null);
 let draftTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -56,6 +61,13 @@ watch(
     text.value = loadDraft(instance, channel);
   }
 );
+
+/** A custom emoji goes in as `:name:` — that is the form every client renders. */
+function insertEmoji(value: { char?: string; name?: string }): void {
+  emojiOpen.value = false;
+  if (value.char) text.value += value.char;
+  else if (value.name) text.value += `:${value.name}:`;
+}
 
 function submit(): void {
   if (props.editing) {
@@ -124,7 +136,9 @@ function send() {
             <Icon name="clip" :size="18" />
           </button>
           <input ref="fileInput" type="file" hidden @change="pickFile" />
-          <button :disabled="disabled" title="Emoji"><Icon name="smile" :size="18" /></button>
+          <button :disabled="disabled" title="Emoji" @click="emojiOpen = !emojiOpen">
+            <Icon name="smile" :size="18" />
+          </button>
         </div>
         <div class="right">
           <button :disabled="disabled" title="Voice message"><Icon name="mic" :size="18" /></button>
@@ -140,6 +154,13 @@ function send() {
       </div>
     </div>
   </div>
+  <EmojiPicker
+    v-if="emojiOpen"
+    :custom="customEmoji"
+    mode="insert"
+    @pick="insertEmoji"
+    @close="emojiOpen = false"
+  />
 </template>
 
 <style scoped>

@@ -1,6 +1,8 @@
 <script setup lang="ts">
-import { nextTick, ref, watch } from 'vue';
+import { computed, nextTick, ref, watch } from 'vue';
 import Icon from './Icon.vue';
+import EmojiPicker from './EmojiPicker.vue';
+import type { CustomEmoji } from '../services/emoji';
 import type { Channel, Message } from '../data/mock';
 import { parseSegments, safeHref, type Segment } from '../services/markdown';
 
@@ -9,6 +11,8 @@ const props = defineProps<{
   myId?: string | null;
   messages: Message[];
   live?: boolean;
+  /** Custom emoji of the instance, for the picker. */
+  customEmoji?: CustomEmoji[];
   /** First unread message: the view opens here instead of at the bottom. */
   unreadFromId?: string | null;
   /** Message to jump to (search result). */
@@ -47,7 +51,8 @@ const broken = ref<Record<string, true>>({});
 const brokenAvatars = ref<Record<string, true>>({});
 // A short list rather than a full emoji keyboard: the instance has its own emoji table, and
 // wiring that (with search and custom uploads) is its own step.
-const QUICK_EMOJI = ['👍', '❤️', '😂', '🎉', '🔥', '👀', '🙏', '✅', '😅', '🤔', '😮', '💀'];
+/** Emoji the instance offers on top of Unicode, loaded once by the shell. */
+const customEmoji = computed(() => props.customEmoji ?? []);
 const pickerFor = ref<string | null>(null);
 const menuFor = ref<string | null>(null);
 // The attachment currently shown full-screen, if any.
@@ -59,6 +64,14 @@ function mine(m: Message, emoji: string): boolean {
   return !!m.reactions?.find((r) => r.emoji === emoji)?.mine;
 }
 function pick(m: Message, emoji: string): void {
+  pickerFor.value = null;
+  emit('react', m, emoji, mine(m, emoji));
+}
+
+/** A custom emoji reacts by name, which is what other clients resolve back to its picture. */
+function pickCustom(m: Message, value: { char?: string; name?: string }): void {
+  const emoji = value.char ?? (value.name ? `:${value.name}:` : '');
+  if (!emoji) return;
   pickerFor.value = null;
   emit('react', m, emoji, mine(m, emoji));
 }
@@ -275,11 +288,13 @@ watch(
           <button @click.stop="menuFor = null; emit('edit', m)">Edit</button>
           <button class="danger" @click.stop="menuFor = null; emit('delete', m)">Delete</button>
         </div>
-        <div v-if="pickerFor === m.id" class="picker">
-          <button v-for="e in QUICK_EMOJI" :key="e" :class="{ mine: mine(m, e) }" @click.stop="pick(m, e)">
-            {{ e }}
-          </button>
-        </div>
+        <EmojiPicker
+          v-if="pickerFor === m.id"
+          :custom="customEmoji"
+          mode="reaction"
+          @pick="(v) => pickCustom(m, v)"
+          @close="pickerFor = null"
+        />
         <div class="tools">
           <button title="Reply" @click.stop="emit('reply', m)"><Icon name="reply" :size="15" /></button>
           <button title="Add a reaction" @click.stop="pickerFor = pickerFor === m.id ? null : m.id">
