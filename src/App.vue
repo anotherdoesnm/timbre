@@ -926,7 +926,7 @@ async function openThread(m: Message): Promise<void> {
   threadOpen.value = true;
   threadLoading.value = true;
   try {
-    const id = await ensureThread(s, m.id);
+    const id = await ensureThread(s, m.id, m.text);
     threadId.value = id;
     const page = id ? await fetchThreadMessages(s, id) : null;
     threadMessages.value = page?.messages ?? [];

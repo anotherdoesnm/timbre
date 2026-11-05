@@ -1,6 +1,6 @@
 # Timbre — where it stands, and what upstream has that we do not
 
-Updated 2026-11-04, against Harmony 1.9.2. The comparison comes from upstream's own tree
+Updated 2026-11-05, against Harmony 1.9.2. The comparison comes from upstream's own tree
 (`src/views`, `src/stores`, `src/components`, the router) rather than from its README, which is
 written for instance operators.
 
@@ -23,7 +23,13 @@ Sending: attachments with upload, drafts per channel, a retry that cannot duplic
 (the id is the client's), an offline banner.
 
 Notifications while the app is open: a system notification where the platform has one, a toast and
-a vibration in the shell, per-channel mute, do-not-disturb including the daily window.
+a vibration in the shell, per-channel mute, do-not-disturb including the daily window, and the
+instance's full per-event matrix (notify and sound, five event kinds) actually deciding what
+interrupts. A notification list with the unread dot sits beside the account.
+
+Direct conversations (list, create, send, attachments, read cursors), pinned messages, polls with
+voting, threads beside the channel, an emoji picker over all of Unicode plus the instance's own
+emoji.
 
 Account: rename, avatar upload, sign out. Member list (join order, no presence). Search across the
 instance's messages. Mobile layout, Android hardware Back, safe-area insets.
@@ -33,26 +39,34 @@ instance's messages. Mobile layout, Android hardware Back, safe-area insets.
 Grouped by what it would take, with the server support that already exists in the instance's
 schema — that is what decides whether a feature is a client job or a project.
 
+### Done since this list was written
+
+| Feature | Where it came from |
+|---|---|
+| **Direct messages** | `conversations`, `get_user_conversations`, `create_or_get_direct_conversation`, `mark_conversation_as_read`; topic `dm-conversation-<id>` |
+| **Notifications screen** | `get_user_notifications`, `notifications` PATCH, `mark_all_notifications_read`; a bell beside the account |
+| **The preference matrix** | `notification_preferences`: desktop and sound per event type, plus the quiet hours, now actually deciding what interrupts |
+| **Pinned messages** | `pin_message` / `unpin_message` / `count_pinned_messages`, a panel in the header |
+| **Polls** | `create_message_poll`, `get_message_polls`, `vote_message_poll`; a card in the message and a dialog in the composer |
+| **Emoji picker** | `unicode-emoji-json` + `gemoji` (the pair upstream uses), plus the instance's custom emoji, for reactions and the composer |
+| **Threads** | `create_thread`, `messages.thread_id`, `active_threads_view`; a panel beside the channel and a "N replies" line |
+
 ### Small: the tables and RPCs are there and the UI is one screen
 
 | Feature | Server side | Notes |
 |---|---|---|
 | **Notifications screen + bell** | `notifications` (own RLS), `get_user_notifications`, `get_unread_notification_count` | Upstream's bell widget lists mentions, replies, DMs, follows. Ours has no place to look at what happened while the app was closed. |
-| ~~Pinned messages~~ | `pinned_messages_view`, `count_pinned_messages`, `pin_message` / `unpin_message` | **Done**: a pin button with the count in the header, a panel of pinned messages, pin/unpin from the message toolbar. |
-| **Mark all as read** | `mark_channel_as_read` per channel, `get_unread_counts` | One button; the counters already exist. |
+| **Mark all as read** | `mark_channel_as_read` / `mark_conversation_as_read` / `mark_server_as_read`, `get_unread_counts` | One button; the counters already exist. |
 | **Per-category mute** | `notification_channels.category_id`, unique index in place | Same write as channel mute, one column different. |
 
 ### Medium: a fair amount of UI, no new concepts
 
 | Feature | Server side | Notes |
 |---|---|---|
-| **Direct messages** | `conversations`, `conversation_participants`, `messages.conversation_id` | The second half of a messenger. Everything we have is channel-shaped: fetch, realtime topic, unread RPC, sending. |
-| **Threads** | `threads`, `thread_members`, `active_threads_view` | A thread view and a reply-as-thread action. |
-| **Polls** | 4 tables | Vote, show results, close. |
-| **Custom emoji and sticker pickers** | `emojis`, stickers tables | We render `:name:` as text and stickers as pictures; picking one is the missing half. Emoji picker is also where the reactions picker's 12 hard-coded emoji should come from. |
-| **GIF picker** | instance endpoint (klipy) | In the composer next to the attachment button. |
+| **Sticker picker** | `stickers`, `can_see_sticker` | Emoji are done; stickers still render from a message and cannot be sent from this client. |
+| **GIF picker** | instance endpoint (klipy) | **Blocked on the instance**: the backend has `KLIPY_API_KEY_ADS` / `NOADS` paths, but our box has no keys, so `/api/gifs/search` falls through to the SPA. The client half is small once a key exists. |
 | **Presence and typing** | realtime `server-presence:<id>` topic | The member list currently has no "online", and nobody sees "typing…". |
-| **Settings beyond the profile** | `notification_preferences` (full matrix), appearance, language | Upstream has a settings screen per section; ours is a sheet with a name, an avatar and two switches. |
+| **Settings beyond the profile** | appearance, language | The notification matrix is done; themes, language and privacy are not. |
 
 ### Large: weeks, not hours
 
@@ -74,16 +88,14 @@ channel from a notification, resumable uploads.
 
 ## What I would do next
 
-1. **Notifications screen.** It closes the loop we opened with mute and DND, and it is the one
-   place where "what happened while you were away" lives. Server support is complete.
-2. **Direct messages.** A chat client without DMs is a forum client.
-3. **Pins** — done. Bookmarks turned out not to exist for chat messages: `user_bookmarks` stores
-   *ActivityPub posts* (`post_id`, `ap_id`, `content_warning`), and there is no saved-messages table
-   at all, so that row left the list.
-4. **Emoji, sticker and GIF pickers.** The composer is the most-used surface we have, and the
-   reaction picker is twelve hard-coded characters.
-5. **Threads.** After DMs, this is the other half of a conversation that is not a channel.
-6. **Server and channel management.** Needed the day somebody else wants to use the instance.
+Everything the first version of this list called small or medium is now in the client: notifications,
+DMs, the preference matrix, pins, polls, emoji and threads. What is left:
+
+1. **Sticker picker.** The last piece of the composer: stickers render but cannot be sent from here.
+2. **Mark all as read**, per channel, conversation or server — three RPCs already exist.
+3. **Server and channel management.** Needed the day somebody else wants to use the instance.
+4. **GIF**, once an instance has klipy keys (a server setting, not a client one).
+5. **Microblog**, **voice**, **drive**, **moderation** — different products on the same server.
 
 Modern Android clients live or die by notifications and DMs, in that order; the microblog and voice
 are different products sharing a server.

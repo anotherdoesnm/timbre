@@ -629,13 +629,23 @@ export async function fetchThreadForMessage(
   };
 }
 
-/** Opens the thread of a message, creating it the first time somebody replies in it. */
-export async function ensureThread(session: Session, messageId: string): Promise<string | null> {
+/**
+ * Opens the thread of a message, creating it the first time somebody replies in it.
+ *
+ * The instance refuses a blank name (`threads name must not be blank`), so the parent message's
+ * opening words become the thread's name — which is also what the thread list shows.
+ */
+export async function ensureThread(
+  session: Session,
+  messageId: string,
+  name?: string
+): Promise<string | null> {
   const existing = await fetchThreadForMessage(session, messageId);
   if (existing) return existing.id;
+  const title = (name ?? '').trim().slice(0, 80) || 'Thread';
   const id = await rpc<string>(session, 'create_thread', {
     p_message_id: messageId,
-    p_name: null,
+    p_name: title,
     p_auto_archive_duration: 1440,
   });
   return typeof id === 'string' && id ? id : null;
