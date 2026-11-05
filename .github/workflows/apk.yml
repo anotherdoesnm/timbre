@@ -105,6 +105,28 @@ jobs:
           path: out/*.apk
           if-no-files-found: error
 
+      - name: tell #new-builds
+        # Channel webhook, Discord-compatible body. The URL is a repository secret; without it the
+        # step says so and moves on, so the workflow stays usable for anyone who forks this.
+        #
+        # The old step attached the LAN-cache URLs it had just PUT to; that cache is gone, so the
+        # message links the run instead — the artifact lives behind a GitHub login, and a link that
+        # works for the maintainer is still better than a dead host name.
+        env:
+          HOOK: ${{ secrets.TIMBRE_WEBHOOK }}
+        run: |
+          set -eo pipefail
+          if [ -z "$HOOK" ]; then echo "no TIMBRE_WEBHOOK secret, skipping"; exit 0; fi
+          subject=$(git log -1 --pretty=%s | cut -c1-120)
+          run_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          printf '**Timbre %s** — %s\nBuild: %s\n' "${GITHUB_SHA:0:7}" "$subject" "$run_url" > /tmp/message.txt
+          cat /tmp/message.txt
+          # JSON-escape the body, then turn the real newlines into \n escapes.
+          content=$(sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' /tmp/message.txt | awk 'BEGIN { ORS = "\\n" } { print }')
+          curl -fsS -X POST "$HOOK" -H 'Content-Type: application/json' \
+            -d "{\"content\":\"$content\",\"allowed_mentions\":{\"parse\":[]}}" \
+            || echo "webhook unreachable; the build itself is published" >&2
+
       - name: attach to the release on a tag
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
