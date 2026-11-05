@@ -62,7 +62,6 @@ jobs:
           ls "$ANDROID_HOME/ndk"
 
       - name: signing key
-        if: false
         # The key is not in the repository any more: it lives in this repository's secrets, and the
         # old committed debug key was retired with 0.9.0. The password never enters the log — only
         # the digest of the file, which is enough to tell two keys apart.
@@ -77,42 +76,67 @@ jobs:
             echo "ОШИБКА: нет секрета ANDROID_KEYSTORE_BASE64" >&2
             exit 1
           fi
-          mkdir -p "$HOME/.android"
-          printf '%s' "$KEYSTORE_B64" | base64 -d > "$HOME/.android/debug.keystore"
-          chmod 600 "$HOME/.android/debug.keystore"
-          sha256sum "$HOME/.android/debug.keystore"
-          keystore_password="$KEYSTORE_PASSWORD" key_alias="$KEY_ALIAS" key_password="$KEY_PASSWORD" \
-            keytool -list -keystore "$HOME/.android/debug.keystore" -storepass:env keystore_password | tail -2
+          ks="$RUNNER_TEMP/timbre-release.jks"
+          printf '%s' "$KEYSTORE_B64" | base64 -d > "$ks"
+          chmod 600 "$ks"
+          sha256sum "$ks"
+          # The password never reaches the log: keytool reads it from the environment.
+          keystore_password="$KEYSTORE_PASSWORD" keytool -list -keystore "$ks" \
+            -storepass:env keystore_password | tail -3
+          echo "TIMBRE_KEYSTORE=$ks" >> "$GITHUB_ENV"
+          echo "TIMBRE_KEYSTORE_PASSWORD=$KEYSTORE_PASSWORD" >> "$GITHUB_ENV"
+          echo "TIMBRE_KEY_ALIAS=$KEY_ALIAS" >> "$GITHUB_ENV"
+          echo "TIMBRE_KEY_PASSWORD=$KEY_PASSWORD" >> "$GITHUB_ENV"
 
-      - name: init the android project
+      - name: build the release APK
         run: |
           set -eo pipefail
           npm ci
+          # gen/android is not committed: it is generated per platform by the CLI.
           [ -d src-tauri/gen/android ] || npx tauri android init --ci
-      - name: dump the generated android project
-        run: |
-          cat src-tauri/gen/android/app/build.gradle.kts || true
-          echo "=== gradle.properties"
-          cat src-tauri/gen/android/gradle.properties || true
-
-      - name: build the debug APK
-        run: |
-          set -eo pipefail
           # vue-tsc catches what esbuild happily transpiles: a wrong type passed to a
           # component, an event nobody declared, a ref dereferenced from a template scope.
           npm run typecheck
+          # The generated project has no `signingConfigs` at all, so a release APK would come out
+          # unsigned; this adds one that reads the key from the environment and wires it into the
+          # release build type. It fails loudly if the template ever changes shape.
+          python3 - <<'PYEOF'
+          import re, sys
+          path = "src-tauri/gen/android/app/build.gradle.kts"
+          src = open(path).read()
+          signing = '''    signingConfigs {
+        create("release") {
+            storeFile = file(System.getenv("TIMBRE_KEYSTORE") ?: "")
+            storePassword = System.getenv("TIMBRE_KEYSTORE_PASSWORD")
+            keyAlias = System.getenv("TIMBRE_KEY_ALIAS")
+            keyPassword = System.getenv("TIMBRE_KEY_PASSWORD")
+        }
+    }
+'''
+          if "signingConfigs" in src:
+              sys.exit(0)  # already patched
+          if "\n    buildTypes {" not in src:
+              sys.exit("gradle template changed: no `buildTypes` block to anchor the signing config on")
+          src = src.replace("\n    buildTypes {", "\n" + signing + "    buildTypes {", 1)
+          patched, n = re.subn(r'(getByName\("release"\) \{)',
+                               r'\1\n            signingConfig = signingConfigs.getByName("release")', src, count=1)
+          if n != 1:
+              sys.exit("gradle template changed: no release build type to sign")
+          open(path, "w").write(patched)
+          print("signing config wired into the release build type")
+          PYEOF
           npm run build
-          # Split per ABI and ship only arm64-v8a: one universal debug APK is ~124 MiB,
-          # the arm64 one is a quarter of that, and no phone this client runs on is 32-bit.
-          npx tauri android build --apk --debug --split-per-abi --target aarch64
+          # Split per ABI and ship only arm64-v8a: one universal APK is ~124 MiB, the arm64 one is a
+          # quarter of that, and no phone this client runs on is 32-bit.
+          npx tauri android build --apk --split-per-abi --target aarch64
 
       - name: collect the APK
         # A missing APK is an error, not a note in the log: this step is the last thing
         # that can notice a build which produced nothing.
         run: |
           set -eo pipefail
-          src=$(find src-tauri -path '*/outputs/apk/*' -name '*arm64-v8a*.apk' -print -quit)
-          [ -n "$src" ] || src=$(find src-tauri -path '*/outputs/apk/*' -name '*.apk' -print -quit)
+          src=$(find src-tauri -path '*/outputs/apk/*' -name '*arm64*.apk' ! -name '*unsigned*' -print -quit)
+          [ -n "$src" ] || src=$(find src-tauri -path '*/outputs/apk/*' -name '*.apk' ! -name '*unsigned*' -print -quit)
           if [ -z "$src" ]; then
             echo "ОШИБКА: APK не собрался" >&2
             find src-tauri -name '*.apk' -o -name apk -type d | head >&2
@@ -121,6 +145,8 @@ jobs:
           mkdir -p out
           cp "$src" out/
           ls -l out
+          # Proof that the APK carries the release key rather than the SDK's throwaway one.
+          keytool -printcert -jarfile "out/$(basename "$src")" | grep -E "^Owner|^Valid" | head -3
 
       - uses: actions/upload-artifact@v4
         with:
