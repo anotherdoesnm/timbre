@@ -21,6 +21,7 @@ const emit = defineEmits<{
   (e: 'avatar', file: File): void;
   (e: 'enable-notifications'): void;
   (e: 'toggle-dnd'): void;
+  (e: 'notification-settings'): void;
 }>();
 
 const draft = ref(props.name);
@@ -115,6 +116,11 @@ function pick(event: Event): void {
           {{ dnd ? 'Do not disturb is on' : 'Do not disturb' }}
           <span v-if="dnd && dndLabel" class="hint-inline">— {{ dndLabel }}</span>
         </span>
+      </button>
+
+      <button class="row" :disabled="busy" @click="emit('notification-settings')">
+        <Icon name="inbox" :size="16" />
+        <span>Notification settings<span class="hint-inline"> — which events interrupt</span></span>
       </button>
 
       <button class="row danger" :disabled="busy" @click="emit('signout')">

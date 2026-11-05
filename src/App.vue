@@ -14,6 +14,7 @@ import NotificationsPanel from './components/NotificationsPanel.vue';
 import NewDmSheet from './components/NewDmSheet.vue';
 import PinnedPanel from './components/PinnedPanel.vue';
 import PollComposer from './components/PollComposer.vue';
+import NotificationSettings from './components/NotificationSettings.vue';
 import { fetchCustomEmojis, type CustomEmoji } from './services/emoji';
 import AuthScreen from './components/AuthScreen.vue';
 import AuthCallback from './components/AuthCallback.vue';
@@ -39,6 +40,7 @@ import {
   setChannelMute,
   fetchMutedChannels,
   fetchNotificationPrefs,
+  type NotificationPrefs,
   fetchProfileByUsername,
   fetchServerMembers,
   fetchNotifications,
@@ -53,6 +55,7 @@ import {
   votePoll,
   createPoll,
   fetchPolls,
+  setPreference,
   type PinnedMessage,
   type Conversation,
   markAllNotificationsRead,
@@ -151,7 +154,7 @@ const localUnread = ref<Record<string, number>>({});
 const mutedChannels = ref<Record<string, true>>({});
 // Do-not-disturb, including the daily window: a muted channel is quiet, the whole account is
 // quiet inside it.
-const prefs = ref<{ dndEnabled: boolean; dndStart: string | null; dndEnd: string | null } | null>(null);
+const prefs = ref<NotificationPrefs | null>(null);
 /** Direct conversations, newest activity first; the sidebar draws them above the channels. */
 const conversations = ref<Conversation[]>([]);
 const conversationIds = computed(() => new Set(conversations.value.map((c) => c.id)));
@@ -161,6 +164,8 @@ const isDirect = (id: string): boolean => conversationIds.value.has(id);
 const customEmoji = ref<CustomEmoji[]>([]);
 const newDmOpen = ref(false);
 // Pins belong to the open room, whatever kind of room it is.
+const notifSettingsOpen = ref(false);
+const prefsSaving = ref(false);
 const pollOpen = ref(false);
 const pinnedOpen = ref(false);
 const pinned = ref<PinnedMessage[]>([]);
@@ -843,6 +848,36 @@ function pinScope(): { channelId?: string; conversationId?: string } | null {
   return isDirect(id) ? { conversationId: id } : { channelId: id };
 }
 
+/** Writes one preference and keeps the copy the UI reads in step with it. */
+async function onChangePreference(field: string, value: boolean): Promise<void> {
+  const s = session.value;
+  const id = myProfileId.value;
+  if (!s || !id) return;
+  prefsSaving.value = true;
+  const previous = prefs.value;
+  // The toggle has to move on the tap, not after the round trip; a failure puts it back.
+  if (prefs.value) {
+    const next = { ...prefs.value } as typeof prefs.value;
+    if (field === 'dnd_enabled') next.dndEnabled = value;
+    else if (field.startsWith('desktop_')) {
+      const key = field.slice('desktop_'.length).replace('chat_messages', 'messages');
+      next.desktop = { ...next.desktop, [key]: value } as typeof next.desktop;
+    } else if (field.startsWith('sound_')) {
+      const key = field.slice('sound_'.length).replace('chat_messages', 'messages');
+      next.sound = { ...next.sound, [key]: value } as typeof next.sound;
+    }
+    prefs.value = next;
+  }
+  try {
+    await setPreference(s, id, { [field]: value });
+  } catch (e) {
+    prefs.value = previous;
+    loadError.value = e instanceof Error ? e.message : String(e);
+  } finally {
+    prefsSaving.value = false;
+  }
+}
+
 /** Votes, then re-reads the aggregate: the counts belong to the instance, not to this client. */
 async function onVote(pollId: string, optionIds: string[]): Promise<void> {
   const s = session.value;
@@ -1313,6 +1348,14 @@ watch([activeServer, activeChannel], () => {
       @close="pinnedOpen = false"
       @open="openPinned"
     />
+    <NotificationSettings
+      v-if="notifSettingsOpen"
+      :prefs="prefs"
+      :saving="prefsSaving"
+      :error="loadError"
+      @change="onChangePreference"
+      @close="notifSettingsOpen = false"
+    />
     <PollComposer v-if="pollOpen" @create="onCreatePoll" @close="pollOpen = false" />
     <NewDmSheet
       v-if="newDmOpen"
@@ -1359,6 +1402,7 @@ watch([activeServer, activeChannel], () => {
       :dnd="prefs?.dndEnabled === true"
       :dnd-label="dndLabel"
       @toggle-dnd="toggleDnd"
+      @notification-settings="notifSettingsOpen = true"
       @close="closeAccount"
       @signout="signOutNow"
       @rename="onRename"

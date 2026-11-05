@@ -1028,6 +1028,10 @@ export async function fetchMutedChannels(
  * window as two times and expects the client to decide whether "now" falls inside it.
  */
 export interface NotificationPrefs {
+  /** Which events may raise a system notification. */
+  desktop: { mentions: boolean; replies: boolean; dms: boolean; reactions: boolean; messages: boolean };
+  /** Which of them may also make a sound. */
+  sound: { mentions: boolean; replies: boolean; dms: boolean; reactions: boolean; messages: boolean };
   dndEnabled: boolean;
   /** `HH:MM:SS` as Postgres prints a `time`, or null when the window was never set. */
   dndStart: string | null;
@@ -1579,7 +1583,9 @@ export async function fetchNotificationPrefs(
     session,
     'notification_preferences',
     `user_id=eq.${encodeURIComponent(profileId)}` +
-      '&select=dnd_enabled,dnd_start_time,dnd_end_time,push_mentions,push_dms&limit=1'
+      '&select=dnd_enabled,dnd_start_time,dnd_end_time,push_mentions,push_dms,' +
+      'desktop_mentions,desktop_replies,desktop_dms,desktop_reactions,desktop_chat_messages,' +
+      'sound_mentions,sound_replies,sound_dms,sound_reactions,sound_chat_messages&limit=1'
   ).catch(() => [] as Row[]);
   const row = rows[0];
   if (!row) return null;
@@ -1589,7 +1595,49 @@ export async function fetchNotificationPrefs(
     dndEnd: typeof row.dnd_end_time === 'string' ? row.dnd_end_time : null,
     pushMentions: row.push_mentions !== false,
     pushDms: row.push_dms !== false,
+    desktop: {
+      mentions: row.desktop_mentions !== false,
+      replies: row.desktop_replies !== false,
+      dms: row.desktop_dms !== false,
+      reactions: row.desktop_reactions !== false,
+      messages: row.desktop_chat_messages !== false,
+    },
+    sound: {
+      mentions: row.sound_mentions !== false,
+      replies: row.sound_replies !== false,
+      dms: row.sound_dms !== false,
+      reactions: row.sound_reactions !== false,
+      messages: row.sound_chat_messages !== false,
+    },
   };
+}
+
+/**
+ * Writes one preference. The instance stores a row of booleans, and the client only ever writes the
+ * ones the settings screen shows — a field it does not understand is left as the instance has it.
+ */
+export async function setPreference(
+  session: Session,
+  profileId: string,
+  patch: Record<string, boolean>
+): Promise<void> {
+  const res = await fetch(
+    `${session.supabaseUrl}/rest/v1/notification_preferences?user_id=eq.${encodeURIComponent(profileId)}`,
+    {
+      method: 'PATCH',
+      headers: {
+        apikey: session.anonKey,
+        Authorization: `Bearer ${session.accessToken}`,
+        'Content-Type': 'application/json',
+        Prefer: 'return=minimal',
+      },
+      body: JSON.stringify(patch),
+    }
+  );
+  if (!res.ok) {
+    const body = await res.text().catch(() => '');
+    throw new Error(`preference: ${res.status} ${body.slice(0, 120)}`);
+  }
 }
 
 /** Turns do-not-disturb on or off; the window itself is left as the instance has it. */
