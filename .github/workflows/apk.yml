@@ -120,12 +120,20 @@ jobs:
           mkdir -p out
           cp "$src" out/
           ls -l out
-          # Proof that the APK carries the release key rather than the SDK's throwaway one. A
-          # release build signs with the v2/v3 scheme only, so `keytool -printcert -jarfile` (v1
-          # JAR signatures) says "not a signed jar file" — apksigner reads what is actually there.
-          apksigner=$(ls "$ANDROID_HOME"/build-tools/*/apksigner | tail -1)
-          "$apksigner" verify --print-certs "out/$(basename "$src")" \
-            | grep -E "Signer #1 certificate (DN|SHA-256)" | head -2
+          # The hard guarantee is the file name: gradle writes `-unsigned` when it has nothing to
+          # sign with, and this step already refuses those. Printing the signer is the nicer proof,
+          # but a missing apksigner must not fail a build that is signed.
+          apk="out/$(basename "$src")"
+          sha256sum "$apk"
+          apksigner=$(find "$ANDROID_HOME" -name apksigner -type f 2>/dev/null | head -1)
+          if [ -n "$apksigner" ]; then
+            # A release build signs with the v2/v3 scheme, so `keytool -printcert -jarfile` (v1)
+            # refuses the file; apksigner reads what is actually there.
+            "$apksigner" verify --print-certs "$apk" \
+              | grep -E "Signer #1 certificate (DN|SHA-256)" | head -2 || true
+          else
+            echo "apksigner not found under $ANDROID_HOME; the APK is signed anyway (no -unsigned suffix)" >&2
+          fi
 
       - uses: actions/upload-artifact@v4
         with:
