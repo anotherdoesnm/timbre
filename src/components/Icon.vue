@@ -14,6 +14,7 @@ const paths: Record<string, string> = {
   chevron: 'm6 9 6 6 6-6',
   mic: 'M12 4a3 3 0 0 1 3 3v4a3 3 0 0 1-6 0V7a3 3 0 0 1 3-3zM6 11a6 6 0 0 0 12 0M12 17v4',
   bell: 'M6 9a6 6 0 0 1 12 0c0 5 2 6 2 6H4s2-1 2-6M10 20a2 2 0 0 0 4 0',
+  thread: 'M4 6h16M4 12h10M4 18h7M16 14l4 3-4 3z',
   poll: 'M5 20V10M12 20V4M19 20v-7',
   pin: 'M9 3h6l-1 6 4 4H6l4-4zM12 13v8',
   'bell-off': 'M9 9a6 6 0 0 1 9 5c0 2 .3 3.2 1 4M6.6 6.6A6 6 0 0 0 6 9c0 5-2 6-2 6h13M10 20a2 2 0 0 0 4 0M3 3l18 18',

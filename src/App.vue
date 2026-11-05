@@ -15,10 +15,17 @@ import NewDmSheet from './components/NewDmSheet.vue';
 import PinnedPanel from './components/PinnedPanel.vue';
 import PollComposer from './components/PollComposer.vue';
 import NotificationSettings from './components/NotificationSettings.vue';
+import ThreadPanel from './components/ThreadPanel.vue';
 import { fetchCustomEmojis, type CustomEmoji } from './services/emoji';
 import AuthScreen from './components/AuthScreen.vue';
 import AuthCallback from './components/AuthCallback.vue';
-import { channels as mockChannels, messages as mockMessages, servers as mockServers, type Author } from './data/mock';
+import {
+  channels as mockChannels,
+  messages as mockMessages,
+  servers as mockServers,
+  type Author,
+  type Message,
+} from './data/mock';
 import { refreshSession, sessionAlive, sessionExpired, signOut, storedSession, type Session } from './services/auth';
 import {
   fetchChannels,
@@ -56,6 +63,11 @@ import {
   createPoll,
   fetchPolls,
   setPreference,
+  fetchChannelThreads,
+  ensureThread,
+  fetchThreadMessages,
+  sendThreadMessage,
+  type ThreadInfo,
   type PinnedMessage,
   type Conversation,
   markAllNotificationsRead,
@@ -167,6 +179,14 @@ const newDmOpen = ref(false);
 const notifSettingsOpen = ref(false);
 const prefsSaving = ref(false);
 const pollOpen = ref(false);
+// Threads are per-channel and per-parent-message; the panel shows one at a time.
+const threadOpen = ref(false);
+const threadParent = ref<Message | null>(null);
+const threadId = ref<string | null>(null);
+const threadMessages = ref<Message[]>([]);
+const threadLoading = ref(false);
+const threadSending = ref(false);
+const threadCounts = ref<Record<string, number>>({});
 const pinnedOpen = ref(false);
 const pinned = ref<PinnedMessage[]>([]);
 const pinnedLoading = ref(false);
@@ -456,6 +476,7 @@ async function openChannel(channelId: string): Promise<void> {
   liveMessages.value[channelId] = page.messages.map((m) => ({ ...m, reactions: reactions[m.id] }));
   cursors.value[channelId] = { oldest: page.oldest, hasMore: page.hasMore };
   void refreshPinCount();
+  void refreshThreadCounts();
   unreadAnchor.value =
     pending > 0 ? page.messages[Math.max(0, page.messages.length - pending)]?.id ?? null : null;
   if (pending > 0) {
@@ -878,6 +899,71 @@ async function onChangePreference(field: string, value: boolean): Promise<void> 
   }
 }
 
+/** Threads of the open channel, so the parent messages can say "3 replies". */
+async function refreshThreadCounts(): Promise<void> {
+  const s = session.value;
+  const ch = channel.value;
+  if (!s || !ch || isDirect(ch.id)) {
+    threadCounts.value = {};
+    return;
+  }
+  try {
+    const threads = await fetchChannelThreads(s, ch.id);
+    const counts: Record<string, number> = {};
+    for (const [parentId, info] of Object.entries(threads)) counts[parentId] = info.messageCount;
+    threadCounts.value = counts;
+  } catch {
+    threadCounts.value = {};
+  }
+}
+
+/** Opens (or creates) the thread of a message and loads what is in it. */
+async function openThread(m: Message): Promise<void> {
+  const s = session.value;
+  const ch = channel.value;
+  if (!s || !ch || isDirect(ch.id)) return;
+  threadParent.value = m;
+  threadOpen.value = true;
+  threadLoading.value = true;
+  try {
+    const id = await ensureThread(s, m.id);
+    threadId.value = id;
+    const page = id ? await fetchThreadMessages(s, id) : null;
+    threadMessages.value = page?.messages ?? [];
+    await refreshThreadCounts();
+  } catch (e) {
+    loadError.value = e instanceof Error ? e.message : String(e);
+    threadMessages.value = [];
+  } finally {
+    threadLoading.value = false;
+  }
+}
+
+function closeThread(): void {
+  threadOpen.value = false;
+  threadParent.value = null;
+  threadId.value = null;
+  threadMessages.value = [];
+}
+
+async function onThreadSend(text: string): Promise<void> {
+  const s = session.value;
+  const ch = channel.value;
+  const id = threadId.value;
+  if (!s || !ch || !id || !myProfileId.value) return;
+  threadSending.value = true;
+  try {
+    await sendThreadMessage(s, id, ch.id, myProfileId.value, text, globalThis.crypto?.randomUUID?.());
+    const page = await fetchThreadMessages(s, id);
+    threadMessages.value = page.messages;
+    await refreshThreadCounts();
+  } catch (e) {
+    loadError.value = e instanceof Error ? e.message : String(e);
+  } finally {
+    threadSending.value = false;
+  }
+}
+
 /** Votes, then re-reads the aggregate: the counts belong to the instance, not to this client. */
 async function onVote(pollId: string, optionIds: string[]): Promise<void> {
   const s = session.value;
@@ -1257,7 +1343,15 @@ watch([activeServer, activeChannel], () => {
     :resume="resume"
     @authenticated="enter"
   />
-  <div v-else class="app" :class="{ 'with-members': membersOpen, mobile: mobilePane === 'chat' }">
+  <div
+    v-else
+    class="app"
+    :class="{
+      'with-members': membersOpen && !(threadOpen && !narrow),
+      'with-thread': threadOpen && !narrow && !!threadParent,
+      mobile: mobilePane === 'chat',
+    }"
+  >
     <div v-if="!online || failedSend" class="offline">
       <span v-if="!online">You are offline — messages will not send until the connection is back</span>
       <span v-else>A message did not send</span>
@@ -1311,6 +1405,8 @@ watch([activeServer, activeChannel], () => {
         @mention="openMention"
         @pin="onPin"
         @vote="onVote"
+        @thread="openThread"
+        :thread-counts="threadCounts"
         @channel="openChannelRef"
       />
       <Composer
@@ -1336,7 +1432,40 @@ watch([activeServer, activeChannel], () => {
     <main v-else class="chat empty">
       <p>{{ loading ? 'Loading…' : 'No channels, or none visible to this session.' }}</p>
     </main>
+    <ThreadPanel
+      v-if="threadOpen && !narrow && threadParent"
+      :parent="threadParent"
+      :messages="threadMessages"
+      :loading="threadLoading"
+      :sending="threadSending"
+      :my-id="myProfileId"
+      :custom-emoji="customEmoji"
+      :draft-key="threadId ? `thread:${threadId}` : 'thread'"
+      @close="closeThread"
+      @send="onThreadSend"
+      @react="onReact"
+      @edit="(m) => (editing = { id: m.id, text: m.text })"
+      @delete="onDeleteMessage"
+      @mention="openMention"
+    />
     <MemberList v-if="membersOpen && !narrow" :members="members" @select="startDirect" />
+    <div v-if="threadOpen && narrow && threadParent" class="thread-backdrop" @click.self="closeThread">
+      <ThreadPanel
+        :parent="threadParent"
+        :messages="threadMessages"
+        :loading="threadLoading"
+        :sending="threadSending"
+        :my-id="myProfileId"
+        :custom-emoji="customEmoji"
+        :draft-key="threadId ? `thread:${threadId}` : 'thread'"
+        @close="closeThread"
+        @send="onThreadSend"
+        @react="onReact"
+        @edit="(m) => (editing = { id: m.id, text: m.text })"
+        @delete="onDeleteMessage"
+        @mention="openMention"
+      />
+    </div>
     <div v-else-if="membersOpen && narrow" class="members-backdrop" @click.self="membersOpen = false">
       <MemberList class="members-overlay" :members="members" @select="startDirect" />
     </div>
@@ -1470,6 +1599,26 @@ watch([activeServer, activeChannel], () => {
   background: rgb(0 0 0 / 0.45);
 }
 .app.with-members { grid-template-columns: var(--rail-width) var(--rooms-width) 1fr var(--members-width); }
+/* A thread takes the members column's place rather than adding a fifth: three panes is already the
+   most a laptop can show without the conversation getting squeezed. */
+.app.with-thread { grid-template-columns: var(--rail-width) var(--rooms-width) 1fr minmax(320px, 420px); }
+.thread-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 42;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  background: rgb(0 0 0 / 0.45);
+}
+.app .thread-backdrop :deep(.thread) {
+  width: 100%;
+  max-height: 85vh;
+  border-left: 0;
+  border-radius: var(--radius-xl) var(--radius-xl) 0 0;
+  padding-bottom: calc(var(--sp-300) + var(--nav-inset, 0px));
+  overflow: hidden;
+}
 .offline {
   position: fixed;
   left: 50%;

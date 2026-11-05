@@ -574,6 +574,130 @@ export async function fetchMessages(
   return fetchMessagePage(session, `channel_id=eq.${encodeURIComponent(channelId)}`, opts);
 }
 
+/** A thread: its id and counters, keyed by the message it hangs off. */
+export interface ThreadInfo {
+  id: string;
+  parentMessageId: string;
+  messageCount: number;
+  locked: boolean;
+  archived: boolean;
+}
+
+/** Threads of a channel that are still open, so the parent message can say "3 replies". */
+export async function fetchChannelThreads(
+  session: Session,
+  channelId: string
+): Promise<Record<string, ThreadInfo>> {
+  const rows = await rest<Row[]>(
+    session,
+    'active_threads_view',
+    `channel_id=eq.${encodeURIComponent(channelId)}&select=id,parent_message_id,message_count,locked,archived&limit=200`
+  ).catch(() => [] as Row[]);
+  const out: Record<string, ThreadInfo> = {};
+  for (const row of rows) {
+    const parent = String(row.parent_message_id ?? '');
+    if (!parent) continue;
+    out[parent] = {
+      id: String(row.id),
+      parentMessageId: parent,
+      messageCount: Number(row.message_count ?? 0),
+      locked: row.locked === true,
+      archived: row.archived === true,
+    };
+  }
+  return out;
+}
+
+/** The thread of a message, if one exists. */
+export async function fetchThreadForMessage(
+  session: Session,
+  messageId: string
+): Promise<ThreadInfo | null> {
+  const rows = await rest<Row[]>(
+    session,
+    'threads',
+    `parent_message_id=eq.${encodeURIComponent(messageId)}&select=id,parent_message_id,message_count,locked,archived&limit=1`
+  ).catch(() => [] as Row[]);
+  const row = rows[0];
+  if (!row) return null;
+  return {
+    id: String(row.id),
+    parentMessageId: String(row.parent_message_id ?? messageId),
+    messageCount: Number(row.message_count ?? 0),
+    locked: row.locked === true,
+    archived: row.archived === true,
+  };
+}
+
+/** Opens the thread of a message, creating it the first time somebody replies in it. */
+export async function ensureThread(session: Session, messageId: string): Promise<string | null> {
+  const existing = await fetchThreadForMessage(session, messageId);
+  if (existing) return existing.id;
+  const id = await rpc<string>(session, 'create_thread', {
+    p_message_id: messageId,
+    p_name: null,
+    p_auto_archive_duration: 1440,
+  });
+  return typeof id === 'string' && id ? id : null;
+}
+
+/** The thread's own messages: `messages.thread_id`, newest page first read the other way round. */
+export async function fetchThreadMessages(
+  session: Session,
+  threadId: string,
+  opts: { limit?: number; before?: string } = {}
+): Promise<MessagePage> {
+  return fetchMessagePage(session, `thread_id=eq.${encodeURIComponent(threadId)}`, opts);
+}
+
+/** A message inside a thread: it belongs to the parent channel and names its thread. */
+export async function sendThreadMessage(
+  session: Session,
+  threadId: string,
+  channelId: string,
+  userId: string,
+  content: string,
+  id?: string,
+  files: UploadedFile[] = []
+): Promise<void> {
+  const signed = files.length
+    ? await signMedia(session, files.map((f) => f.path), 365 * 24 * 60 * 60)
+    : {};
+  const res = await fetch(`${session.supabaseUrl}/rest/v1/messages`, {
+    method: 'POST',
+    headers: {
+      apikey: session.anonKey,
+      Authorization: `Bearer ${session.accessToken}`,
+      'Content-Type': 'application/json',
+      Prefer: 'return=minimal',
+    },
+    body: JSON.stringify({
+      ...(id ? { id } : {}),
+      channel_id: channelId,
+      thread_id: threadId,
+      user_id: userId,
+      content: [
+        ...(content ? [{ type: 'text', text: content }] : []),
+        ...files.map((f) => ({
+          type: 'file',
+          path: f.path,
+          ...(signed[f.path] ? { url: signed[f.path] } : {}),
+          fileName: f.name,
+          fileSize: f.size,
+          fileType: kindOf(f.contentType),
+          mime_type: f.contentType,
+        })),
+      ],
+      ...(files.length ? { media_paths: files.map((f) => f.path) } : {}),
+    }),
+  });
+  if (res.status === 409 || res.status === 23505) return;
+  if (!res.ok) {
+    const body = await res.text().catch(() => '');
+    throw new Error(`thread send: ${res.status} ${body.slice(0, 200)}`);
+  }
+}
+
 /** The same page, from a direct conversation: `messages.conversation_id` instead of a channel. */
 export async function fetchConversationMessages(
   session: Session,

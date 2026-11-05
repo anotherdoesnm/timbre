@@ -14,6 +14,8 @@ const props = defineProps<{
   live?: boolean;
   /** Custom emoji of the instance, for the picker. */
   customEmoji?: CustomEmoji[];
+  /** Open threads, keyed by the message they hang off, for the "N replies" line. */
+  threadCounts?: Record<string, number>;
   /** First unread message: the view opens here instead of at the bottom. */
   unreadFromId?: string | null;
   /** Message to jump to (search result). */
@@ -28,6 +30,7 @@ const emit = defineEmits<{
   (e: 'mention', handle: string): void;
   (e: 'pin', m: Message, pinned: boolean): void;
   (e: 'vote', pollId: string, optionIds: string[]): void;
+  (e: 'thread', m: Message): void;
   (e: 'channel', name: string): void;
   (e: 'edit', m: Message): void;
   (e: 'delete', m: Message): void;
@@ -276,6 +279,11 @@ watch(
             </button>
           </div>
           <PollCard v-if="m.poll" :poll="m.poll" @vote="(id, ids) => emit('vote', id, ids)" />
+          <!-- A thread is otherwise invisible in the channel; this line is the only sign that
+               nine of the answers moved somewhere else. -->
+          <button v-if="threadCounts?.[m.id]" class="thread-link" @click.stop="emit('thread', m)">
+            {{ threadCounts[m.id] }} {{ threadCounts[m.id] === 1 ? 'reply' : 'replies' }} in thread
+          </button>
           <div v-if="m.images?.length" class="images">
             <template v-for="(src, i) in m.images" :key="i">
               <!-- Opening the image in place beats `target="_blank"`: inside the shell a new
@@ -311,6 +319,9 @@ watch(
             @click.stop="emit('pin', m, !m.pinned)"
           >
             <Icon name="pin" :size="15" />
+          </button>
+          <button title="Reply in thread" @click.stop="emit('thread', m)">
+            <Icon name="thread" :size="15" />
           </button>
           <button v-if="isMine(m)" title="More" @click.stop="menuFor = menuFor === m.id ? null : m.id; pickerFor = null">
             <Icon name="dots" :size="15" />
