@@ -32,6 +32,18 @@ export interface Message {
   edited?: boolean;
   /** Pinned in its channel or conversation. */
   pinned?: boolean;
+  /** A poll attached to the message, once its votes are known. */
+  poll?: {
+    id: string;
+    question: string;
+    allowMultiple: boolean;
+    closed: boolean;
+    expiresAt: string | null;
+    totalVoters: number;
+    options: { id: string; text: string; votes: number }[];
+    myOptionIds: string[];
+    isAuthor: boolean;
+  };
 }
 
 export interface Channel {

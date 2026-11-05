@@ -13,6 +13,7 @@ import ProfileCard from './components/ProfileCard.vue';
 import NotificationsPanel from './components/NotificationsPanel.vue';
 import NewDmSheet from './components/NewDmSheet.vue';
 import PinnedPanel from './components/PinnedPanel.vue';
+import PollComposer from './components/PollComposer.vue';
 import { fetchCustomEmojis, type CustomEmoji } from './services/emoji';
 import AuthScreen from './components/AuthScreen.vue';
 import AuthCallback from './components/AuthCallback.vue';
@@ -49,6 +50,9 @@ import {
   fetchPinnedMessages,
   countPinnedMessages,
   setPinned,
+  votePoll,
+  createPoll,
+  fetchPolls,
   type PinnedMessage,
   type Conversation,
   markAllNotificationsRead,
@@ -157,6 +161,7 @@ const isDirect = (id: string): boolean => conversationIds.value.has(id);
 const customEmoji = ref<CustomEmoji[]>([]);
 const newDmOpen = ref(false);
 // Pins belong to the open room, whatever kind of room it is.
+const pollOpen = ref(false);
 const pinnedOpen = ref(false);
 const pinned = ref<PinnedMessage[]>([]);
 const pinnedLoading = ref(false);
@@ -838,6 +843,49 @@ function pinScope(): { channelId?: string; conversationId?: string } | null {
   return isDirect(id) ? { conversationId: id } : { channelId: id };
 }
 
+/** Votes, then re-reads the aggregate: the counts belong to the instance, not to this client. */
+async function onVote(pollId: string, optionIds: string[]): Promise<void> {
+  const s = session.value;
+  const ch = channel.value;
+  if (!s || !ch) return;
+  try {
+    await votePoll(s, pollId, optionIds);
+    const list = liveMessages.value[ch.id] ?? [];
+    const ids = list.filter((m) => m.poll).map((m) => m.poll!.id);
+    const polls = await fetchPolls(s, ids);
+    liveMessages.value[ch.id] = list.map((m) => (polls[m.id] ? { ...m, poll: polls[m.id] } : m));
+  } catch (e) {
+    loadError.value = e instanceof Error ? e.message : String(e);
+  }
+}
+
+async function onCreatePoll(poll: {
+  question: string;
+  options: string[];
+  allowMultiple: boolean;
+  durationHours: number;
+}): Promise<void> {
+  const s = session.value;
+  const ch = channel.value;
+  if (!s || !ch) return;
+  pollOpen.value = false;
+  try {
+    await createPoll(
+      s,
+      isDirect(ch.id) ? { conversationId: ch.id } : { channelId: ch.id },
+      poll,
+      replyTarget.value?.id ?? null
+    );
+    replyTarget.value = null;
+    const page = isDirect(ch.id)
+      ? await fetchConversationMessages(s, ch.id)
+      : await fetchMessages(s, ch.id);
+    liveMessages.value[ch.id] = page.messages;
+  } catch (e) {
+    loadError.value = e instanceof Error ? e.message : String(e);
+  }
+}
+
 async function refreshPinCount(): Promise<void> {
   const s = session.value;
   const scope = pinScope();
@@ -1227,6 +1275,7 @@ watch([activeServer, activeChannel], () => {
         @react="onReact"
         @mention="openMention"
         @pin="onPin"
+        @vote="onVote"
         @channel="openChannelRef"
       />
       <Composer
@@ -1236,6 +1285,7 @@ watch([activeServer, activeChannel], () => {
         :reply-to="replyTarget"
         :attached="attached"
         :uploading="uploading"
+        @create-poll="pollOpen = true"
         :custom-emoji="customEmoji"
         :draft-instance="session?.instance"
         :draft-channel="channel.id"
@@ -1263,6 +1313,7 @@ watch([activeServer, activeChannel], () => {
       @close="pinnedOpen = false"
       @open="openPinned"
     />
+    <PollComposer v-if="pollOpen" @create="onCreatePoll" @close="pollOpen = false" />
     <NewDmSheet
       v-if="newDmOpen"
       :members="members ?? []"

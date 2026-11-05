@@ -31,6 +31,8 @@ export function renderContentParts(content: unknown): RenderedContent {
   const parts = Array.isArray(content) ? content : content ? [content] : [];
   const texts: string[] = [];
   const images: string[] = [];
+  /** Set once a poll part was seen: the text that follows is its fallback, not a message. */
+  let hasPoll = false;
   for (const part of parts) {
     if (typeof part === 'string') {
       texts.push(part);
@@ -65,6 +67,15 @@ export function renderContentParts(content: unknown): RenderedContent {
     }
     // A sticker is an image with a name (`{id, url, name, width, height}`, shipped in 1.9.2). It
     // renders like any other picture here rather than as the empty bubble an unhandled type leaves.
+    // A poll part is followed by a plain-text copy of the same question and answers
+    // (`📊 <question>\n1. …`), written for clients that do not render polls. The card shows it, so
+    // the fallback is dropped — matched by its marker, since that is the only thing distinguishing
+    // it from a message somebody typed.
+    if (type === 'poll') {
+      hasPoll = true;
+      continue;
+    }
+    if (hasPoll && type === 'text' && typeof o.text === 'string' && o.text.startsWith('📊 ')) continue;
     if (type === 'sticker' && typeof o.url === 'string' && o.url) {
       images.push(o.url);
       continue;
@@ -711,6 +722,25 @@ async function fetchMessagePage(
     };
   });
 
+  // Polls: the part names the poll, the aggregate comes from one RPC for the whole page.
+  const pollIds: string[] = [];
+  for (const row of visible) {
+    if (!Array.isArray(row.content)) continue;
+    for (const part of row.content) {
+      if (part && typeof part === 'object' && (part as { type?: unknown }).type === 'poll') {
+        const id = (part as { pollId?: unknown }).pollId;
+        if (typeof id === 'string') pollIds.push(id);
+      }
+    }
+  }
+  if (pollIds.length) {
+    const polls = await fetchPolls(session, pollIds);
+    for (const message of messages) {
+      const poll = polls[message.id];
+      if (poll) message.poll = poll;
+    }
+  }
+
   // Attachments: images become normal images, everything else a download chip. The bucket is
   // private, so every path needs its own signed URL — one call per path, in parallel.
   const filePathByMessage = new Map<string, FilePart[]>();
@@ -1074,6 +1104,97 @@ const SECURITY_TITLES: Record<string, string> = {
   recovery_codes_regenerated: 'Recovery codes regenerated',
   password_changed: 'Password changed',
 };
+
+/** One poll of a message, with the aggregate the instance computes for the caller. */
+export interface Poll {
+  id: string;
+  messageId: string;
+  question: string;
+  allowMultiple: boolean;
+  closed: boolean;
+  expiresAt: string | null;
+  totalVoters: number;
+  options: { id: string; text: string; votes: number }[];
+  myOptionIds: string[];
+  isAuthor: boolean;
+}
+
+/**
+ * Polls for a page of messages, keyed by message id.
+ *
+ * The message part only names the poll (`pollId`); counts, the caller's own votes and whether the
+ * poll closed come from `get_message_polls`, which takes up to a hundred ids in one call.
+ */
+export async function fetchPolls(
+  session: Session,
+  pollIds: string[]
+): Promise<Record<string, Poll>> {
+  const ids = [...new Set(pollIds.filter(Boolean))].slice(0, 100);
+  if (!ids.length) return {};
+  const rows = await rpc<
+    {
+      poll_id?: string;
+      message_id?: string;
+      question?: string;
+      allow_multiple?: boolean;
+      expires_at?: string | null;
+      closed?: boolean;
+      total_voters?: number;
+      options?: unknown;
+      my_option_ids?: string[];
+      is_author?: boolean;
+    }[]
+  >(session, 'get_message_polls', { p_poll_ids: ids }).catch(() => []);
+
+  const out: Record<string, Poll> = {};
+  for (const row of rows ?? []) {
+    const messageId = String(row.message_id ?? '');
+    if (!messageId) continue;
+    const options = Array.isArray(row.options)
+      ? (row.options as { id?: unknown; text?: unknown; votes?: unknown }[]).map((o) => ({
+          id: String(o.id ?? ''),
+          text: String(o.text ?? ''),
+          votes: Number(o.votes ?? 0),
+        }))
+      : [];
+    out[messageId] = {
+      id: String(row.poll_id ?? ''),
+      messageId,
+      question: String(row.question ?? ''),
+      allowMultiple: row.allow_multiple === true,
+      closed: row.closed === true,
+      expiresAt: typeof row.expires_at === 'string' ? row.expires_at : null,
+      totalVoters: Number(row.total_voters ?? 0),
+      options,
+      myOptionIds: Array.isArray(row.my_option_ids) ? row.my_option_ids.map(String) : [],
+      isAuthor: row.is_author === true,
+    };
+  }
+  return out;
+}
+
+/** Votes on a poll; the instance replaces the caller's previous choice. */
+export async function votePoll(session: Session, pollId: string, optionIds: string[]): Promise<void> {
+  await rpc(session, 'vote_message_poll', { p_poll_id: pollId, p_option_ids: optionIds });
+}
+
+/** Posts a poll — the instance writes the message too, poll part and text fallback included. */
+export async function createPoll(
+  session: Session,
+  target: { channelId?: string; conversationId?: string },
+  poll: { question: string; options: string[]; allowMultiple: boolean; durationHours: number },
+  replyTo?: string | null
+): Promise<void> {
+  await rpc(session, 'create_message_poll', {
+    p_channel_id: target.channelId ?? null,
+    p_conversation_id: target.conversationId ?? null,
+    p_question: poll.question,
+    p_options: poll.options,
+    p_allow_multiple: poll.allowMultiple,
+    p_duration_hours: poll.durationHours,
+    p_reply_to: replyTo ?? null,
+  });
+}
 
 /** A pinned message, with enough context to name its author and show the text. */
 export interface PinnedMessage {

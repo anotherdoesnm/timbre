@@ -2,6 +2,7 @@
 import { computed, nextTick, ref, watch } from 'vue';
 import Icon from './Icon.vue';
 import EmojiPicker from './EmojiPicker.vue';
+import PollCard from './PollCard.vue';
 import type { CustomEmoji } from '../services/emoji';
 import type { Channel, Message } from '../data/mock';
 import { parseSegments, safeHref, type Segment } from '../services/markdown';
@@ -26,6 +27,7 @@ const emit = defineEmits<{
   (e: 'react', m: Message, emoji: string, mine: boolean): void;
   (e: 'mention', handle: string): void;
   (e: 'pin', m: Message, pinned: boolean): void;
+  (e: 'vote', pollId: string, optionIds: string[]): void;
   (e: 'channel', name: string): void;
   (e: 'edit', m: Message): void;
   (e: 'delete', m: Message): void;
@@ -273,6 +275,7 @@ watch(
               <span class="reaction-count">{{ r.count }}</span>
             </button>
           </div>
+          <PollCard v-if="m.poll" :poll="m.poll" @vote="(id, ids) => emit('vote', id, ids)" />
           <div v-if="m.images?.length" class="images">
             <template v-for="(src, i) in m.images" :key="i">
               <!-- Opening the image in place beats `target="_blank"`: inside the shell a new
