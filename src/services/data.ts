@@ -1075,6 +1075,88 @@ const SECURITY_TITLES: Record<string, string> = {
   password_changed: 'Password changed',
 };
 
+/** A pinned message, with enough context to name its author and show the text. */
+export interface PinnedMessage {
+  id: string;
+  author: string;
+  initial: string;
+  color: string;
+  avatarUrl?: string;
+  text: string;
+  pinnedAt: string;
+}
+
+/**
+ * Pinned messages of a channel or a conversation.
+ *
+ * The official client reads them straight from `messages` (`is_pinned`, ordered by `pinned_at`)
+ * rather than the view, and that keeps the row shape the rest of this file already understands.
+ * The count comes from `count_pinned_messages`, which is cheaper than asking for the list.
+ */
+export async function fetchPinnedMessages(
+  session: Session,
+  scope: { channelId?: string; conversationId?: string }
+): Promise<PinnedMessage[]> {
+  const filter = scope.conversationId
+    ? `conversation_id=eq.${encodeURIComponent(scope.conversationId)}`
+    : `channel_id=eq.${encodeURIComponent(scope.channelId ?? '')}`;
+  const rows = await rest<Row[]>(
+    session,
+    'messages',
+    `${filter}&is_pinned=eq.true&is_deleted=eq.false&order=pinned_at.desc&limit=50` +
+      '&select=id,created_at,pinned_at,content,user_id'
+  ).catch(() => [] as Row[]);
+
+  const ids = [...new Set(rows.map((r) => String(r.user_id ?? '')).filter(Boolean))];
+  const profiles: Row[] = ids.length
+    ? await rest<Row[]>(
+        session,
+        'profiles',
+        `or=(id.in.(${ids.map(encodeURIComponent).join(',')}),auth_user_id.in.(${ids
+          .map(encodeURIComponent)
+          .join(',')}))&select=id,auth_user_id,username,display_name,avatar_url,color`
+      ).catch(() => [] as Row[])
+    : [];
+  const byId = new Map<string, Row>();
+  for (const p of profiles) {
+    byId.set(String(p.id), p);
+    if (p.auth_user_id) byId.set(String(p.auth_user_id), p);
+  }
+
+  return rows.map((row) => {
+    const author = toAuthor(byId.get(String(row.user_id)) ?? { username: 'unknown' }, session);
+    return {
+      id: String(row.id),
+      author: author.name,
+      initial: author.initial,
+      color: author.color,
+      avatarUrl: author.avatarUrl,
+      text: renderContentParts(row.content).text.slice(0, 200),
+      pinnedAt: typeof row.pinned_at === 'string' ? row.pinned_at : '',
+    };
+  });
+}
+
+export async function countPinnedMessages(
+  session: Session,
+  scope: { channelId?: string; conversationId?: string }
+): Promise<number> {
+  try {
+    const count = await rpc<number>(session, 'count_pinned_messages', {
+      p_channel_id: scope.channelId ?? null,
+      p_conversation_id: scope.conversationId ?? null,
+    });
+    return typeof count === 'number' ? count : 0;
+  } catch {
+    return 0;
+  }
+}
+
+/** Pinning is a permission on the instance; a refusal surfaces as an error, not a silent no-op. */
+export async function setPinned(session: Session, messageId: string, pinned: boolean): Promise<void> {
+  await rpc(session, pinned ? 'pin_message' : 'unpin_message', { p_message_id: messageId });
+}
+
 /** One direct conversation, as the sidebar needs it. */
 export interface Conversation {
   id: string;

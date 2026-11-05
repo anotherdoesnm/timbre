@@ -21,6 +21,7 @@ const emit = defineEmits<{
   (e: 'reply', m: Message): void;
   (e: 'react', m: Message, emoji: string, mine: boolean): void;
   (e: 'mention', handle: string): void;
+  (e: 'pin', m: Message, pinned: boolean): void;
   (e: 'channel', name: string): void;
   (e: 'edit', m: Message): void;
   (e: 'delete', m: Message): void;
@@ -283,6 +284,15 @@ watch(
           <button title="Reply" @click.stop="emit('reply', m)"><Icon name="reply" :size="15" /></button>
           <button title="Add a reaction" @click.stop="pickerFor = pickerFor === m.id ? null : m.id">
             <Icon name="smile" :size="15" />
+          </button>
+          <!-- Pinning is a permission on the instance: the button is always there and a refusal
+               comes back as an error, which beats hiding a control nobody understands. -->
+          <button
+            :title="m.pinned ? 'Unpin message' : 'Pin message'"
+            :class="{ on: m.pinned }"
+            @click.stop="emit('pin', m, !m.pinned)"
+          >
+            <Icon name="pin" :size="15" />
           </button>
           <button v-if="isMine(m)" title="More" @click.stop="menuFor = menuFor === m.id ? null : m.id; pickerFor = null">
             <Icon name="dots" :size="15" />

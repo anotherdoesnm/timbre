@@ -7,12 +7,14 @@ defineProps<{
   membersOpen: boolean;
   live?: boolean;
   muted?: boolean;
+  pins?: number;
 }>();
 const emit = defineEmits<{
   (e: 'toggle-members'): void;
   (e: 'back'): void;
   (e: 'search'): void;
   (e: 'toggle-mute'): void;
+  (e: 'pins'): void;
 }>();
 </script>
 
@@ -28,6 +30,15 @@ const emit = defineEmits<{
     </div>
     <div class="right">
       <button class="action" title="Search" @click="emit('search')"><Icon name="search" :size="18" /></button>
+      <button
+        class="action"
+        :class="{ on: !!pins }"
+        :title="pins ? `Pinned messages (${pins})` : 'Pinned messages'"
+        @click="emit('pins')"
+      >
+        <Icon name="pin" :size="18" />
+        <span v-if="pins" class="pin-count">{{ pins }}</span>
+      </button>
       <!-- The bell mutes this channel. Notification *permission* lives in the account sheet, and
            the old "More" button is gone: a control that does nothing is worse than no control. -->
       <button

@@ -12,6 +12,7 @@ import SearchPanel from './components/SearchPanel.vue';
 import ProfileCard from './components/ProfileCard.vue';
 import NotificationsPanel from './components/NotificationsPanel.vue';
 import NewDmSheet from './components/NewDmSheet.vue';
+import PinnedPanel from './components/PinnedPanel.vue';
 import AuthScreen from './components/AuthScreen.vue';
 import AuthCallback from './components/AuthCallback.vue';
 import { channels as mockChannels, messages as mockMessages, servers as mockServers, type Author } from './data/mock';
@@ -44,6 +45,10 @@ import {
   sendConversationMessage,
   markConversationRead,
   createDirectConversation,
+  fetchPinnedMessages,
+  countPinnedMessages,
+  setPinned,
+  type PinnedMessage,
   type Conversation,
   markAllNotificationsRead,
   markNotificationsRead,
@@ -149,6 +154,12 @@ const isDirect = (id: string): boolean => conversationIds.value.has(id);
 
 /** What the instance says happened while the app was closed. */
 const newDmOpen = ref(false);
+// Pins belong to the open room, whatever kind of room it is.
+const pinnedOpen = ref(false);
+const pinned = ref<PinnedMessage[]>([]);
+const pinnedLoading = ref(false);
+const pinnedError = ref('');
+const pinnedCount = ref(0);
 const notificationsOpen = ref(false);
 const notifications = ref<NotificationItem[]>([]);
 const notificationsLoading = ref(false);
@@ -432,6 +443,7 @@ async function openChannel(channelId: string): Promise<void> {
   const reactions = await fetchReactions(s, page.messages.map((m) => m.id));
   liveMessages.value[channelId] = page.messages.map((m) => ({ ...m, reactions: reactions[m.id] }));
   cursors.value[channelId] = { oldest: page.oldest, hasMore: page.hasMore };
+  void refreshPinCount();
   unreadAnchor.value =
     pending > 0 ? page.messages[Math.max(0, page.messages.length - pending)]?.id ?? null : null;
   if (pending > 0) {
@@ -816,6 +828,57 @@ async function toggleMute(): Promise<void> {
  * Tapping `@name` looks the person up rather than trusting the rendered page: a mention can point
  * at someone who has not spoken in this channel, and a federated handle carries its own instance.
  */
+/** `channel` or `conversation`, depending on what is open — the pin RPCs take either. */
+function pinScope(): { channelId?: string; conversationId?: string } | null {
+  const id = activeChannel.value;
+  if (!id) return null;
+  return isDirect(id) ? { conversationId: id } : { channelId: id };
+}
+
+async function refreshPinCount(): Promise<void> {
+  const s = session.value;
+  const scope = pinScope();
+  if (!s || !scope) return;
+  pinnedCount.value = await countPinnedMessages(s, scope);
+}
+
+async function openPins(): Promise<void> {
+  const s = session.value;
+  const scope = pinScope();
+  if (!s || !scope) return;
+  pinnedOpen.value = true;
+  pinnedLoading.value = true;
+  pinnedError.value = '';
+  try {
+    pinned.value = await fetchPinnedMessages(s, scope);
+  } catch (e) {
+    pinnedError.value = e instanceof Error ? e.message : String(e);
+  } finally {
+    pinnedLoading.value = false;
+  }
+}
+
+async function onPin(m: { id: string }, next: boolean): Promise<void> {
+  const s = session.value;
+  const ch = channel.value;
+  if (!s || !ch) return;
+  try {
+    await setPinned(s, m.id, next);
+    liveMessages.value[ch.id] = (liveMessages.value[ch.id] ?? []).map((x) =>
+      x.id === m.id ? { ...x, pinned: next } : x
+    );
+    await refreshPinCount();
+  } catch (e) {
+    // The instance decides who may pin; its refusal is the message the person sees.
+    loadError.value = e instanceof Error ? e.message : String(e);
+  }
+}
+
+function openPinned(item: PinnedMessage): void {
+  pinnedOpen.value = false;
+  if (channel.value) focusId.value = item.id;
+}
+
 async function loadConversations(): Promise<void> {
   const s = session.value;
   if (!s || !live.value) return;
@@ -1135,6 +1198,8 @@ watch([activeServer, activeChannel], () => {
         :channel="channel"
         :members-open="membersOpen"
         :muted="!!mutedChannels[channel.id]"
+        :pins="pinnedCount"
+        @pins="openPins"
         :live="live"
         @search="openSearch"
         @toggle-mute="toggleMute"
@@ -1157,6 +1222,7 @@ watch([activeServer, activeChannel], () => {
         @delete="onDeleteMessage"
         @react="onReact"
         @mention="openMention"
+        @pin="onPin"
         @channel="openChannelRef"
       />
       <Composer
@@ -1184,6 +1250,14 @@ watch([activeServer, activeChannel], () => {
     <div v-else-if="membersOpen && narrow" class="members-backdrop" @click.self="membersOpen = false">
       <MemberList class="members-overlay" :members="members" @select="startDirect" />
     </div>
+    <PinnedPanel
+      v-if="pinnedOpen"
+      :items="pinned"
+      :loading="pinnedLoading"
+      :error="pinnedError"
+      @close="pinnedOpen = false"
+      @open="openPinned"
+    />
     <NewDmSheet
       v-if="newDmOpen"
       :members="members ?? []"

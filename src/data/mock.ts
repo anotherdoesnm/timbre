@@ -30,6 +30,8 @@ export interface Message {
   files?: { name: string; url?: string }[];
   /** Set when the message was edited after sending. */
   edited?: boolean;
+  /** Pinned in its channel or conversation. */
+  pinned?: boolean;
 }
 
 export interface Channel {

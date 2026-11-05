@@ -38,8 +38,7 @@ schema — that is what decides whether a feature is a client job or a project.
 | Feature | Server side | Notes |
 |---|---|---|
 | **Notifications screen + bell** | `notifications` (own RLS), `get_user_notifications`, `get_unread_notification_count` | Upstream's bell widget lists mentions, replies, DMs, follows. Ours has no place to look at what happened while the app was closed. |
-| **Pinned messages** | `pinned_messages_view` | A pin bar or a section in the channel header. |
-| **Bookmarks** | `user_bookmarks` | Save a message, list them later. |
+| ~~Pinned messages~~ | `pinned_messages_view`, `count_pinned_messages`, `pin_message` / `unpin_message` | **Done**: a pin button with the count in the header, a panel of pinned messages, pin/unpin from the message toolbar. |
 | **Mark all as read** | `mark_channel_as_read` per channel, `get_unread_counts` | One button; the counters already exist. |
 | **Per-category mute** | `notification_channels.category_id`, unique index in place | Same write as channel mute, one column different. |
 
@@ -78,7 +77,9 @@ channel from a notification, resumable uploads.
 1. **Notifications screen.** It closes the loop we opened with mute and DND, and it is the one
    place where "what happened while you were away" lives. Server support is complete.
 2. **Direct messages.** A chat client without DMs is a forum client.
-3. **Pins and bookmarks.** Two small features that make an active channel usable.
+3. **Pins** — done. Bookmarks turned out not to exist for chat messages: `user_bookmarks` stores
+   *ActivityPub posts* (`post_id`, `ap_id`, `content_warning`), and there is no saved-messages table
+   at all, so that row left the list.
 4. **Emoji, sticker and GIF pickers.** The composer is the most-used surface we have, and the
    reaction picker is twelve hard-coded characters.
 5. **Threads.** After DMs, this is the other half of a conversation that is not a channel.
