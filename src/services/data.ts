@@ -574,6 +574,132 @@ export async function fetchMessages(
   return fetchMessagePage(session, `channel_id=eq.${encodeURIComponent(channelId)}`, opts);
 }
 
+/** A sticker of this instance: a picture in the public `stickers` bucket with a row around it. */
+export interface Sticker {
+  id: string;
+  name: string;
+  /** Required by the instance's sticker-part guard, so the picker carries it through. */
+  description?: string;
+  url: string;
+  width?: number;
+  height?: number;
+  mimeType?: string;
+  scope?: string;
+}
+
+/** Stickers this person may use — the instance's, their server's and their own. */
+export async function fetchStickers(session: Session): Promise<Sticker[]> {
+  const rows = await rest<Row[]>(
+    session,
+    'stickers',
+    'select=id,name,description,url,width,height,mime_type,scope&order=created_at.desc&limit=300'
+  ).catch(() => [] as Row[]);
+  return rows
+    .filter((row) => typeof row.url === 'string' && typeof row.name === 'string')
+    .map((row) => ({
+      id: String(row.id),
+      name: String(row.name),
+      description: typeof row.description === 'string' ? row.description : undefined,
+      url: String(row.url),
+      width: typeof row.width === 'number' ? row.width : undefined,
+      height: typeof row.height === 'number' ? row.height : undefined,
+      mimeType: typeof row.mime_type === 'string' ? row.mime_type : undefined,
+      scope: typeof row.scope === 'string' ? row.scope : undefined,
+    }));
+}
+
+/**
+ * Uploads a personal sticker: the object goes to `stickers/user/<profile>/<uuid>.<ext>` and the row
+ * through `create_sticker`, which insists on a description of 1 to 300 characters.
+ */
+export async function uploadSticker(
+  session: Session,
+  profileId: string,
+  file: File,
+  name: string
+): Promise<Sticker> {
+  const ext = (file.name.split('.').pop() ?? 'png').toLowerCase().replace(/[^a-z0-9]/g, '') || 'png';
+  if (!/^(png|apng|webp|gif)$/.test(ext)) throw new Error('stickers must be png, apng, webp or gif');
+  const path = `user/${profileId}/${crypto.randomUUID()}.${ext}`;
+  const url = `${session.supabaseUrl}/storage/v1/object/stickers/${path}`;
+  const upload = await fetch(url, {
+    method: 'POST',
+    headers: {
+      apikey: session.anonKey,
+      Authorization: `Bearer ${session.accessToken}`,
+      'Content-Type': file.type || 'application/octet-stream',
+      'x-upsert': 'true',
+    },
+    body: file,
+  });
+  if (!upload.ok) {
+    const body = await upload.text().catch(() => '');
+    // The bucket policies refuse politely; the caller says what to do about it.
+    throw new Error(`sticker upload: ${upload.status} ${body.slice(0, 120)}`);
+  }
+  const publicUrl = `${session.supabaseUrl}/storage/v1/object/public/stickers/${path}`;
+  const row = await rpc<Row>(session, 'create_sticker', {
+    p_scope: 'user',
+    p_server_id: null,
+    p_path: path,
+    p_url: publicUrl,
+    p_name: name.slice(0, 40) || 'sticker',
+    p_description: `Uploaded from Timbre`,
+    p_width: null,
+    p_height: null,
+    p_duration_ms: null,
+  });
+  return {
+    id: String(row.id ?? ''),
+    name: String(row.name ?? name),
+    description: typeof row.description === 'string' ? row.description : 'Uploaded from Timbre',
+    url: String(row.url ?? publicUrl),
+    scope: 'user',
+  };
+}
+
+/** Sends a sticker: a message whose content is one `sticker` part. */
+export async function sendSticker(
+  session: Session,
+  target: { channelId?: string; conversationId?: string },
+  userId: string,
+  sticker: Sticker,
+  id?: string
+): Promise<void> {
+  const res = await fetch(`${session.supabaseUrl}/rest/v1/messages`, {
+    method: 'POST',
+    headers: {
+      apikey: session.anonKey,
+      Authorization: `Bearer ${session.accessToken}`,
+      'Content-Type': 'application/json',
+      Prefer: 'return=minimal',
+    },
+    body: JSON.stringify({
+      ...(id ? { id } : {}),
+      ...(target.channelId
+        ? { channel_id: target.channelId }
+        : { conversation_id: target.conversationId }),
+      user_id: userId,
+      content: [
+        {
+          type: 'sticker',
+          id: sticker.id,
+          url: sticker.url,
+          name: sticker.name,
+          description: sticker.description ?? sticker.name,
+          ...(sticker.width ? { width: sticker.width } : {}),
+          ...(sticker.height ? { height: sticker.height } : {}),
+        },
+      ],
+    }),
+  });
+  if (res.status === 409 || res.status === 23505) return;
+  if (!res.ok) {
+    const body = await res.text().catch(() => '');
+    throw new Error(`sticker send: ${res.status} ${body.slice(0, 200)}`);
+  }
+}
+
 /** A thread: its id and counters, keyed by the message it hangs off. */
 export interface ThreadInfo {
   id: string;

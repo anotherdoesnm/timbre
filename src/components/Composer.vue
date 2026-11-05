@@ -28,6 +28,7 @@ const emit = defineEmits<{
   (e: 'remove-attachment', path: string): void;
   (e: 'save-edit', text: string): void;
   (e: 'create-poll'): void;
+  (e: 'stickers'): void;
   (e: 'cancel-edit'): void;
 }>();
 const text = ref(loadDraft(props.draftInstance, props.draftChannel));
@@ -137,6 +138,9 @@ function send() {
             <Icon name="clip" :size="18" />
           </button>
           <input ref="fileInput" type="file" hidden @change="pickFile" />
+          <button :disabled="disabled" title="Stickers" @click="emit('stickers')">
+            <Icon name="sticker" :size="18" />
+          </button>
           <button :disabled="disabled" title="Create a poll" @click="emit('create-poll')">
             <Icon name="poll" :size="18" />
           </button>

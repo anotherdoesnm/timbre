@@ -49,6 +49,7 @@ schema — that is what decides whether a feature is a client job or a project.
 | **Pinned messages** | `pin_message` / `unpin_message` / `count_pinned_messages`, a panel in the header |
 | **Polls** | `create_message_poll`, `get_message_polls`, `vote_message_poll`; a card in the message and a dialog in the composer |
 | **Emoji picker** | `unicode-emoji-json` + `gemoji` (the pair upstream uses), plus the instance's custom emoji, for reactions and the composer |
+| **Stickers** | `stickers` bucket (public, `user/<profile>/…`), `create_sticker`, a `sticker` message part that must carry a description; a picker with upload |
 | **Threads** | `create_thread`, `messages.thread_id`, `active_threads_view`; a panel beside the channel and a "N replies" line |
 
 ### Small: the tables and RPCs are there and the UI is one screen
@@ -63,7 +64,7 @@ schema — that is what decides whether a feature is a client job or a project.
 
 | Feature | Server side | Notes |
 |---|---|---|
-| **Sticker picker** | `stickers`, `can_see_sticker` | Emoji are done; stickers still render from a message and cannot be sent from this client. |
+
 | **GIF picker** | instance endpoint (klipy) | **Blocked on the instance**: the backend has `KLIPY_API_KEY_ADS` / `NOADS` paths, but our box has no keys, so `/api/gifs/search` falls through to the SPA. The client half is small once a key exists. |
 | **Presence and typing** | realtime `server-presence:<id>` topic | The member list currently has no "online", and nobody sees "typing…". |
 | **Settings beyond the profile** | appearance, language | The notification matrix is done; themes, language and privacy are not. |
@@ -91,11 +92,10 @@ channel from a notification, resumable uploads.
 Everything the first version of this list called small or medium is now in the client: notifications,
 DMs, the preference matrix, pins, polls, emoji and threads. What is left:
 
-1. **Sticker picker.** The last piece of the composer: stickers render but cannot be sent from here.
-2. **Mark all as read**, per channel, conversation or server — three RPCs already exist.
-3. **Server and channel management.** Needed the day somebody else wants to use the instance.
-4. **GIF**, once an instance has klipy keys (a server setting, not a client one).
-5. **Microblog**, **voice**, **drive**, **moderation** — different products on the same server.
+1. **Mark all as read**, per channel, conversation or server — three RPCs already exist.
+2. **Server and channel management.** Needed the day somebody else wants to use the instance.
+3. **GIF**, once an instance has klipy keys (a server setting, not a client one).
+4. **Microblog**, **voice**, **drive**, **moderation** — different products on the same server.
 
 Modern Android clients live or die by notifications and DMs, in that order; the microblog and voice
 are different products sharing a server.

@@ -16,6 +16,7 @@ import PinnedPanel from './components/PinnedPanel.vue';
 import PollComposer from './components/PollComposer.vue';
 import NotificationSettings from './components/NotificationSettings.vue';
 import ThreadPanel from './components/ThreadPanel.vue';
+import StickerPicker from './components/StickerPicker.vue';
 import { fetchCustomEmojis, type CustomEmoji } from './services/emoji';
 import AuthScreen from './components/AuthScreen.vue';
 import AuthCallback from './components/AuthCallback.vue';
@@ -68,6 +69,10 @@ import {
   fetchThreadMessages,
   sendThreadMessage,
   type ThreadInfo,
+  fetchStickers,
+  uploadSticker,
+  sendSticker,
+  type Sticker,
   type PinnedMessage,
   type Conversation,
   markAllNotificationsRead,
@@ -179,6 +184,11 @@ const newDmOpen = ref(false);
 const notifSettingsOpen = ref(false);
 const prefsSaving = ref(false);
 const pollOpen = ref(false);
+const stickersOpen = ref(false);
+const stickers = ref<Sticker[]>([]);
+const stickersLoading = ref(false);
+const stickerUploading = ref(false);
+const stickerError = ref('');
 // Threads are per-channel and per-parent-message; the panel shows one at a time.
 const threadOpen = ref(false);
 const threadParent = ref<Message | null>(null);
@@ -899,6 +909,65 @@ async function onChangePreference(field: string, value: boolean): Promise<void> 
   }
 }
 
+async function loadStickers(): Promise<void> {
+  const s = session.value;
+  if (!s) return;
+  stickersLoading.value = true;
+  stickerError.value = '';
+  try {
+    stickers.value = await fetchStickers(s);
+  } catch (e) {
+    stickerError.value = e instanceof Error ? e.message : String(e);
+  } finally {
+    stickersLoading.value = false;
+  }
+}
+
+async function openStickers(): Promise<void> {
+  stickersOpen.value = true;
+  await loadStickers();
+}
+
+/** A sticker goes as its own message: one `sticker` part, nothing else. */
+async function onSticker(sticker: Sticker): Promise<void> {
+  const s = session.value;
+  const ch = channel.value;
+  stickersOpen.value = false;
+  if (!s || !ch || !myProfileId.value) return;
+  try {
+    await sendSticker(
+      s,
+      isDirect(ch.id) ? { conversationId: ch.id } : { channelId: ch.id },
+      myProfileId.value,
+      sticker,
+      globalThis.crypto?.randomUUID?.()
+    );
+    const page = isDirect(ch.id)
+      ? await fetchConversationMessages(s, ch.id)
+      : await fetchMessages(s, ch.id);
+    liveMessages.value[ch.id] = page.messages;
+  } catch (e) {
+    loadError.value = e instanceof Error ? e.message : String(e);
+  }
+}
+
+async function onStickerUpload(file: File): Promise<void> {
+  const s = session.value;
+  const id = myProfileId.value;
+  if (!s || !id) return;
+  stickerUploading.value = true;
+  stickerError.value = '';
+  try {
+    const sticker = await uploadSticker(s, id, file, file.name.replace(/\.[^.]+$/, ''));
+    stickers.value = [sticker, ...stickers.value];
+  } catch (e) {
+    // The instance caps personal stickers; a refusal here is that cap, not a broken picker.
+    stickerError.value = e instanceof Error ? e.message : String(e);
+  } finally {
+    stickerUploading.value = false;
+  }
+}
+
 /** Threads of the open channel, so the parent messages can say "3 replies". */
 async function refreshThreadCounts(): Promise<void> {
   const s = session.value;
@@ -1417,6 +1486,7 @@ watch([activeServer, activeChannel], () => {
         :attached="attached"
         :uploading="uploading"
         @create-poll="pollOpen = true"
+        @stickers="openStickers"
         :custom-emoji="customEmoji"
         :draft-instance="session?.instance"
         :draft-channel="channel.id"
@@ -1484,6 +1554,16 @@ watch([activeServer, activeChannel], () => {
       :error="loadError"
       @change="onChangePreference"
       @close="notifSettingsOpen = false"
+    />
+    <StickerPicker
+      v-if="stickersOpen"
+      :stickers="stickers"
+      :loading="stickersLoading"
+      :uploading="stickerUploading"
+      :error="stickerError"
+      @pick="onSticker"
+      @upload="onStickerUpload"
+      @close="stickersOpen = false"
     />
     <PollComposer v-if="pollOpen" @create="onCreatePoll" @close="pollOpen = false" />
     <NewDmSheet
