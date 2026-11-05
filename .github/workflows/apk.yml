@@ -120,8 +120,12 @@ jobs:
           mkdir -p out
           cp "$src" out/
           ls -l out
-          # Proof that the APK carries the release key rather than the SDK's throwaway one.
-          keytool -printcert -jarfile "out/$(basename "$src")" | grep -E "^Owner|^Valid" | head -3
+          # Proof that the APK carries the release key rather than the SDK's throwaway one. A
+          # release build signs with the v2/v3 scheme only, so `keytool -printcert -jarfile` (v1
+          # JAR signatures) says "not a signed jar file" — apksigner reads what is actually there.
+          apksigner=$(ls "$ANDROID_HOME"/build-tools/*/apksigner | tail -1)
+          "$apksigner" verify --print-certs "out/$(basename "$src")" \
+            | grep -E "Signer #1 certificate (DN|SHA-256)" | head -2
 
       - uses: actions/upload-artifact@v4
         with:
