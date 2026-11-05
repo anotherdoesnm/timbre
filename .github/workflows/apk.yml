@@ -22,6 +22,12 @@ on:
   push:
     tags: ['v*']
 
+# `softprops/action-gh-release` creates a release with the workflow token, and the token is
+# read-only unless this is declared — without it a tag build fails at the last step with
+# "Resource not accessible by integration".
+permissions:
+  contents: write
+
 concurrency:
   group: apk-${{ github.ref }}
   cancel-in-progress: true
