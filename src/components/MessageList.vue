@@ -12,8 +12,10 @@ const props = defineProps<{
   myId?: string | null;
   messages: Message[];
   live?: boolean;
-  /** Custom emoji of the instance, for the picker. */
+  /** Custom emoji of the instance and the servers this person is in, for the picker. */
   customEmoji?: CustomEmoji[];
+  /** Server names for the picker's headings, keyed by id. */
+  serverNames?: Record<string, string>;
   /** Open threads, keyed by the message they hang off, for the "N replies" line. */
   threadCounts?: Record<string, number>;
   /** First unread message: the view opens here instead of at the bottom. */
@@ -324,6 +326,7 @@ watch(
         <EmojiPicker
           v-if="pickerFor === m.id"
           :custom="customEmoji"
+          :server-names="serverNames"
           mode="reaction"
           @pick="(v) => pickCustom(m, v)"
           @close="pickerFor = null"

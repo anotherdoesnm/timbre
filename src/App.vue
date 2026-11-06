@@ -19,7 +19,7 @@ import ThreadPanel from './components/ThreadPanel.vue';
 import StickerPicker from './components/StickerPicker.vue';
 import JoinSheet from './components/JoinSheet.vue';
 import RulesSheet from './components/RulesSheet.vue';
-import { fetchCustomEmojis, type CustomEmoji } from './services/emoji';
+import type { CustomEmoji } from './services/emoji';
 import AuthScreen from './components/AuthScreen.vue';
 import AuthCallback from './components/AuthCallback.vue';
 import {
@@ -75,6 +75,7 @@ import {
   fetchServerWelcome,
   acceptServerRules,
   type ServerWelcome,
+  fetchCustomEmojis,
   fetchStickers,
   uploadSticker,
   sendSticker,
@@ -529,16 +530,41 @@ async function onReact(m: { id: string }, emoji: string, mine: boolean): Promise
   const ch = channel.value;
   if (!s || !ch || !myProfileId.value) return;
   try {
-    await toggleReaction(s, m.id, ch.id, myProfileId.value, emoji, mine);
+    await toggleReaction(
+      s,
+      m.id,
+      isDirect(ch.id) ? { conversationId: ch.id } : { channelId: ch.id },
+      myProfileId.value,
+      emoji,
+      mine,
+      customEmoji.value.find((e) => e.name === emoji.replace(/^:|:$/g, ''))?.id
+    );
+    // A reaction can be on a message of the channel or of the thread beside it; refresh whichever
+    // holds it, because a chip that never appears reads as a broken button.
     const ids = (liveMessages.value[ch.id] ?? []).map((x) => x.id);
-    const reactions = await fetchReactions(s, ids);
+    const threadIds = threadMessages.value.map((x) => x.id);
+    const reactions = await fetchReactions(s, [...ids, ...threadIds]);
     liveMessages.value[ch.id] = (liveMessages.value[ch.id] ?? []).map((x) => ({
       ...x,
       reactions: reactions[x.id],
     }));
+    if (threadIds.length) {
+      threadMessages.value = threadMessages.value.map((x) => ({ ...x, reactions: reactions[x.id] }));
+    }
   } catch (e) {
-    loadError.value = e instanceof Error ? e.message : String(e);
+    // A silent refusal is indistinguishable from a dead button; say what the instance said.
+    showError(e instanceof Error ? e.message : String(e));
   }
+}
+
+/** The one place a failure that has no banner of its own becomes visible. */
+let errorTimer: ReturnType<typeof setTimeout> | null = null;
+function showError(message: string): void {
+  loadError.value = message;
+  if (errorTimer) clearTimeout(errorTimer);
+  errorTimer = setTimeout(() => {
+    if (loadError.value === message) loadError.value = '';
+  }, 7000);
 }
 
 async function loadOlder(channelId: string): Promise<void> {
@@ -645,7 +671,7 @@ async function boot() {
       await loadConversations();
       prefs.value = await fetchNotificationPrefs(s, String(profile?.id ?? ''));
       void loadNotifications({ silent: true });
-      void fetchCustomEmojis(s).then((list: CustomEmoji[]) => (customEmoji.value = list)).catch(() => undefined);
+      void refreshCustomEmoji();
     void loadConversations();
       const chans = await fetchChannels(s, list[0].id);
       liveChannels.value[list[0].id] = chans;
@@ -929,6 +955,24 @@ async function onChangePreference(field: string, value: boolean): Promise<void> 
   }
 }
 
+/** Re-reads the emoji this person may use — the instance's plus their servers'. */
+async function refreshCustomEmoji(): Promise<void> {
+  const s = session.value;
+  if (!s) return;
+  const ids = liveServers.value.map((server) => server.id);
+  try {
+    customEmoji.value = await fetchCustomEmojis(s, ids);
+  } catch {
+    /* the picker falls back to Unicode only */
+  }
+}
+
+const emojiServerNames = computed<Record<string, string>>(() => {
+  const map: Record<string, string> = {};
+  for (const server of liveServers.value) map[server.id] = server.name;
+  return map;
+});
+
 async function loadStickers(): Promise<void> {
   const s = session.value;
   if (!s) return;
@@ -1032,6 +1076,7 @@ async function onJoined(serverId: string): Promise<void> {
     liveServers.value = list.length ? list : liveServers.value;
     pickServer(serverId);
     joinOpen.value = false;
+    void refreshCustomEmoji();
     // A server that requires its rules accepted would otherwise fail the first message.
     await checkRules(serverId);
   } catch (e) {
@@ -1549,6 +1594,7 @@ watch([activeServer, activeChannel], () => {
         @load-older="loadOlder(channel.id)"
         :my-id="myProfileId"
         :custom-emoji="customEmoji"
+      :server-names="emojiServerNames"
         @reply="(m) => (replyTarget = { id: m.id, author: m.author.name, text: m.text.slice(0, 120) })"
         @edit="(m) => (editing = { id: m.id, text: m.text })"
         @delete="onDeleteMessage"
@@ -1570,6 +1616,7 @@ watch([activeServer, activeChannel], () => {
         @create-poll="pollOpen = true"
         @stickers="openStickers"
         :custom-emoji="customEmoji"
+      :server-names="emojiServerNames"
         :draft-instance="session?.instance"
         :draft-channel="channel.id"
         :editing="editing"
@@ -1592,6 +1639,7 @@ watch([activeServer, activeChannel], () => {
       :sending="threadSending"
       :my-id="myProfileId"
       :custom-emoji="customEmoji"
+      :server-names="emojiServerNames"
       :draft-key="threadId ? `thread:${threadId}` : 'thread'"
       @close="closeThread"
       @send="onThreadSend"
@@ -1609,6 +1657,7 @@ watch([activeServer, activeChannel], () => {
         :sending="threadSending"
         :my-id="myProfileId"
         :custom-emoji="customEmoji"
+      :server-names="emojiServerNames"
         :draft-key="threadId ? `thread:${threadId}` : 'thread'"
         @close="closeThread"
         @send="onThreadSend"

@@ -21,7 +21,8 @@ const emit = defineEmits<{ (e: 'select', id: string): void }>();
       :style="{ background: s.id === activeId ? s.color : 'var(--sfv-container)', color: 'var(--text)' }"
       @click="emit('select', s.id)"
     >
-      <span class="short">{{ s.short }}</span>
+      <img v-if="s.iconUrl" class="rail-icon" :src="s.iconUrl" alt="" referrerpolicy="no-referrer" />
+      <span v-else class="short">{{ s.short }}</span>
       <span v-if="s.unread" class="dot" />
     </button>
     <div class="sep" />
@@ -53,6 +54,7 @@ const emit = defineEmits<{ (e: 'select', id: string): void }>();
   color: var(--text-secondary);
   transition: border-radius 120ms ease, background 120ms ease, color 120ms ease;
 }
+.rail-icon { width: 100%; height: 100%; object-fit: cover; border-radius: inherit; display: block; }
 .rail-btn:hover { border-radius: var(--radius-md); background: var(--sfv-hover); color: var(--text); }
 .rail-btn.active { border-radius: var(--radius-md); color: var(--text); }
 .rail-btn.active::before {

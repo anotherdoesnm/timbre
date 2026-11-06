@@ -5,9 +5,6 @@
  * its picker from — and are loaded on first use, so the data is a separate chunk rather than part
  * of the shell. Custom emoji belong to an instance and are fetched from it.
  */
-import { rest } from './api';
-import type { Session } from './auth';
-
 export interface EmojiEntry {
   char: string;
   name: string;
@@ -18,9 +15,13 @@ export interface EmojiEntry {
 }
 
 export interface CustomEmoji {
+  /** The instance's row id — a reaction made by another client references this, not the name. */
+  id?: string;
   name: string;
   url: string;
   scope?: string;
+  /** The server it belongs to; absent for the instance's own. */
+  serverId?: string;
 }
 
 let index: EmojiEntry[] | null = null;
@@ -67,23 +68,4 @@ export function searchEmoji(entries: EmojiEntry[], query: string, limit = 60): E
     if (exact.length >= limit) break;
   }
   return [...exact, ...loose].slice(0, limit);
-}
-
-/** Custom emoji the instance offers to this person, newest names first. */
-export async function fetchCustomEmojis(session: Session): Promise<CustomEmoji[]> {
-  const rows = await rest<Record<string, unknown>[]>(
-    session,
-    'emojis',
-    'select=name,url,scope&order=name.asc&limit=500'
-  ).catch(() => [] as Record<string, unknown>[]);
-  const out: CustomEmoji[] = [];
-  for (const row of rows) {
-    if (typeof row.name !== 'string' || typeof row.url !== 'string') continue;
-    out.push({
-      name: row.name,
-      url: row.url,
-      scope: typeof row.scope === 'string' ? row.scope : undefined,
-    });
-  }
-  return out;
 }

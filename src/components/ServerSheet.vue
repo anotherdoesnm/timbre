@@ -29,7 +29,10 @@ const emit = defineEmits<{
         :class="{ active: s.id === activeId }"
         @click="emit('select', s.id)"
       >
-        <span class="tile" :style="{ background: s.color }">{{ s.short }}</span>
+        <span class="tile" :style="s.iconUrl ? undefined : { background: s.color }">
+          <img v-if="s.iconUrl" :src="s.iconUrl" alt="" referrerpolicy="no-referrer" />
+          <template v-else>{{ s.short }}</template>
+        </span>
         <span class="name">{{ s.name }}</span>
         <Icon v-if="s.id === activeId" name="check" :size="16" class="tick" />
         <span v-if="s.unread" class="dot" />
@@ -89,6 +92,7 @@ header {
 }
 .row:active { background: var(--sfv-container); }
 .row.active { background: var(--sfv-container); }
+.tile img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .tile {
   width: 36px;
   height: 36px;

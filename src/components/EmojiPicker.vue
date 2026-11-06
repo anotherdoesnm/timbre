@@ -9,7 +9,12 @@ import { loadEmojiIndex, searchEmoji, type CustomEmoji, type EmojiEntry } from '
  * an instance's custom emoji sit above them. The data loads on first open — it is a few hundred
  * kilobytes and nobody pays for it until they tap the smiley.
  */
-const props = defineProps<{ custom?: CustomEmoji[]; mode?: 'reaction' | 'insert' }>();
+const props = defineProps<{
+  custom?: CustomEmoji[];
+  mode?: 'reaction' | 'insert';
+  /** Names of the servers whose emoji are in `custom`, keyed by id — the headings. */
+  serverNames?: Record<string, string>;
+}>();
 const emit = defineEmits<{
   (e: 'pick', value: { char?: string; name?: string; url?: string }): void;
   (e: 'close'): void;
@@ -31,10 +36,29 @@ onMounted(async () => {
 });
 
 const results = computed(() => searchEmoji(entries.value, query.value, 72));
-const customMatches = computed(() => {
+/**
+ * Custom emoji grouped by where they belong: the instance's own first, then each server the person
+ * is in. A single "This instance" heading was a lie — most of those pictures belong to guilds, and
+ * the list used to include emoji from servers the person was not even in.
+ */
+const customGroups = computed(() => {
   const q = query.value.trim().toLowerCase();
-  const list = props.custom ?? [];
-  return (q ? list.filter((c) => c.name.toLowerCase().includes(q)) : list).slice(0, 24);
+  const list = (props.custom ?? []).filter((c) => !q || c.name.toLowerCase().includes(q));
+  const groups = new Map<string, { title: string; items: CustomEmoji[] }>();
+  for (const emoji of list) {
+    const key = emoji.serverId ?? '';
+    if (!groups.has(key)) {
+      groups.set(key, {
+        title: key ? props.serverNames?.[key] ?? 'Server' : 'This instance',
+        items: [],
+      });
+    }
+    groups.get(key)!.items.push(emoji);
+  }
+  // The instance first, servers after it in the order they arrived.
+  return [...groups.entries()]
+    .sort(([a], [b]) => (a === '' ? -1 : b === '' ? 1 : 0))
+    .map(([, group]) => ({ ...group, items: group.items.slice(0, 60) }));
 });
 </script>
 
@@ -55,12 +79,12 @@ const customMatches = computed(() => {
       />
 
       <p v-if="failed" class="hint">The emoji list did not load; custom emoji still work.</p>
-      <section v-if="customMatches.length" class="custom">
-        <div class="title">This instance</div>
+      <section v-for="group in customGroups" :key="group.title" class="custom">
+        <div class="title">{{ group.title }}</div>
         <div class="grid">
           <button
-            v-for="c in customMatches"
-            :key="c.name"
+            v-for="c in group.items"
+            :key="`${group.title}:${c.name}`"
             class="cell image"
             :title="`:${c.name}:`"
             @click="emit('pick', { name: c.name, url: c.url })"

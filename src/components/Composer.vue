@@ -18,8 +18,10 @@ const props = defineProps<{
   /** Draft identity: the instance and channel the text belongs to. */
   draftInstance?: string;
   draftChannel?: string;
-  /** Custom emoji of the instance, for the picker. */
+  /** Custom emoji of the instance and the servers this person is in, for the picker. */
   customEmoji?: CustomEmoji[];
+  /** Server names for the picker's headings, keyed by id. */
+  serverNames?: Record<string, string>;
 }>();
 const emit = defineEmits<{
   (e: 'send', text: string): void;
@@ -165,6 +167,7 @@ function send() {
   <EmojiPicker
     v-if="emojiOpen"
     :custom="customEmoji"
+    :server-names="serverNames"
     mode="insert"
     @pick="insertEmoji"
     @close="emojiOpen = false"

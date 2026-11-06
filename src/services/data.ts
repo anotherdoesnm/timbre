@@ -3,6 +3,7 @@
 import { authUserId, rest, rpc } from './api';
 import type { Session } from './auth';
 import { describeDevice } from './notify';
+import type { CustomEmoji } from './emoji';
 import type { Author, Channel, Message, Server } from '../data/mock';
 
 interface Row {
@@ -206,6 +207,19 @@ type Origin = { instance: string; supabaseUrl: string };
  * case against the page is what made the APK differ from the browser: inside the shell the
  * page is `tauri.localhost`, which serves no such file.
  */
+/**
+ * A server's picture. Servers keep theirs in the `server_icons` bucket — not `avatars`, which is
+ * where a naive reuse of `avatarUrl` sends it, and a 400 from storage is what that looks like on
+ * screen.
+ */
+export function serverIconUrl(icon: unknown, at: Origin): string | undefined {
+  if (typeof icon !== 'string' || !icon) return undefined;
+  if (/^https?:\/\//i.test(icon)) return icon;
+  if (icon.startsWith('/')) return `https://${at.instance}${icon}`;
+  if (!/^[\w-]+\/[\w./-]+\.(png|jpe?g|webp|gif|avif)$/i.test(icon)) return undefined;
+  return `${at.supabaseUrl}/storage/v1/render/image/public/server_icons/${icon}?width=96&height=96&resize=cover&quality=80`;
+}
+
 export function avatarUrl(url: unknown, at: Origin): string | undefined {
   if (typeof url !== 'string' || !url) return undefined;
   if (/^https?:\/\//i.test(url)) return url;
@@ -339,6 +353,7 @@ export async function fetchServers(session: Session, profileId: string): Promise
         id: String(s.id),
         name,
         short: name.slice(0, 2).toUpperCase(),
+        iconUrl: serverIconUrl(s.icon, session),
         color: colorFor(name),
         unread: 0,
         _position: i,
@@ -690,7 +705,7 @@ export async function previewInvite(session: Session, code: string): Promise<Inv
       code: String(row.code ?? code),
       status: String(row.status ?? 'unknown'),
       name: typeof row.name === 'string' ? row.name : undefined,
-      icon: typeof row.icon === 'string' ? avatarUrl(row.icon, session) : undefined,
+      icon: serverIconUrl(row.icon, session),
       description: typeof row.description === 'string' ? row.description : undefined,
       serverId: typeof row.server_id === 'string' ? row.server_id : undefined,
       isMember: row.is_member === true,
@@ -731,6 +746,39 @@ export async function redeemInvite(session: Session, code: string): Promise<stri
     }
     throw new Error(message.slice(0, 160));
   }
+}
+
+/**
+ * Custom emoji this person may use: the instance's own, plus those of the servers they are in.
+ *
+ * `emojis_select_all` is `USING (true)` — every row is readable — so the scoping has to happen
+ * here. Showing every server's emoji is both wrong and a small leak: other guilds' pictures appear
+ * in this one, which the official client does not do.
+ */
+export async function fetchCustomEmojis(
+  session: Session,
+  serverIds: string[] = []
+): Promise<CustomEmoji[]> {
+  const scope = serverIds.length
+    ? `or=(server_id.is.null,server_id.in.(${serverIds.map(encodeURIComponent).join(',')}))&`
+    : 'server_id=is.null&';
+  const rows = await rest<Record<string, unknown>[]>(
+    session,
+    'emojis',
+    `${scope}select=id,name,url,scope,server_id&order=name.asc&limit=500`
+  ).catch(() => [] as Record<string, unknown>[]);
+  const out: CustomEmoji[] = [];
+  for (const row of rows) {
+    if (typeof row.name !== 'string' || typeof row.url !== 'string') continue;
+    out.push({
+      id: typeof row.id === 'string' ? row.id : undefined,
+      name: row.name,
+      url: row.url,
+      scope: typeof row.scope === 'string' ? row.scope : undefined,
+      serverId: typeof row.server_id === 'string' ? row.server_id : undefined,
+    });
+  }
+  return out;
 }
 
 /** A sticker of this instance: a picture in the public `stickers` bucket with a row around it. */
@@ -1241,29 +1289,50 @@ export async function fetchReactions(
   return out;
 }
 
-async function removeReaction(session: Session, messageId: string, userId: string, emoji: string): Promise<void> {
-  const query =
-    `message_id=eq.${encodeURIComponent(messageId)}` +
-    `&user_id=eq.${encodeURIComponent(userId)}` +
-    `&custom_emoji_content=eq.${encodeURIComponent(emoji)}`;
-  const res = await fetch(`${session.supabaseUrl}/rest/v1/reactions?${query}`, {
-    method: 'DELETE',
-    headers: { apikey: session.anonKey, Authorization: `Bearer ${session.accessToken}` },
-  });
-  if (!res.ok) throw new Error(`reaction: ${res.status}`);
+async function removeReaction(
+  session: Session,
+  messageId: string,
+  userId: string,
+  emoji: string,
+  emojiId?: string
+): Promise<void> {
+  const base =
+    `message_id=eq.${encodeURIComponent(messageId)}` + `&user_id=eq.${encodeURIComponent(userId)}`;
+  const remove = async (filter: string): Promise<number> => {
+    const res = await fetch(`${session.supabaseUrl}/rest/v1/reactions?${base}${filter}`, {
+      method: 'DELETE',
+      headers: {
+        apikey: session.anonKey,
+        Authorization: `Bearer ${session.accessToken}`,
+        // Ask how many rows went: a client-side delete that matched nothing looks exactly like a
+        // successful one, which is how a reaction can refuse to come off.
+        Prefer: 'return=representation',
+      },
+    });
+    if (!res.ok) throw new Error(`reaction: ${res.status} ${(await res.text()).slice(0, 120)}`);
+    const rows = await res.json().catch(() => []);
+    return Array.isArray(rows) ? rows.length : 0;
+  };
+
+  const byContent = await remove(`&custom_emoji_content=eq.${encodeURIComponent(emoji)}`);
+  if (byContent > 0) return;
+  // A custom emoji reaction written by another client (or the official one) points at `emoji_id`
+  // and leaves `custom_emoji_content` empty, so the first delete matches nothing.
+  if (emojiId) await remove(`&emoji_id=eq.${encodeURIComponent(emojiId)}`);
 }
 
 /** Adds the reaction if it is not there yet, removes it otherwise. */
 export async function toggleReaction(
   session: Session,
   messageId: string,
-  channelId: string,
+  target: { channelId?: string; conversationId?: string },
   userId: string,
   emoji: string,
-  remove: boolean
+  remove: boolean,
+  emojiId?: string
 ): Promise<void> {
   if (remove) {
-    await removeReaction(session, messageId, userId, emoji);
+    await removeReaction(session, messageId, userId, emoji, emojiId);
     return;
   }
   const res = await fetch(`${session.supabaseUrl}/rest/v1/reactions`, {
@@ -1274,13 +1343,20 @@ export async function toggleReaction(
       'Content-Type': 'application/json',
       Prefer: 'return=minimal',
     },
-    body: JSON.stringify({ message_id: messageId, channel_id: channelId, user_id: userId, custom_emoji_content: emoji }),
+    // A conversation reaction names the conversation; a channel reaction names the channel. The
+    // wrong column is accepted by the table but makes the row useless to everything that reads it.
+    body: JSON.stringify({
+      message_id: messageId,
+      ...(target.conversationId ? { conversation_id: target.conversationId } : { channel_id: target.channelId }),
+      user_id: userId,
+      custom_emoji_content: emoji,
+    }),
   });
   // 409 is reactions_message_user_emoji_key: the reaction was already there even though the
   // chip said otherwise (it was set from another device). The tap means "toggle", so the
   // second half of the toggle is to take it away.
   if (res.status === 409) {
-    await removeReaction(session, messageId, userId, emoji);
+    await removeReaction(session, messageId, userId, emoji, emojiId);
     return;
   }
   if (!res.ok) {

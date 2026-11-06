@@ -3,6 +3,22 @@
 Notable changes to Timbre, newest first. The format follows [Keep a
 Changelog](https://keepachangelog.com/en/1.1.0/), and the project follows semantic versioning.
 
+## [0.9.4] — 2026-11-06
+
+### Fixed
+
+- **Server pictures.** They live in the `server_icons` bucket, not `avatars`; asking the avatar
+  bucket for them is a 400, which is the broken image in the invite preview and the coloured
+  initials in the guild switcher. Both switchers and the invite card show the real icon now.
+- **Reactions.** Two faults: a reaction sent in a direct conversation named the *conversation* as a
+  channel, and a custom emoji reaction written by another client references `emoji_id` rather than a
+  name, so "remove" matched no row and the chip stayed. Removing now falls back to `emoji_id`, a
+  reaction in a thread refreshes the thread's list, and a refusal is shown instead of swallowed.
+- **Custom emoji are scoped and grouped.** `emojis_select_all` is `USING (true)`, so every server's
+  emoji were readable and this client showed them all under one "This instance" heading — including
+  other guilds' pictures, which the official client does not do. The list is now the instance's own
+  plus the servers the person is in, grouped by server.
+
 ## [0.9.3] — 2026-11-06
 
 Four things a real server made obvious.

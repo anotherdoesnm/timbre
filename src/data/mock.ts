@@ -59,6 +59,8 @@ export interface Channel {
 }
 
 export interface Server {
+  /** Resolved picture of the server, when it has one. */
+  iconUrl?: string;
   id: string;
   name: string;
   short: string;
