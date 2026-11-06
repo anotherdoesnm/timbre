@@ -3,6 +3,24 @@
 Notable changes to Timbre, newest first. The format follows [Keep a
 Changelog](https://keepachangelog.com/en/1.1.0/), and the project follows semantic versioning.
 
+## [0.9.5] — 2026-11-06
+
+Custom emoji now travel as emoji, not as their names.
+
+### Fixed
+
+- **Sending a custom emoji** used to write `:name:` into a text part, so every other client showed
+  the shortcode instead of the picture — the "not sending emojis properly" a reader on the official
+  client sees. A shortcode that matches an emoji this person has becomes a
+  `{type:'emoji', emoji:{name,url,id}}` part, which is the shape the instance stores and the other
+  clients render.
+- **Emoji in a received message** render as pictures too, including the ones the Discord bridge
+  imports (`6303_monkaSTEER` and friends), because their row in `emojis` carries a CDN url even when
+  the reaction row itself has none.
+- **Reactions with those emoji** draw the picture: the aggregate's `emoji_url` when it is there, the
+  instance's emoji list by name when it is not, and `emoji_id` for removing a chip another client
+  created.
+
 ## [0.9.4] — 2026-11-06
 
 ### Fixed

@@ -8,13 +8,23 @@
  * markup. Rendering with innerHTML would turn one paste into a very bad day.
  */
 
-export type SegmentKind = 'text' | 'code' | 'bold' | 'italic' | 'link' | 'mention' | 'channel';
+export type SegmentKind =
+  | 'text'
+  | 'code'
+  | 'bold'
+  | 'italic'
+  | 'link'
+  | 'mention'
+  | 'channel'
+  | 'emoji';
 
 export interface Segment {
   kind: SegmentKind;
   text: string;
   /** Only for links. */
   href?: string;
+  /** Only for emoji: the picture to draw instead of the shortcode. */
+  image?: string;
 }
 
 // Order matters: code before emphasis, bold before italic, and a mention may not swallow the

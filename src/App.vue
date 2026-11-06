@@ -1138,7 +1138,16 @@ async function onThreadSend(text: string): Promise<void> {
   if (!s || !ch || !id || !myProfileId.value) return;
   threadSending.value = true;
   try {
-    await sendThreadMessage(s, id, ch.id, myProfileId.value, text, globalThis.crypto?.randomUUID?.());
+    await sendThreadMessage(
+      s,
+      id,
+      ch.id,
+      myProfileId.value,
+      text,
+      globalThis.crypto?.randomUUID?.(),
+      [],
+      customEmoji.value
+    );
     const page = await fetchThreadMessages(s, id);
     threadMessages.value = page.messages;
     await refreshThreadCounts();
@@ -1486,9 +1495,9 @@ async function onSend(
   const id = reuseId ?? (globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`);
   try {
     if (isDirect(ch.id)) {
-      await sendConversationMessage(s, ch.id, myProfileId.value, body, id, files);
+      await sendConversationMessage(s, ch.id, myProfileId.value, body, id, files, customEmoji.value);
     } else {
-      await sendMessage(s, ch.id, myProfileId.value, body, replyTo, files, id);
+      await sendMessage(s, ch.id, myProfileId.value, body, replyTo, files, id, customEmoji.value);
     }
     failedSend.value = null;
     replyTarget.value = null;

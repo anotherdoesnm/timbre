@@ -411,6 +411,40 @@ export async function fetchChannels(session: Session, serverId: string): Promise
 }
 
 /**
+ * Turns what a person typed into message parts.
+ *
+ * A custom emoji is a structured part (`{type:'emoji', emoji:{name,url,id}}`), not the text
+ * `:name:`: the instance's own renderers and every other client draw the picture from the part, and
+ * a bare shortcode in a text part is exactly what "not sending emojis properly" looks like from the
+ * other side. The shortcode stays in the text only when it matches no emoji this person has.
+ */
+export function composeContent(text: string, emoji: { id?: string; name: string; url: string }[]): unknown[] {
+  if (!text) return [];
+  if (!emoji.length) return [{ type: 'text', text }];
+  const byName = new Map(emoji.map((e) => [e.name.toLowerCase(), e] as const));
+  const parts: unknown[] = [];
+  let last = 0;
+  const pattern = /:([a-z0-9_+-]{1,64}):/gi;
+  for (const match of text.matchAll(pattern)) {
+    const found = byName.get(match[1].toLowerCase());
+    if (!found || match.index === undefined) continue;
+    if (match.index > last) parts.push({ type: 'text', text: text.slice(last, match.index) });
+    parts.push({
+      type: 'emoji',
+      emoji: {
+        ...(found.id ? { id: found.id } : {}),
+        name: found.name,
+        url: found.url,
+      },
+    });
+    last = match.index + match[0].length;
+  }
+  if (!parts.length) return [{ type: 'text', text }];
+  if (last < text.length) parts.push({ type: 'text', text: text.slice(last) });
+  return parts;
+}
+
+/**
  * Posts a message. Harmony keeps the insert on the table (row level security decides), and
  * a refusal comes back as a PostgREST error rather than a silent no-op, which is why the
  * body is returned as-is instead of being assumed.
@@ -427,7 +461,9 @@ export async function sendMessage(
    * is inserted with this primary key, and the second attempt is refused with 409 instead of
    * creating a duplicate. Omitted when the caller has nothing to retry.
    */
-  id?: string
+  id?: string,
+  /** Custom emoji this person may use, so `:name:` becomes a picture part. */
+  emoji: { id?: string; name: string; url: string }[] = []
 ): Promise<void> {
   // A year rather than the hour used for display: this URL is written into the message, where
   // other clients read it as-is and never re-sign. Harmony's own messages carry long-lived links
@@ -453,7 +489,7 @@ export async function sendMessage(
       // `url`; a part carrying only `name`/`contentType` (what this client used to send) showed up
       // there as a bare file chip titled with the object's UUID.
       content: [
-        ...(content ? [{ type: 'text', text: content }] : []),
+        ...composeContent(content, emoji ?? []),
         ...files.map((f) => ({
           type: 'file',
           path: f.path,
@@ -1001,7 +1037,8 @@ export async function sendThreadMessage(
   userId: string,
   content: string,
   id?: string,
-  files: UploadedFile[] = []
+  files: UploadedFile[] = [],
+  emoji: { id?: string; name: string; url: string }[] = []
 ): Promise<void> {
   const signed = files.length
     ? await signMedia(session, files.map((f) => f.path), 365 * 24 * 60 * 60)
@@ -1020,7 +1057,7 @@ export async function sendThreadMessage(
       thread_id: threadId,
       user_id: userId,
       content: [
-        ...(content ? [{ type: 'text', text: content }] : []),
+        ...composeContent(content, emoji ?? []),
         ...files.map((f) => ({
           type: 'file',
           path: f.path,
@@ -1870,7 +1907,8 @@ export async function sendConversationMessage(
   userId: string,
   content: string,
   id?: string,
-  files: UploadedFile[] = []
+  files: UploadedFile[] = [],
+  emoji: { id?: string; name: string; url: string }[] = []
 ): Promise<void> {
   // The same part shape a channel message uses: other clients render the attachment from `url` and
   // classify it by `fileType`, and a year-long link is what they read verbatim.
@@ -1890,7 +1928,7 @@ export async function sendConversationMessage(
       conversation_id: conversationId,
       user_id: userId,
       content: [
-        ...(content ? [{ type: 'text', text: content }] : []),
+        ...composeContent(content, emoji ?? []),
         ...files.map((f) => ({
           type: 'file',
           path: f.path,

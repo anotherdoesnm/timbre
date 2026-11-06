@@ -47,9 +47,36 @@ const segmentCache = new Map<string, Segment[]>();
 function segments(m: Message): Segment[] {
   const hit = segmentCache.get(m.id);
   if (hit) return hit;
-  const parsed = parseSegments(m.text);
+  const parsed = withEmoji(parseSegments(m.text));
   segmentCache.set(m.id, parsed);
   return parsed;
+}
+
+/**
+ * Replaces `:name:` with the picture when the instance has an emoji by that name — the same rule
+ * the other clients follow, so a message written here reads the same on their side and back.
+ */
+function withEmoji(parsed: Segment[]): Segment[] {
+  if (!customEmoji.value.length) return parsed;
+  const out: Segment[] = [];
+  const pattern = /:([a-z0-9_+-]{1,64}):/gi;
+  for (const seg of parsed) {
+    if (seg.kind !== 'text') {
+      out.push(seg);
+      continue;
+    }
+    let last = 0;
+    for (const match of seg.text.matchAll(pattern)) {
+      const url = customEmojiUrl(match[1]);
+      if (!url || match.index === undefined) continue;
+      if (match.index > last) out.push({ kind: 'text', text: seg.text.slice(last, match.index) });
+      out.push({ kind: 'emoji', text: match[0], image: url });
+      last = match.index + match[0].length;
+    }
+    if (!last) out.push(seg);
+    else if (last < seg.text.length) out.push({ kind: 'text', text: seg.text.slice(last) });
+  }
+  return out;
 }
 // A signed attachment URL can be expired or forbidden; a broken image icon tells nobody why.
 const broken = ref<Record<string, true>>({});
@@ -242,6 +269,15 @@ watch(
               <code v-if="seg.kind === 'code'">{{ seg.text }}</code>
               <strong v-else-if="seg.kind === 'bold'">{{ seg.text }}</strong>
               <em v-else-if="seg.kind === 'italic'">{{ seg.text }}</em>
+              <img
+                v-else-if="seg.kind === 'emoji' && seg.image"
+                class="emoji-inline"
+                :src="seg.image"
+                :alt="seg.text"
+                :title="seg.text"
+                loading="lazy"
+                referrerpolicy="no-referrer"
+              />
               <button
                 v-else-if="seg.kind === 'mention'"
                 type="button"
@@ -526,6 +562,7 @@ watch(
 }
 .reaction.mine { border-color: var(--primary-main); background: color-mix(in srgb, var(--primary-container) 45%, transparent); }
 .reaction-count { color: var(--text-secondary); font-variant-numeric: tabular-nums; }
+.emoji-inline { width: 22px; height: 22px; vertical-align: -5px; object-fit: contain; }
 .reaction-image { width: 16px; height: 16px; object-fit: contain; vertical-align: -3px; }
 .reaction-emoji { font-size: 13px; }
 .quote {
