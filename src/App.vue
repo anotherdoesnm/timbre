@@ -17,6 +17,7 @@ import PollComposer from './components/PollComposer.vue';
 import NotificationSettings from './components/NotificationSettings.vue';
 import ThreadPanel from './components/ThreadPanel.vue';
 import StickerPicker from './components/StickerPicker.vue';
+import JoinSheet from './components/JoinSheet.vue';
 import { fetchCustomEmojis, type CustomEmoji } from './services/emoji';
 import AuthScreen from './components/AuthScreen.vue';
 import AuthCallback from './components/AuthCallback.vue';
@@ -69,6 +70,7 @@ import {
   fetchThreadMessages,
   sendThreadMessage,
   type ThreadInfo,
+  parseInviteCode,
   fetchStickers,
   uploadSticker,
   sendSticker,
@@ -183,6 +185,8 @@ const newDmOpen = ref(false);
 // Pins belong to the open room, whatever kind of room it is.
 const notifSettingsOpen = ref(false);
 const prefsSaving = ref(false);
+const joinOpen = ref(false);
+const inviteSeed = ref('');
 const pollOpen = ref(false);
 const stickersOpen = ref(false);
 const stickers = ref<Sticker[]>([]);
@@ -390,6 +394,12 @@ function refreshConnectivity(): void {
   online.value = typeof navigator === 'undefined' ? true : navigator.onLine;
 }
 if (typeof window !== 'undefined') {
+  const invited = new URLSearchParams(location.search).get('invite');
+  if (invited && parseInviteCode(invited)) {
+    inviteSeed.value = invited;
+    joinOpen.value = true;
+  }
+
   window.addEventListener('online', () => {
     refreshConnectivity();
     void catchUp();
@@ -965,6 +975,22 @@ async function onStickerUpload(file: File): Promise<void> {
     stickerError.value = e instanceof Error ? e.message : String(e);
   } finally {
     stickerUploading.value = false;
+  }
+}
+
+/** After joining, the new server has to appear in the sidebar before it can be opened. */
+async function onJoined(serverId: string): Promise<void> {
+  const s = session.value;
+  if (!s) return;
+  try {
+    const me = myProfileId.value;
+    if (!me) return;
+    const list = await fetchServers(s, me);
+    liveServers.value = list.length ? list : liveServers.value;
+    pickServer(serverId);
+    joinOpen.value = false;
+  } catch (e) {
+    loadError.value = e instanceof Error ? e.message : String(e);
   }
 }
 
@@ -1555,6 +1581,13 @@ watch([activeServer, activeChannel], () => {
       @change="onChangePreference"
       @close="notifSettingsOpen = false"
     />
+    <JoinSheet
+      v-if="joinOpen"
+      :session="session"
+      :initial="inviteSeed"
+      :on-joined="onJoined"
+      @close="joinOpen = false"
+    />
     <StickerPicker
       v-if="stickersOpen"
       :stickers="stickers"
@@ -1623,6 +1656,7 @@ watch([activeServer, activeChannel], () => {
       :servers="servers"
       :active-id="activeServer"
       @select="(id) => { pickServer(id); serversOpen = false; }"
+      @join="serversOpen = false; inviteSeed = ''; joinOpen = true"
       @close="closeServers"
     />
   </div>

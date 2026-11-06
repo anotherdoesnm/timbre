@@ -149,6 +149,15 @@ mkdir -p .libs && cd .libs && apt-get download libglib2.0-0 libnss3 libxi6 libwa
 for f in *.deb; do dpkg-deb -x "$f" root/; done
 ```
 
+## Join the server
+
+The community lives on a Harmony instance, and it is the best place to see the client behave:
+
+- **Invite link** — <https://har.mony.lol/invite/QBXVAGXE>. In Timbre, the Servers sheet has
+  "Join with an invite": paste the link (or `?invite=QBXVAGXE` on this client's own URL) and it
+  shows which server the link opens before anything is redeemed.
+- **Handle** — `timbre@har.mony.lol`, if you would rather write first.
+
 ## Install
 
 Every release publishes an APK (arm64), an AppImage and a Windows installer as release assets:

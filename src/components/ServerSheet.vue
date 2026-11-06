@@ -3,7 +3,11 @@ import Icon from './Icon.vue';
 import type { Server } from '../data/mock';
 
 defineProps<{ servers: Server[]; activeId: string }>();
-const emit = defineEmits<{ (e: 'select', id: string): void; (e: 'close'): void }>();
+const emit = defineEmits<{
+  (e: 'select', id: string): void;
+  (e: 'close'): void;
+  (e: 'join'): void;
+}>();
 </script>
 
 <template>
@@ -30,9 +34,9 @@ const emit = defineEmits<{ (e: 'select', id: string): void; (e: 'close'): void }
         <Icon v-if="s.id === activeId" name="check" :size="16" class="tick" />
         <span v-if="s.unread" class="dot" />
       </button>
-      <button class="row add" disabled>
+      <button class="row add" @click="emit('join')">
         <span class="tile add-tile"><Icon name="plus" :size="16" /></span>
-        <span class="name">Add a server</span>
+        <span class="name">Join with an invite</span>
       </button>
     </div>
   </div>

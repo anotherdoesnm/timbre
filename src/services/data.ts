@@ -574,6 +574,86 @@ export async function fetchMessages(
   return fetchMessagePage(session, `channel_id=eq.${encodeURIComponent(channelId)}`, opts);
 }
 
+/** The shape `get_invite_preview` answers with. */
+export interface InvitePreview {
+  code: string;
+  status: string;
+  name?: string;
+  icon?: string;
+  description?: string;
+  serverId?: string;
+  isMember: boolean;
+  expiresAt?: string | null;
+}
+
+/**
+ * Pulls an invite code out of whatever a person pasted.
+ *
+ * Their link (`https://har.mony.lol/invite/QBXVAGXE`), the bare code, or the same link without a
+ * scheme all mean one thing; anything else is not an invite and must not be sent to the instance as
+ * a code.
+ */
+export function parseInviteCode(input: string): string | null {
+  const text = input.trim();
+  if (!text) return null;
+  const link = /(?:^|\/)(?:invite|join)\/([A-Za-z0-9_-]{4,64})\b/.exec(text);
+  if (link) return link[1];
+  if (/^[A-Za-z0-9_-]{4,64}$/.test(text)) return text;
+  return null;
+}
+
+/** Looks an invite up without joining: name, picture, rules and whether the caller is already in. */
+export async function previewInvite(session: Session, code: string): Promise<InvitePreview | null> {
+  try {
+    const row = await rpc<Record<string, unknown>>(session, 'get_invite_preview', { p_code: code });
+    if (!row) return null;
+    return {
+      code: String(row.code ?? code),
+      status: String(row.status ?? 'unknown'),
+      name: typeof row.name === 'string' ? row.name : undefined,
+      icon: typeof row.icon === 'string' ? avatarUrl(row.icon, session) : undefined,
+      description: typeof row.description === 'string' ? row.description : undefined,
+      serverId: typeof row.server_id === 'string' ? row.server_id : undefined,
+      isMember: row.is_member === true,
+      expiresAt: typeof row.expires_at === 'string' ? row.expires_at : null,
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Redeems an invite. The instance checks the code, counts the use and adds the membership in one
+ * transaction (`redeem_invite`), so being already a member is a success rather than an error.
+ */
+export async function redeemInvite(session: Session, code: string): Promise<string> {
+  try {
+    const row = await rpc<{ server_id?: string }>(session, 'redeem_invite', { p_code: code });
+    const serverId = row?.server_id;
+    if (!serverId) throw new Error('the instance did not return a server');
+    return serverId;
+  } catch (e) {
+    const message = e instanceof Error ? e.message : String(e);
+    // The instance speaks in markers; a person gets a sentence.
+    const known: [string, string][] = [
+      ['INVITE_EXHAUSTED', 'This invite has been used up'],
+      ['INVITE_REVOKED', 'This invite was revoked'],
+      ['INVITE_EXPIRED', 'This invite has expired'],
+      ['INVITE_NOT_FOUND', 'No such invite'],
+      ['BANNED_FROM_SERVER', 'You are banned from that server'],
+      ['SERVER_SUSPENDED', 'That server is suspended'],
+    ];
+    for (const [marker, text] of known) {
+      if (message.includes(marker)) throw new Error(text);
+    }
+    // An instance older than invites-by-RPC answers 404/PGRST202; say so instead of "failed".
+    if (/PGRST202|does not exist|42883/.test(message)) {
+      throw new Error('This instance is too old to join by invite from here');
+    }
+    throw new Error(message.slice(0, 160));
+  }
+}
+
 /** A sticker of this instance: a picture in the public `stickers` bucket with a row around it. */
 export interface Sticker {
   id: string;
