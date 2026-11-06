@@ -3,6 +3,21 @@
 Notable changes to Timbre, newest first. The format follows [Keep a
 Changelog](https://keepachangelog.com/en/1.1.0/), and the project follows semantic versioning.
 
+## [0.9.2] — 2026-11-06
+
+### Added
+
+- **Joining a server by invite.** The Servers sheet has "Join with an invite": paste a link from
+  any Harmony instance (or just its code) and the sheet shows the server — name, picture,
+  description, and whether you are already a member — before anything is redeemed. Joining goes
+  through the instance's `redeem_invite`, which checks the invite, counts the use and adds the
+  membership in one transaction. `?invite=CODE` on the client's own URL opens the sheet prefilled.
+
+### Changed
+
+- The README opens with the mark and lists where each brand file goes, and points at the
+  community server: <https://har.mony.lol/invite/QBXVAGXE> or `timbre@har.mony.lol`.
+
 ## [0.9.1] — 2026-11-06
 
 The release that has a face.
