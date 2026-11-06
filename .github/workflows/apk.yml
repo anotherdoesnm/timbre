@@ -100,6 +100,11 @@ jobs:
           npm ci
           # gen/android is not committed: it is generated per platform by the CLI.
           [ -d src-tauri/gen/android ] || npx tauri android init --ci
+          # `tauri android init` fills the project with Tauri's own default launcher icon, whatever
+          # `tauri icon` wrote to icons/android. Copying the set in is the only way the APK wears
+          # the app's face; without it the installed app shows Tauri's logo.
+          cp -R src-tauri/icons/android/. src-tauri/gen/android/app/src/main/res/
+          ls src-tauri/gen/android/app/src/main/res/mipmap-xxxhdpi
           # vue-tsc catches what esbuild happily transpiles: a wrong type passed to a
           # component, an event nobody declared, a ref dereferenced from a template scope.
           npm run typecheck

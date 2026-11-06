@@ -351,23 +351,48 @@ export async function fetchChannels(session: Session, serverId: string): Promise
     rest<Row[]>(
       session,
       'channels',
-      `server_id=eq.${encodeURIComponent(serverId)}&select=id,name,type,category&order=category.asc`
+      // `type = 2` is a category row, not a channel: it duplicates a heading and must not be
+      // listed. The order is the server's own (`"order"`), not the category's uuid, which is what
+      // the previous query sorted by — hence channels in a heap and headings made of ids.
+      `server_id=eq.${encodeURIComponent(serverId)}&type=neq.2` +
+        '&select=id,name,type,category,"order"&order=order.asc'
     ),
     rest<Row[]>(
       session,
       'channel_categories',
-      `server_id=eq.${encodeURIComponent(serverId)}&select=id,name,order&order=order.asc`
+      `server_id=eq.${encodeURIComponent(serverId)}&select=id,name,"order"&order=order.asc`
     ).catch(() => [] as Row[]),
   ]);
-  const names = new Map(categories.map((c) => [String(c.id), String(c.name ?? 'Channels')]));
-  return rows.map((c) => ({
-    id: String(c.id),
-    name: String(c.name ?? 'channel'),
-    kind: String(c.type).toLowerCase().includes('voice') || c.type === 1 ? 'voice' : 'text',
-    // Without the join a category id would be printed as a UUID heading.
-    category: names.get(String(c.category)) ?? 'Channels',
-    unread: 0,
-  }));
+
+  const orderOf = new Map(categories.map((c, index) => [String(c.id), Number(c.order ?? index)] as const));
+  const names = new Map(categories.map((c) => [String(c.id), String(c.name ?? 'Channels')] as const));
+
+  const mapped = rows.map((c) => {
+    const categoryId = c.category ? String(c.category) : '';
+    return {
+      id: String(c.id),
+      name: String(c.name ?? 'channel'),
+      kind: String(c.type).toLowerCase().includes('voice') || Number(c.type) === 1 ? 'voice' : 'text',
+      // Without the join a category id would be printed as a UUID heading.
+      category: names.get(categoryId) ?? 'Channels',
+      categoryId,
+      categoryOrder: orderOf.get(categoryId) ?? -1,
+      position: Number(c.order ?? 0),
+      unread: 0,
+    } as Channel & { categoryId: string; categoryOrder: number; position: number };
+  });
+
+  // Uncategorised channels lead (as in the official client), then categories in the server's order,
+  // each with its channels in the server's order.
+  return mapped.sort((a, b) => {
+    if (a.categoryId !== b.categoryId) {
+      if (!a.categoryId) return -1;
+      if (!b.categoryId) return 1;
+      if (a.categoryOrder !== b.categoryOrder) return a.categoryOrder - b.categoryOrder;
+      return a.category.localeCompare(b.category);
+    }
+    return a.position - b.position;
+  });
 }
 
 /**
@@ -572,6 +597,60 @@ export async function fetchMessages(
   opts: { limit?: number; before?: string } = {}
 ): Promise<MessagePage> {
   return fetchMessagePage(session, `channel_id=eq.${encodeURIComponent(channelId)}`, opts);
+}
+
+/** A joined server's welcome screen, including the rules the instance wants accepted. */
+export interface ServerWelcome {
+  serverId: string;
+  name?: string;
+  message?: string;
+  rules: { title: string; description?: string }[];
+  requireAcceptance: boolean;
+  mustAccept: boolean;
+}
+
+/**
+ * Whether this server wants its rules accepted before a message may be posted.
+ *
+ * `get_server_welcome` is the instance's own reading of that state: `must_accept` is already false
+ * for managers, for people who joined before the rules were required, and for those who ticked the
+ * box. The message insert is guarded by a trigger that raises `RULES_NOT_ACCEPTED:<server>`, so
+ * without this the first thing a new member sees is a failed send.
+ */
+export async function fetchServerWelcome(
+  session: Session,
+  serverId: string
+): Promise<ServerWelcome | null> {
+  try {
+    const row = await rpc<Record<string, unknown>>(session, 'get_server_welcome', {
+      p_server_id: serverId,
+    });
+    if (!row) return null;
+    const rawRules = Array.isArray(row.rules) ? row.rules : [];
+    const rules = rawRules.map((entry) => {
+      if (typeof entry === 'string') return { title: entry };
+      const rule = entry as { title?: unknown; description?: unknown };
+      return {
+        title: String(rule.title ?? ''),
+        description: typeof rule.description === 'string' ? rule.description : undefined,
+      };
+    });
+    return {
+      serverId,
+      name: typeof row.name === 'string' ? row.name : undefined,
+      message: typeof row.message === 'string' ? row.message : undefined,
+      rules,
+      requireAcceptance: row.require_acceptance === true,
+      mustAccept: row.must_accept === true,
+    };
+  } catch {
+    return null;
+  }
+}
+
+/** Ticks the box: one call moves `rules_accepted_at`, which the send guard reads. */
+export async function acceptServerRules(session: Session, serverId: string): Promise<void> {
+  await rpc(session, 'accept_server_rules', { p_server_id: serverId });
 }
 
 /** The shape `get_invite_preview` answers with. */
@@ -1135,6 +1214,7 @@ export async function fetchReactions(
   let rows: {
     message_id: string;
     emoji_name: string | null;
+    emoji_url: string | null;
     custom_emoji_content: string | null;
     reaction_count: number | null;
     current_user_reacted: boolean | null;
@@ -1146,10 +1226,14 @@ export async function fetchReactions(
   }
   const out: Record<string, ReactionSummary[]> = {};
   for (const row of rows) {
+    // A native emoji lives in `custom_emoji_content`; a custom one has a name and a picture, and the
+    // RPC hands both over — without the URL the chip could only print `toothy` as text.
     const emoji = row.custom_emoji_content || row.emoji_name || '';
     if (!emoji || !row.message_id) continue;
+    const url = typeof row.emoji_url === 'string' && row.emoji_url ? row.emoji_url : undefined;
     (out[row.message_id] ??= []).push({
       emoji,
+      ...(url ? { url: /^https?:\/\//i.test(url) ? url : `https://${session.instance}${url.startsWith('/') ? '' : '/'}${url}` } : {}),
       count: Number(row.reaction_count ?? 0),
       mine: row.current_user_reacted === true,
     });

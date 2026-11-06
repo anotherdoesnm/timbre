@@ -3,6 +3,26 @@
 Notable changes to Timbre, newest first. The format follows [Keep a
 Changelog](https://keepachangelog.com/en/1.1.0/), and the project follows semantic versioning.
 
+## [0.9.3] — 2026-11-06
+
+Four things a real server made obvious.
+
+### Fixed
+
+- **The launcher icon on Android.** `tauri android init` fills the project with Tauri's own default
+  icon whatever `tauri icon` wrote, so the installed app wore Tauri's logo. The icon set is copied
+  into the generated project after init.
+- **Messages failing on a server that requires its rules accepted.** The instance guards the message
+  insert with `RULES_NOT_ACCEPTED:<server>`; the client now reads `get_server_welcome` when a server
+  is opened or joined, shows the rules, and accepts them through `accept_server_rules` — retrying
+  the message that was waiting.
+- **Custom emoji reactions rendered as text.** The aggregate carries `emoji_url`; the chip draws the
+  picture now, falls back to the instance's emoji list for legacy `:name:` rows, and reacts with the
+  bare name (`toothy`) instead of `:toothy:`, which is what other clients write.
+- **Categories and channel order.** `type = 2` rows are category headings, not channels, and the
+  list sorted channels by the category's uuid instead of the server's own `"order"`. Uncategorised
+  channels now lead, categories follow in their order, and each group is sorted by position.
+
 ## [0.9.2] — 2026-11-06
 
 ### Added

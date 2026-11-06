@@ -18,6 +18,7 @@ import NotificationSettings from './components/NotificationSettings.vue';
 import ThreadPanel from './components/ThreadPanel.vue';
 import StickerPicker from './components/StickerPicker.vue';
 import JoinSheet from './components/JoinSheet.vue';
+import RulesSheet from './components/RulesSheet.vue';
 import { fetchCustomEmojis, type CustomEmoji } from './services/emoji';
 import AuthScreen from './components/AuthScreen.vue';
 import AuthCallback from './components/AuthCallback.vue';
@@ -71,6 +72,9 @@ import {
   sendThreadMessage,
   type ThreadInfo,
   parseInviteCode,
+  fetchServerWelcome,
+  acceptServerRules,
+  type ServerWelcome,
   fetchStickers,
   uploadSticker,
   sendSticker,
@@ -186,6 +190,12 @@ const newDmOpen = ref(false);
 const notifSettingsOpen = ref(false);
 const prefsSaving = ref(false);
 const joinOpen = ref(false);
+// A server's rules are a per-server state the instance enforces on the message insert.
+const rulesSheet = ref<ServerWelcome | null>(null);
+const rulesBusy = ref(false);
+const rulesError = ref('');
+/** What to re-send once the box is ticked. */
+const afterRules = ref<(() => Promise<void>) | null>(null);
 const inviteSeed = ref('');
 const pollOpen = ref(false);
 const stickersOpen = ref(false);
@@ -978,6 +988,39 @@ async function onStickerUpload(file: File): Promise<void> {
   }
 }
 
+/**
+ * Asks the instance whether this server is waiting for a rule acceptance, and shows it if so.
+ * Called when a server is opened and right after joining one.
+ */
+async function checkRules(serverId: string, then?: () => Promise<void>): Promise<void> {
+  const s = session.value;
+  if (!s || !serverId) return;
+  const welcome = await fetchServerWelcome(s, serverId);
+  if (!welcome || !welcome.mustAccept) return;
+  afterRules.value = then ?? null;
+  rulesError.value = '';
+  rulesSheet.value = welcome;
+}
+
+async function onAcceptRules(): Promise<void> {
+  const s = session.value;
+  const welcome = rulesSheet.value;
+  if (!s || !welcome) return;
+  rulesBusy.value = true;
+  rulesError.value = '';
+  try {
+    await acceptServerRules(s, welcome.serverId);
+    rulesSheet.value = null;
+    const retry = afterRules.value;
+    afterRules.value = null;
+    if (retry) await retry();
+  } catch (e) {
+    rulesError.value = e instanceof Error ? e.message : String(e);
+  } finally {
+    rulesBusy.value = false;
+  }
+}
+
 /** After joining, the new server has to appear in the sidebar before it can be opened. */
 async function onJoined(serverId: string): Promise<void> {
   const s = session.value;
@@ -989,6 +1032,8 @@ async function onJoined(serverId: string): Promise<void> {
     liveServers.value = list.length ? list : liveServers.value;
     pickServer(serverId);
     joinOpen.value = false;
+    // A server that requires its rules accepted would otherwise fail the first message.
+    await checkRules(serverId);
   } catch (e) {
     loadError.value = e instanceof Error ? e.message : String(e);
   }
@@ -1409,9 +1454,20 @@ async function onSend(
     liveMessages.value[ch.id] = page.messages;
     lastLoad = Date.now();
   } catch (e) {
-    // Keep what was typed: a dropped connection must not eat the message.
-    failedSend.value = { id, body, files, replyTo };
-    loadError.value = e instanceof Error ? e.message : String(e);
+    const message = e instanceof Error ? e.message : String(e);
+    // The one refusal that has a screen attached: the server wants its rules accepted first.
+    const refused = /RULES_NOT_ACCEPTED:([0-9a-f-]{36})/i.exec(message);
+    if (refused) {
+      failedSend.value = { id, body, files, replyTo };
+      await checkRules(refused[1], async () => {
+        await onSend(body, files, replyTo, id);
+      });
+      loadError.value = '';
+    } else {
+      // Keep what was typed: a dropped connection must not eat the message.
+      failedSend.value = { id, body, files, replyTo };
+      loadError.value = message;
+    }
   } finally {
     sending.value = false;
   }
@@ -1581,6 +1637,14 @@ watch([activeServer, activeChannel], () => {
       @change="onChangePreference"
       @close="notifSettingsOpen = false"
     />
+    <RulesSheet
+      v-if="rulesSheet"
+      :welcome="rulesSheet"
+      :busy="rulesBusy"
+      :error="rulesError"
+      @accept="onAcceptRules"
+      @close="rulesSheet = null"
+    />
     <JoinSheet
       v-if="joinOpen"
       :session="session"
@@ -1655,7 +1719,7 @@ watch([activeServer, activeChannel], () => {
       v-if="serversOpen"
       :servers="servers"
       :active-id="activeServer"
-      @select="(id) => { pickServer(id); serversOpen = false; }"
+      @select="(id) => { pickServer(id); serversOpen = false; void checkRules(id); }"
       @join="serversOpen = false; inviteSeed = ''; joinOpen = true"
       @close="closeServers"
     />

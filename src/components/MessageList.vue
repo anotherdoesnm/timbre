@@ -58,6 +58,16 @@ const brokenAvatars = ref<Record<string, true>>({});
 // wiring that (with search and custom uploads) is its own step.
 /** Emoji the instance offers on top of Unicode, loaded once by the shell. */
 const customEmoji = computed(() => props.customEmoji ?? []);
+
+/**
+ * A reaction written as a name (`toothy` or the legacy `:toothy:`) is a custom emoji, and the
+ * instance's own list knows its picture when the aggregate did not carry one.
+ */
+function customEmojiUrl(emoji: string): string | undefined {
+  const name = emoji.replace(/^:|:$/g, '');
+  if (!name || /\p{Extended_Pictographic}/u.test(name)) return undefined;
+  return customEmoji.value.find((e) => e.name === name)?.url;
+}
 const pickerFor = ref<string | null>(null);
 const menuFor = ref<string | null>(null);
 // The attachment currently shown full-screen, if any.
@@ -73,9 +83,12 @@ function pick(m: Message, emoji: string): void {
   emit('react', m, emoji, mine(m, emoji));
 }
 
-/** A custom emoji reacts by name, which is what other clients resolve back to its picture. */
+/**
+ * A custom emoji reacts by its bare name (`toothy`, not `:toothy:`): that is what the instance
+ * stores in `custom_emoji_content` and what other clients resolve back to the picture.
+ */
 function pickCustom(m: Message, value: { char?: string; name?: string }): void {
-  const emoji = value.char ?? (value.name ? `:${value.name}:` : '');
+  const emoji = value.char ?? value.name ?? '';
   if (!emoji) return;
   pickerFor.value = null;
   emit('react', m, emoji, mine(m, emoji));
@@ -274,7 +287,16 @@ watch(
               :class="{ mine: r.mine }"
               @click.stop="emit('react', m, r.emoji, r.mine)"
             >
-              <span class="reaction-emoji">{{ r.emoji }}</span>
+              <img
+                v-if="r.url || customEmojiUrl(r.emoji)"
+                class="reaction-image"
+                :src="r.url ?? customEmojiUrl(r.emoji)!"
+                :alt="r.emoji"
+                :title="`:${r.emoji.replace(/:/g, '')}:`"
+                loading="lazy"
+                referrerpolicy="no-referrer"
+              />
+              <span v-else class="reaction-emoji">{{ r.emoji }}</span>
               <span class="reaction-count">{{ r.count }}</span>
             </button>
           </div>
@@ -501,6 +523,7 @@ watch(
 }
 .reaction.mine { border-color: var(--primary-main); background: color-mix(in srgb, var(--primary-container) 45%, transparent); }
 .reaction-count { color: var(--text-secondary); font-variant-numeric: tabular-nums; }
+.reaction-image { width: 16px; height: 16px; object-fit: contain; vertical-align: -3px; }
 .reaction-emoji { font-size: 13px; }
 .quote {
   display: flex;
