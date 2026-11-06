@@ -3,6 +3,19 @@
 Notable changes to Timbre, newest first. The format follows [Keep a
 Changelog](https://keepachangelog.com/en/1.1.0/), and the project follows semantic versioning.
 
+## [0.9.1] — 2026-11-06
+
+The release that has a face.
+
+### Changed
+
+- **A real app icon.** The wave that gave Timbre its name — teal to magenta to blue, running
+  edge to edge — replaces the empty rounded square that shipped with 0.9.0, in the APK, the
+  desktop bundles, the Android adaptive icons, the window icon and the web favicon.
+- The sign-in card shows the same mark instead of a generic `#`.
+- The web build has a `manifest.webmanifest`, so "add to home screen" gets the name, the theme
+  colour and the 192/512 icons rather than a screenshot.
+
 ## [0.9.0] — 2026-11-05
 
 The first public beta: a Cinny-styled client for Harmony instances that covers a chat client's

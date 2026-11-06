@@ -283,7 +283,7 @@ function reset() {
   <div class="auth">
     <div class="card">
       <div class="mark">
-        <Icon name="hash" :size="22" />
+        <img src="/logo-96.png" alt="" width="26" height="26" />
       </div>
 
       <h1>Timbre</h1>
@@ -461,15 +461,15 @@ function reset() {
   box-shadow: var(--shadow-3);
 }
 .mark {
-  width: 44px;
-  height: 44px;
+  width: 48px;
+  height: 48px;
   display: grid;
   place-items: center;
   border-radius: var(--radius-lg);
-  background: var(--primary-main);
-  color: var(--primary-on);
+  overflow: hidden;
   margin-bottom: var(--sp-400);
 }
+.mark img { width: 100%; height: 100%; display: block; }
 h1 { margin: 0 0 var(--sp-100); font-size: 21px; letter-spacing: -0.01em; }
 .sub { margin: 0 0 var(--sp-500); color: var(--text-tertiary); font-size: var(--fs-sm); line-height: 1.5; }
 
