@@ -18,6 +18,9 @@ import NotificationSettings from './components/NotificationSettings.vue';
 import ThreadPanel from './components/ThreadPanel.vue';
 import StickerPicker from './components/StickerPicker.vue';
 import ThreadsSheet from './components/ThreadsSheet.vue';
+import ForwardSheet from './components/ForwardSheet.vue';
+import QuickSwitcher from './components/QuickSwitcher.vue';
+import WhatsNew from './components/WhatsNew.vue';
 import JoinSheet from './components/JoinSheet.vue';
 import DiscoverSheet from './components/DiscoverSheet.vue';
 import { rpc } from './services/api';
@@ -208,11 +211,17 @@ const prefsSaving = ref(false);
 const joinOpen = ref(false);
 const createOpen = ref(false);
 const threadsOpen = ref(false);
+const forwardTarget = ref<Message | null>(null);
+const switcherOpen = ref(false);
+const appVersion = __APP_VERSION__;
+const whatsNewOpen = ref(false);
 const threadList = ref<ThreadSummary[]>([]);
 const threadsLoading = ref(false);
 const threadsError = ref('');
 // Presence: who is online in the open server, and who is typing in the open room.
 const presence = ref<Record<string, { online: boolean; status: number; label: string }>>({});
+/** Presence of the people in the DM list, keyed by profile id. */
+const directPresence = ref<Record<string, { online: boolean; status: number; label: string }>>({});
 const typingUsers = ref<TypingUser[]>([]);
 let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
 let typingSubscription: { close(): void } | null = null;
@@ -453,6 +462,21 @@ if (typeof window !== 'undefined') {
     if (failedSend.value && !sending.value) void retrySend();
   });
   window.addEventListener('offline', refreshConnectivity);
+  window.addEventListener('keydown', (event) => {
+    const mod = event.metaKey || event.ctrlKey;
+    if (mod && event.key.toLowerCase() === 'k') {
+      event.preventDefault();
+      switcherOpen.value = true;
+      return;
+    }
+    if (event.key === 'Escape') {
+      switcherOpen.value = false;
+      threadsOpen.value = false;
+      pinnedOpen.value = false;
+      notificationsOpen.value = false;
+      forwardTarget.value = null;
+    }
+  });
 }
 
 async function retrySend(): Promise<void> {
@@ -862,7 +886,13 @@ function ensureLive(): void {
     liveConn.subscribePresence(serverId, applyPresence);
   }
   watchTyping();
+  if (!linkOpened) {
+    linkOpened = true;
+    void openFromLink();
+  }
 }
+
+let linkOpened = false;
 
 // A different room means a different typing channel: re-subscribe, and drop what was there.
 watch([activeServer, activeChannel], () => {
@@ -1376,6 +1406,86 @@ async function refreshThreadCounts(): Promise<void> {
   }
 }
 
+function onSwitcherPick(serverId: string | null, channelId: string): void {
+  switcherOpen.value = false;
+  if (serverId && serverId !== activeServer.value) pickServer(serverId);
+  pickChannel(channelId);
+}
+
+/** Presence for the people in the direct conversations, so their rows can carry a dot. */
+async function loadDirectPresence(): Promise<void> {
+  const s = session.value;
+  if (!s) return;
+  const ids = conversations.value.map((c) => c.other?.id).filter((id): id is string => !!id);
+  if (!ids.length) return;
+  const rows = await fetchPresence(s, ids);
+  const next: Record<string, { online: boolean; status: number; label: string }> = {};
+  for (const row of rows) {
+    next[row.profileId] = { online: row.online, status: row.status, label: statusLabel(row.status) };
+  }
+  directPresence.value = next;
+}
+
+/** A link to one message, in this client's own query form. */
+function messageLink(m: Message): string {
+  const s = session.value;
+  const ch = channel.value;
+  if (!s || !ch) return '';
+  const base = `https://${s.instance}/`;
+  const params = new URLSearchParams({ channel: ch.id, message: m.id });
+  return `${base}?${params.toString()}`;
+}
+
+async function copyMessageLink(m: Message): Promise<void> {
+  const link = messageLink(m);
+  if (!link) return;
+  try {
+    await navigator.clipboard.writeText(link);
+  } catch {
+    showError(`Copy by hand: ${link}`);
+  }
+}
+
+/** Forwarding re-posts the same parts into another channel, as its own message. */
+async function onForward(channelId: string): Promise<void> {
+  const s = session.value;
+  const m = forwardTarget.value;
+  const me = myProfileId.value;
+  forwardTarget.value = null;
+  if (!s || !m || !me) return;
+  try {
+    await sendMessage(s, channelId, me, m.text, null, [], globalThis.crypto?.randomUUID?.(), customEmoji.value);
+    if (channelId === activeChannel.value) {
+      const page = isDirect(channelId)
+        ? await fetchConversationMessages(s, channelId)
+        : await fetchMessages(s, channelId);
+      liveMessages.value[channelId] = page.messages;
+    }
+  } catch (e) {
+    showError(e instanceof Error ? e.message : String(e));
+  }
+}
+
+/**
+ * Deep link: `?channel=<id>&message=<id>`. A link the client itself copies has to open where it
+ * says, otherwise "copy link" is a button that produces text nobody can use.
+ */
+async function openFromLink(): Promise<void> {
+  const params = new URLSearchParams(location.search);
+  const channelId = params.get('channel');
+  const messageId = params.get('message');
+  if (!channelId) return;
+  for (const [serverId, list] of Object.entries(liveChannels.value)) {
+    if (list.some((c) => c.id === channelId)) {
+      if (serverId !== activeServer.value) pickServer(serverId);
+      pickChannel(channelId);
+      if (messageId) focusId.value = messageId;
+      return;
+    }
+  }
+  if (conversations.value.some((c) => c.id === channelId)) pickChannel(channelId);
+}
+
 /** The threads of the open channel, by activity, with this person's read state. */
 async function openThreads(): Promise<void> {
   const s = session.value;
@@ -1579,6 +1689,7 @@ async function loadConversations(): Promise<void> {
   if (!s || !live.value) return;
   try {
     conversations.value = await fetchConversations(s);
+    void loadDirectPresence();
   } catch {
     /* a sidebar section is not worth an error banner */
   }
@@ -1905,6 +2016,7 @@ watch([activeServer, activeChannel], () => {
       @notifications="openNotifications"
       :unread-notifications="unreadNotifications"
       :dms="live ? conversations : undefined"
+      :dm-presence="directPresence"
       :category-unread="categoryUnread"
       @new-dm="newDmOpen = true"
     />
@@ -1944,6 +2056,8 @@ watch([activeServer, activeChannel], () => {
         @pin="onPin"
         @vote="onVote"
         @thread="openThread"
+        @forward="(m) => (forwardTarget = m)"
+        @copy-link="copyMessageLink"
         :thread-counts="threadCounts"
         @channel="openChannelRef"
       />
@@ -2045,6 +2159,22 @@ watch([activeServer, activeChannel], () => {
       @accept="onAcceptRules"
       @close="rulesSheet = null"
     />
+    <QuickSwitcher
+      v-if="switcherOpen"
+      :servers="servers"
+      :channels="liveChannels"
+      :conversations="conversations"
+      @pick="onSwitcherPick"
+      @close="switcherOpen = false"
+    />
+    <WhatsNew v-if="whatsNewOpen" :version="appVersion" @close="whatsNewOpen = false" />
+    <ForwardSheet
+      v-if="forwardTarget"
+      :channels="channels"
+      :from="channel?.name"
+      @pick="onForward"
+      @close="forwardTarget = null"
+    />
     <ThreadsSheet
       v-if="threadsOpen"
       :threads="threadList"
@@ -2140,6 +2270,7 @@ watch([activeServer, activeChannel], () => {
       :dnd-label="dndLabel"
       @toggle-dnd="toggleDnd"
       @notification-settings="notifSettingsOpen = true"
+      @whats-new="whatsNewOpen = true"
       @close="closeAccount"
       @signout="signOutNow"
       @rename="onRename"

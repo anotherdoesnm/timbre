@@ -22,6 +22,7 @@ const emit = defineEmits<{
   (e: 'enable-notifications'): void;
   (e: 'toggle-dnd'): void;
   (e: 'notification-settings'): void;
+  (e: 'whats-new'): void;
 }>();
 
 const draft = ref(props.name);
@@ -124,6 +125,11 @@ function pick(event: Event): void {
       <button class="row" :disabled="busy" @click="emit('notification-settings')">
         <Icon name="inbox" :size="16" />
         <span>Notification settings<span class="hint-inline"> — which events interrupt</span></span>
+      </button>
+
+      <button class="row" :disabled="busy" @click="emit('whats-new')">
+        <Icon name="bell" :size="16" />
+        <span>What's new</span>
       </button>
 
       <p class="build">Timbre {{ version }} · {{ sha }}</p>

@@ -7,6 +7,21 @@ Changelog](https://keepachangelog.com/en/1.1.0/), and the project follows semant
 
 ### Added
 
+- **Swipe to reply** — dragging a message to the right arms a reply to it, the way every phone chat
+  does it; a vertical drag is still a scroll.
+- **Forward and copy link** in the message menu, for every message and not only your own. A copied
+  link is `?channel=<id>&message=<id>`, and the client opens it: the same link it hands out has to
+  work when somebody pastes it back.
+- **Quick switcher** on `Ctrl/Cmd+K`: every channel of every server and every conversation in one
+  filterable list, Enter opens the first match, Escape closes what is open.
+- **"What's new"** in the account sheet, rendered from `CHANGELOG.md` compiled into the bundle — the
+  notes cannot drift from the release.
+- **Presence dots in the conversation list**, fetched for the people you talk to rather than only for
+  the server you have open.
+
+
+### Added
+
 - **A threads list.** Threads had no front door: a reply only showed as "N replies" under its parent,
   and a thread somebody else kept talking in was invisible. The channel header opens a list of its
   open threads by activity — name, replies, how long ago — with an unread dot driven by

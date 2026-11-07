@@ -33,6 +33,8 @@ const emit = defineEmits<{
   (e: 'pin', m: Message, pinned: boolean): void;
   (e: 'vote', pollId: string, optionIds: string[]): void;
   (e: 'thread', m: Message): void;
+  (e: 'forward', m: Message): void;
+  (e: 'copy-link', m: Message): void;
   (e: 'channel', name: string): void;
   (e: 'edit', m: Message): void;
   (e: 'delete', m: Message): void;
@@ -118,6 +120,34 @@ const pickerFor = ref<string | null>(null);
 const menuFor = ref<string | null>(null);
 // The attachment currently shown full-screen, if any.
 const lightbox = ref<string | null>(null);
+// Swipe-to-reply: a finger dragging a message to the right arms a reply to it, the way every phone
+// chat does it. The threshold is generous because a list also scrolls vertically.
+const swipe = ref<{ id: string; dx: number } | null>(null);
+let swipeStart: { id: string; x: number; y: number } | null = null;
+function swipeStartAt(event: PointerEvent, m: Message): void {
+  if (event.pointerType === 'mouse') return;
+  swipeStart = { id: m.id, x: event.clientX, y: event.clientY };
+}
+function swipeMove(event: PointerEvent): void {
+  if (!swipeStart) return;
+  const dx = event.clientX - swipeStart.x;
+  const dy = Math.abs(event.clientY - swipeStart.y);
+  // A vertical drag is a scroll, not a gesture.
+  if (dy > 24 && Math.abs(dx) < 24) {
+    swipe.value = null;
+    swipeStart = null;
+    return;
+  }
+  if (dx > 12) swipe.value = { id: swipeStart.id, dx };
+}
+function swipeEnd(m: Message): void {
+  const armed = swipe.value && swipe.value.id === m.id && swipe.value.dx > 64;
+  const start = swipeStart;
+  swipe.value = null;
+  swipeStart = null;
+  if (armed && start) emit('reply', m);
+}
+
 function isMine(m: Message): boolean {
   return !!props.myId && m.author.id === props.myId;
 }
@@ -262,7 +292,12 @@ watch(
         class="msg"
         :data-mid="m.id"
         :class="{ grouped: m.grouped, mention: m.mention, system: m.system, selected: selected === m.id }"
+        :style="swipe?.id === m.id ? { transform: `translateX(${Math.min(swipe.dx, 88)}px)` } : undefined"
         @click="selected = selected === m.id ? null : m.id"
+        @pointerdown="swipeStartAt($event, m)"
+        @pointermove="swipeMove"
+        @pointerup="swipeEnd(m)"
+        @pointercancel="swipe = null; swipeStart = null"
       >
         <div class="avatar-col">
           <div v-if="!m.grouped" class="avatar" :style="{ background: m.author.color }">
@@ -395,8 +430,11 @@ watch(
           </div>
         </div>
         <div v-if="menuFor === m.id" class="picker menu">
-          <button @click.stop="menuFor = null; emit('edit', m)">Edit</button>
-          <button class="danger" @click.stop="menuFor = null; emit('delete', m)">Delete</button>
+          <button @click.stop="menuFor = null; emit('reply', m)">Reply</button>
+          <button @click.stop="menuFor = null; emit('forward', m)">Forward</button>
+          <button @click.stop="menuFor = null; emit('copy-link', m)">Copy link</button>
+          <button v-if="isMine(m)" @click.stop="menuFor = null; emit('edit', m)">Edit</button>
+          <button v-if="isMine(m)" class="danger" @click.stop="menuFor = null; emit('delete', m)">Delete</button>
         </div>
         <EmojiPicker
           v-if="pickerFor === m.id"
@@ -423,7 +461,7 @@ watch(
           <button title="Reply in thread" @click.stop="emit('thread', m)">
             <Icon name="thread" :size="15" />
           </button>
-          <button v-if="isMine(m)" title="More" @click.stop="menuFor = menuFor === m.id ? null : m.id; pickerFor = null">
+          <button title="More" @click.stop="menuFor = menuFor === m.id ? null : m.id; pickerFor = null">
             <Icon name="dots" :size="15" />
           </button>
         </div>
@@ -456,6 +494,7 @@ watch(
 
 .msg {
   position: relative;
+  transition: transform 120ms ease;
   display: grid;
   grid-template-columns: 40px 1fr;
   gap: var(--sp-300);

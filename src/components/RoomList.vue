@@ -14,6 +14,8 @@ const props = defineProps<{
   dms?: Conversation[];
   /** Unread per category, so a collapsed or busy category can say how much is in it. */
   categoryUnread?: Record<string, number>;
+  /** Presence of the people in the conversations, keyed by profile id. */
+  dmPresence?: Record<string, { online: boolean; status: number; label: string }>;
 }>();
 const emit = defineEmits<{
   (e: 'select', id: string): void;
@@ -69,6 +71,12 @@ const groups = computed(() => {
             <img v-if="d.other?.avatarUrl" :src="d.other.avatarUrl" alt="" referrerpolicy="no-referrer" />
             <template v-else>{{ d.other?.initial ?? d.title.slice(0, 1).toUpperCase() }}</template>
           </span>
+          <span
+            v-if="d.other?.id && props.dmPresence?.[d.other.id]"
+            class="dm-presence"
+            :class="{ off: !props.dmPresence[d.other.id].online }"
+            :title="props.dmPresence[d.other.id].label"
+          />
           <span class="name">{{ d.title }}</span>
           <Icon v-if="d.muted" name="bell-off" :size="13" class="muted-mark" />
           <span v-if="d.mentions" class="badge mention">{{ d.mentions }}</span>
@@ -214,6 +222,14 @@ const groups = computed(() => {
 .dm-title { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-200); }
 .new-dm { padding: 2px; color: var(--text-tertiary); }
 .dm-empty { margin: 0; padding: var(--sp-100) var(--sp-300) var(--sp-200); color: var(--text-tertiary); font-size: var(--fs-xs); }
+.dm-presence {
+  width: 6px;
+  height: 6px;
+  flex: none;
+  border-radius: var(--radius-round);
+  background: var(--positive, #3fc47a);
+}
+.dm-presence.off { background: var(--text-tertiary); opacity: 0.5; }
 .dm-avatar {
   width: 18px;
   height: 18px;
