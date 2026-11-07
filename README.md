@@ -158,6 +158,18 @@ The community lives on a Harmony instance, and it is the best place to see the c
   shows which server the link opens before anything is redeemed.
 - **Handle** — `timbre@har.mony.lol`, if you would rather write first.
 
+## Channels
+
+Two of them, on purpose:
+
+| | what it is | where |
+|---|---|---|
+| **Release** | a batch of work, tagged `vX.Y.Z`, notes from `CHANGELOG.md` | [Releases](https://github.com/anotherdoesnm/timbre/releases) |
+| **Nightly** | the tip of `main`, rebuilt every night, replaced in place | `releases/download/nightly/app-arm64-release.apk` |
+
+Testing a fix does not need a version number — nightly is the channel for that; tags are for
+something worth announcing.
+
 ## Install
 
 Every release publishes an APK (arm64), an AppImage and a Windows installer as release assets:

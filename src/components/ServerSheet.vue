@@ -7,6 +7,7 @@ const emit = defineEmits<{
   (e: 'select', id: string): void;
   (e: 'close'): void;
   (e: 'join'): void;
+  (e: 'discover'): void;
 }>();
 </script>
 
@@ -40,6 +41,10 @@ const emit = defineEmits<{
       <button class="row add" @click="emit('join')">
         <span class="tile add-tile"><Icon name="plus" :size="16" /></span>
         <span class="name">Join with an invite</span>
+      </button>
+      <button class="row add" @click="emit('discover')">
+        <span class="tile add-tile"><Icon name="search" :size="16" /></span>
+        <span class="name">Discover public servers</span>
       </button>
     </div>
   </div>

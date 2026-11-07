@@ -3,6 +3,22 @@
 Notable changes to Timbre, newest first. The format follows [Keep a
 Changelog](https://keepachangelog.com/en/1.1.0/), and the project follows semantic versioning.
 
+## [0.10.0] — 2026-11-07
+
+### Added
+
+- **Public server discovery.** "Discover public servers" in the servers sheet lists the instance's
+  public servers — icon, name, member count, description — and joins them through
+  `join_public_server`, the same call registration uses. Servers you are already in open instead of
+  offering to join.
+
+### Changed
+
+- **A nightly build channel.** Fixes no longer need a version each: `nightly` is a pre-release whose
+  APK is replaced every night from the tip of `main`
+  (`releases/download/nightly/app-arm64-release.apk`). Versioned tags are for batches, and their
+  release notes come from this file.
+
 ## [0.9.9] — 2026-11-06
 
 ### Fixed

@@ -21,6 +21,10 @@ on:
   workflow_dispatch:
   push:
     tags: ['v*']
+  # The testing channel: one build a night, published to the fixed `nightly` pre-release. Fixes can
+  # land on `main` without each one becoming its own version — tags are for batches.
+  schedule:
+    - cron: '0 3 * * *'
 
 # `softprops/action-gh-release` creates a release with the workflow token, and the token is
 # read-only unless this is declared — without it a tag build fails at the last step with
@@ -173,6 +177,21 @@ jobs:
           curl -fsS -X POST "$HOOK" -H 'Content-Type: application/json' \
             -d "{\"content\":\"$content\",\"allowed_mentions\":{\"parse\":[]}}" \
             || echo "webhook unreachable; the build itself is published" >&2
+
+      - name: publish the nightly
+        # A stable URL for "try the newest fix": the same tag and file names every night, replaced in
+        # place, so a phone can keep a link instead of chasing version numbers.
+        if: github.ref == 'refs/heads/main'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: nightly
+          name: Timbre nightly
+          prerelease: true
+          overwrite_files: true
+          body: |
+            An automatically built APK from the tip of `main`. Not a release: it may be broken, and
+            it is replaced nightly.
+          files: out/*.apk
 
       - name: attach to the release on a tag
         if: startsWith(github.ref, 'refs/tags/v')

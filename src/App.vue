@@ -18,6 +18,7 @@ import NotificationSettings from './components/NotificationSettings.vue';
 import ThreadPanel from './components/ThreadPanel.vue';
 import StickerPicker from './components/StickerPicker.vue';
 import JoinSheet from './components/JoinSheet.vue';
+import DiscoverSheet from './components/DiscoverSheet.vue';
 import RulesSheet from './components/RulesSheet.vue';
 import type { CustomEmoji } from './services/emoji';
 import AuthScreen from './components/AuthScreen.vue';
@@ -76,6 +77,9 @@ import {
   acceptServerRules,
   type ServerWelcome,
   fetchCustomEmojis,
+  fetchPublicServers,
+  joinPublicServer,
+  type PublicServer,
   fetchStickers,
   uploadSticker,
   sendSticker,
@@ -191,6 +195,11 @@ const newDmOpen = ref(false);
 const notifSettingsOpen = ref(false);
 const prefsSaving = ref(false);
 const joinOpen = ref(false);
+const discoverOpen = ref(false);
+const discoverServers = ref<PublicServer[]>([]);
+const discoverLoading = ref(false);
+const discoverError = ref('');
+const discoverBusyId = ref('');
 // A server's rules are a per-server state the instance enforces on the message insert.
 const rulesSheet = ref<ServerWelcome | null>(null);
 const rulesBusy = ref(false);
@@ -1073,6 +1082,40 @@ async function onAcceptRules(): Promise<void> {
   }
 }
 
+async function openDiscover(): Promise<void> {
+  const s = session.value;
+  if (!s) return;
+  discoverOpen.value = true;
+  discoverLoading.value = true;
+  discoverError.value = '';
+  try {
+    discoverServers.value = await fetchPublicServers(s, liveServers.value.map((server) => server.id));
+  } catch (e) {
+    discoverError.value = e instanceof Error ? e.message : String(e);
+  } finally {
+    discoverLoading.value = false;
+  }
+}
+
+async function onDiscoverJoin(server: PublicServer): Promise<void> {
+  const s = session.value;
+  if (!s) return;
+  discoverBusyId.value = server.id;
+  discoverError.value = '';
+  try {
+    await joinPublicServer(s, server.id);
+    discoverOpen.value = false;
+    await onJoined(server.id);
+    discoverServers.value = discoverServers.value.map((item) =>
+      item.id === server.id ? { ...item, isMember: true } : item
+    );
+  } catch (e) {
+    discoverError.value = e instanceof Error ? e.message : String(e);
+  } finally {
+    discoverBusyId.value = '';
+  }
+}
+
 /** After joining, the new server has to appear in the sidebar before it can be opened. */
 async function onJoined(serverId: string): Promise<void> {
   const s = session.value;
@@ -1711,6 +1754,16 @@ watch([activeServer, activeChannel], () => {
       @accept="onAcceptRules"
       @close="rulesSheet = null"
     />
+    <DiscoverSheet
+      v-if="discoverOpen"
+      :servers="discoverServers"
+      :loading="discoverLoading"
+      :error="discoverError"
+      :busy-id="discoverBusyId"
+      @join="onDiscoverJoin"
+      @open="(server) => { discoverOpen = false; onJoined(server.id); }"
+      @close="discoverOpen = false"
+    />
     <JoinSheet
       v-if="joinOpen"
       :session="session"
@@ -1787,6 +1840,7 @@ watch([activeServer, activeChannel], () => {
       :active-id="activeServer"
       @select="(id) => { pickServer(id); serversOpen = false; void checkRules(id); }"
       @join="serversOpen = false; inviteSeed = ''; joinOpen = true"
+      @discover="serversOpen = false; openDiscover()"
       @close="closeServers"
     />
   </div>

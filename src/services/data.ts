@@ -817,6 +817,59 @@ export async function fetchCustomEmojis(
   return out;
 }
 
+/** A server anybody may join, as the discover list shows it. */
+export interface PublicServer {
+  id: string;
+  name: string;
+  description?: string;
+  iconUrl?: string;
+  members?: number;
+  isMember: boolean;
+}
+
+/**
+ * Servers marked public on this instance.
+ *
+ * `servers` is readable by everyone (`Enable read access for all users`) and visibility is an
+ * application-level decision, so the filter on `public` is what keeps the list honest. Membership is
+ * worked out against the servers this person already has.
+ */
+export async function fetchPublicServers(
+  session: Session,
+  myServerIds: string[]
+): Promise<PublicServer[]> {
+  const rows = await rest<Row[]>(
+    session,
+    'servers',
+    'public=eq.true&select=id,name,description,icon,member_count&order=member_count.desc&limit=60'
+  ).catch(() => [] as Row[]);
+  const mine = new Set(myServerIds);
+  return rows.map((row) => ({
+    id: String(row.id),
+    name: String(row.name ?? 'server'),
+    description: typeof row.description === 'string' ? row.description : undefined,
+    iconUrl: serverIconUrl(row.icon, session),
+    members: typeof row.member_count === 'number' ? row.member_count : undefined,
+    isMember: mine.has(String(row.id)),
+  }));
+}
+
+/** Joining a public server goes through the instance's own RPC; its refusal is the message. */
+export async function joinPublicServer(session: Session, serverId: string): Promise<void> {
+  const res = await fetch(`${session.supabaseUrl}/rest/v1/rpc/join_public_server`, {
+    method: 'POST',
+    headers: {
+      apikey: session.anonKey,
+      Authorization: `Bearer ${session.accessToken}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ p_server_id: serverId }),
+  });
+  if (res.ok) return;
+  const body = await res.text().catch(() => '');
+  throw new Error(body.includes('already') ? 'You are already a member' : `join: ${res.status} ${body.slice(0, 120)}`);
+}
+
 /** A sticker of this instance: a picture in the public `stickers` bucket with a row around it. */
 export interface Sticker {
   id: string;
