@@ -7,6 +7,19 @@ Changelog](https://keepachangelog.com/en/1.1.0/), and the project follows semant
 
 ### Added
 
+- **Roles.** The manage sheet opens a roles list — colour, name, how many people hold each — with the
+  default role marked. Tapping one shows the members with a toggle, and an owner (or a moderator the
+  instance grants `MANAGE_ROLES`) can also create a role: name, colour, and a set of permission
+  switches that write the Discord-style bitfield the schema stores. Deleting is offered for any role
+  that is not the default.
+
+  The gate is the instance's own answer: `get_user_permissions` decides whether the screen may write
+  anything, and the instance's refusal is shown as it words it — a non-owner creating a role gets
+  "A new role must rank below your highest role" rather than a generic policy error.
+
+
+### Added
+
 - **Search that can be aimed.** `in:#channel`, `from:person`, `has:image`, `has:link`, `before:` and
   `after:` are parsed out of the box and sent as the RPC's own arguments (`p_channel_id`,
   `p_user_id`, `p_has_media`/`p_has_url`, `p_from_date`/`p_to_date`), with the recognised filters

@@ -21,6 +21,7 @@ import ThreadsSheet from './components/ThreadsSheet.vue';
 import ForwardSheet from './components/ForwardSheet.vue';
 import QuickSwitcher from './components/QuickSwitcher.vue';
 import GifPicker from './components/GifPicker.vue';
+import RolesSheet from './components/RolesSheet.vue';
 import WhatsNew from './components/WhatsNew.vue';
 import JoinSheet from './components/JoinSheet.vue';
 import DiscoverSheet from './components/DiscoverSheet.vue';
@@ -99,6 +100,13 @@ import {
   createServer,
   createChannel,
   createInvite,
+  fetchRoles,
+  fetchMyPermissions,
+  fetchUserRoles,
+  createRole,
+  deleteRole,
+  setRole,
+  type Role,
   fetchServerNotification,
   setServerNotification,
   type ServerNotification,
@@ -222,6 +230,14 @@ const threadsOpen = ref(false);
 const forwardTarget = ref<Message | null>(null);
 const switcherOpen = ref(false);
 const gifsOpen = ref(false);
+const rolesOpen = ref(false);
+const roles = ref<Role[]>([]);
+const roleAssignments = ref<Record<string, string[]>>({});
+const rolesLoading = ref(false);
+const rolesBusy = ref(false);
+const rolesError = ref('');
+/** Whether this person may manage roles here — the instance's own answer, not a guess. */
+const canManageRoles = ref(false);
 const gifs = ref<Gif[]>([]);
 const gifsLoading = ref(false);
 const gifsError = ref('');
@@ -1538,6 +1554,91 @@ async function loadDirectPresence(): Promise<void> {
   directPresence.value = next;
 }
 
+/** Roles of the open server, with who holds them. Owners can change them; the instance decides. */
+/** From the manage sheet: close it and open the roles sheet on top. */
+function onOpenRoles(): void {
+  createOpen.value = false;
+  void openRoles();
+}
+
+async function openRoles(): Promise<void> {
+  const s = session.value;
+  const serverId = activeServer.value;
+  if (!s || !serverId) return;
+  rolesOpen.value = true;
+  rolesLoading.value = true;
+  rolesError.value = '';
+  try {
+    const [list, assignments, permissions] = await Promise.all([
+      fetchRoles(s, serverId),
+      fetchUserRoles(s, serverId),
+      myProfileId.value
+        ? fetchMyPermissions(s, myProfileId.value, serverId)
+        : Promise.resolve({} as Record<string, boolean>),
+    ]);
+    roles.value = list;
+    roleAssignments.value = assignments;
+    // `has_permission` is the authority; the owner is granted everything by the instance itself,
+    // and a moderator with MANAGE_ROLES may rank roles below their own.
+    canManageRoles.value = permissions.MANAGE_ROLES === true || permissions.ADMINISTRATOR === true;
+  } catch (e) {
+    rolesError.value = e instanceof Error ? e.message : String(e);
+  } finally {
+    rolesLoading.value = false;
+  }
+}
+
+async function onAssignRole(userId: string, roleId: string, assign: boolean): Promise<void> {
+  const s = session.value;
+  const serverId = activeServer.value;
+  if (!s || !serverId || !userId) return;
+  rolesBusy.value = true;
+  try {
+    await setRole(s, { serverId, userId, roleId, assign, by: myProfileId.value });
+    const current = roleAssignments.value[userId] ?? [];
+    roleAssignments.value = {
+      ...roleAssignments.value,
+      [userId]: assign ? [...current, roleId] : current.filter((id) => id !== roleId),
+    };
+    roles.value = roles.value.map((r) =>
+      r.id === roleId ? { ...r, members: Math.max(0, r.members + (assign ? 1 : -1)) } : r
+    );
+  } catch (e) {
+    rolesError.value = e instanceof Error ? e.message : String(e);
+  } finally {
+    rolesBusy.value = false;
+  }
+}
+
+async function onCreateRole(role: { name: string; color?: string; permissions: number }): Promise<void> {
+  const s = session.value;
+  const serverId = activeServer.value;
+  if (!s || !serverId) return;
+  rolesBusy.value = true;
+  try {
+    await createRole(s, serverId, { ...role, position: roles.value.length + 1 });
+    await openRoles();
+  } catch (e) {
+    rolesError.value = e instanceof Error ? e.message : String(e);
+  } finally {
+    rolesBusy.value = false;
+  }
+}
+
+async function onDeleteRole(roleId: string): Promise<void> {
+  const s = session.value;
+  if (!s) return;
+  rolesBusy.value = true;
+  try {
+    await deleteRole(s, roleId);
+    roles.value = roles.value.filter((r) => r.id !== roleId);
+  } catch (e) {
+    rolesError.value = e instanceof Error ? e.message : String(e);
+  } finally {
+    rolesBusy.value = false;
+  }
+}
+
 /** Search or trending, depending on whether the box has anything in it. */
 async function loadGifs(query = ''): Promise<void> {
   const s = session.value;
@@ -2323,6 +2424,20 @@ watch([activeServer, activeChannel], () => {
       @accept="onAcceptRules"
       @close="rulesSheet = null"
     />
+    <RolesSheet
+      v-if="rolesOpen"
+      :roles="roles"
+      :members="members ?? []"
+      :assignments="roleAssignments"
+      :can-manage="canManageRoles"
+      :loading="rolesLoading"
+      :busy="rolesBusy"
+      :error="rolesError"
+      :on-assign="onAssignRole"
+      :on-create="onCreateRole"
+      :on-delete="onDeleteRole"
+      @close="rolesOpen = false"
+    />
     <GifPicker
       v-if="gifsOpen"
       :gifs="gifs"
@@ -2370,6 +2485,7 @@ watch([activeServer, activeChannel], () => {
       :on-create-invite="onCreateInvite"
       :notify="serverNotify[activeServer]"
       :on-notify="setServerNotify"
+      :on-roles="onOpenRoles"
       @close="createOpen = false"
     />
     <DiscoverSheet

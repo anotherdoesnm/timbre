@@ -24,6 +24,7 @@ const props = defineProps<{
   onJoinChannel?: (name: string, type: 0 | 1) => Promise<void>;
   onCreateInvite?: () => Promise<string>;
   onNotify?: (patch: { muted?: boolean; level?: string }) => Promise<void>;
+  onRoles?: () => void;
 }>();
 const emit = defineEmits<{ (e: 'close'): void }>();
 
@@ -174,6 +175,9 @@ async function copy(): Promise<void> {
           <span>{{ props.notify?.muted ? 'Muted — the badges still move' : 'Mute this server' }}</span>
         </button>
         <p class="fine">A per-channel mute always wins over this.</p>
+        <button class="ghost-wide" @click="props.onRoles?.()">
+          <Icon name="shield" :size="14" /> Roles and permissions
+        </button>
       </template>
 
       <template v-else>
@@ -245,6 +249,19 @@ header {
 .level.on { outline: 1px solid var(--primary-main); background: var(--primary-container); }
 .level-label { color: var(--text); font-weight: 600; }
 .level-hint { color: var(--text-tertiary); font-size: var(--fs-xs); }
+.ghost-wide {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-200);
+  margin-top: var(--sp-300);
+  padding: var(--sp-300);
+  border-radius: var(--radius-lg);
+  background: var(--sf-base);
+  color: var(--text);
+  font-weight: 600;
+}
 .tabs button.on { background: var(--primary-container); color: var(--primary-on-container); font-weight: 600; }
 .lead { margin: 0 0 var(--sp-300); color: var(--text-secondary); font-size: var(--fs-sm); }
 .field { display: flex; flex-direction: column; gap: var(--sp-100); margin-bottom: var(--sp-300); }

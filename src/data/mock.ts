@@ -73,6 +73,8 @@ export interface Channel {
 export interface Server {
   /** Resolved picture of the server, when it has one. */
   iconUrl?: string;
+  /** Profile id of the owner — the only one the instance lets manage roles. */
+  ownerId?: string;
   id: string;
   name: string;
   short: string;

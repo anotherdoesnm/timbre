@@ -362,7 +362,7 @@ export async function fetchServers(session: Session, profileId: string): Promise
   const rows = await rest<Row[]>(
     session,
     'user_servers',
-    `user_id=eq.${encodeURIComponent(profileId)}&select=position,server:servers(id,name,icon,member_count)&order=position.asc`
+    `user_id=eq.${encodeURIComponent(profileId)}&select=position,server:servers(id,name,icon,member_count,owner)&order=position.asc`
   );
   const seen = new Set<string>();
   return rows
@@ -380,6 +380,7 @@ export async function fetchServers(session: Session, profileId: string): Promise
         id: String(s.id),
         name,
         short: name.slice(0, 2).toUpperCase(),
+        ownerId: typeof s.owner === 'string' ? s.owner : undefined,
         iconUrl: serverIconUrl(s.icon, session),
         color: colorFor(name),
         unread: 0,
@@ -950,6 +951,202 @@ export async function createInvite(
     throw new Error(`create invite: ${res.status} ${body.slice(0, 160)}`);
   }
   return code;
+}
+
+/** A role of a server, with the permission mask the instance stores. */
+export interface Role {
+  id: string;
+  name: string;
+  color?: string;
+  position: number;
+  permissions: number;
+  isDefault: boolean;
+  isAdmin: boolean;
+  members: number;
+}
+
+/**
+ * Permission bits, in the order `get_user_permissions` reads them.
+ *
+ * The instance keeps permissions as a Discord-style bitfield and its own helper maps a name to a
+ * position in this list, so the bit for `MANAGE_ROLES` is `1 << 3`. Only the ones a person can
+ * meaningfully grant from a phone are offered in the UI.
+ */
+export const PERMISSION_BITS: { name: string; label: string; bit: number }[] = [
+  { name: 'ADMINISTRATOR', label: 'Administrator (everything)', bit: 1 << 0 },
+  { name: 'VIEW_CHANNEL', label: 'See channels', bit: 1 << 1 },
+  { name: 'MANAGE_CHANNELS', label: 'Manage channels', bit: 1 << 2 },
+  { name: 'MANAGE_ROLES', label: 'Manage roles', bit: 1 << 3 },
+  { name: 'MANAGE_WEBHOOKS', label: 'Manage webhooks', bit: 1 << 6 },
+  { name: 'MANAGE_SERVER', label: 'Manage server', bit: 1 << 7 },
+  { name: 'CREATE_INVITE', label: 'Create invites', bit: 1 << 8 },
+  { name: 'KICK_MEMBERS', label: 'Kick members', bit: 1 << 9 },
+  { name: 'BAN_MEMBERS', label: 'Ban members', bit: 1 << 10 },
+  { name: 'TIMEOUT_MEMBERS', label: 'Timeout members', bit: 1 << 11 },
+  { name: 'SEND_MESSAGES', label: 'Send messages', bit: 1 << 12 },
+  { name: 'ATTACH_FILES', label: 'Attach files', bit: 1 << 17 },
+  { name: 'MENTION_EVERYONE', label: 'Mention everyone', bit: 1 << 20 },
+  { name: 'MANAGE_MESSAGES', label: 'Manage messages', bit: 1 << 21 },
+  { name: 'PIN_MESSAGES', label: 'Pin messages', bit: 1 << 23 },
+];
+
+/** This person's own permissions in a server, as `get_user_permissions` maps them. */
+export async function fetchMyPermissions(
+  session: Session,
+  profileId: string,
+  serverId: string
+): Promise<Record<string, boolean>> {
+  try {
+    const map = await rpc<Record<string, boolean>>(session, 'get_user_permissions', {
+      p_user_id: profileId,
+      p_server_id: serverId,
+    });
+    return map ?? {};
+  } catch {
+    return {};
+  }
+}
+
+/** Roles of a server, newest position first, with how many people hold each. */
+export async function fetchRoles(session: Session, serverId: string): Promise<Role[]> {
+  const [roles, holders] = await Promise.all([
+    rest<Row[]>(
+      session,
+      'server_roles',
+      `server_id=eq.${encodeURIComponent(serverId)}` +
+        '&select=id,name,color,position,permissions,is_default,is_admin&order=position.desc'
+    ).catch(() => [] as Row[]),
+    rest<Row[]>(
+      session,
+      'user_roles',
+      `server_id=eq.${encodeURIComponent(serverId)}&select=role_id`
+    ).catch(() => [] as Row[]),
+  ]);
+  const counts = new Map<string, number>();
+  for (const row of holders) {
+    const id = String(row.role_id ?? '');
+    counts.set(id, (counts.get(id) ?? 0) + 1);
+  }
+  return roles.map((row) => ({
+    id: String(row.id),
+    name: String(row.name ?? 'role'),
+    color: typeof row.color === 'string' && row.color ? row.color : undefined,
+    position: Number(row.position ?? 0),
+    // `permissions` is a bigint in Postgres; PostgREST hands it over as a string when it is large.
+    permissions: Number(row.permissions ?? 0),
+    isDefault: row.is_default === true,
+    isAdmin: row.is_admin === true,
+    members: counts.get(String(row.id)) ?? 0,
+  }));
+}
+
+/** Which role ids each member holds, in this server. */
+export async function fetchUserRoles(
+  session: Session,
+  serverId: string
+): Promise<Record<string, string[]>> {
+  const rows = await rest<Row[]>(
+    session,
+    'user_roles',
+    `server_id=eq.${encodeURIComponent(serverId)}&select=user_id,role_id`
+  ).catch(() => [] as Row[]);
+  const out: Record<string, string[]> = {};
+  for (const row of rows) {
+    const user = String(row.user_id ?? '');
+    const role = String(row.role_id ?? '');
+    if (!user || !role) continue;
+    (out[user] ??= []).push(role);
+  }
+  return out;
+}
+
+/** Creates a role. Only the server's owner (or an instance admin) may — the instance enforces it. */
+export async function createRole(
+  session: Session,
+  serverId: string,
+  role: { name: string; color?: string; permissions: number; position?: number }
+): Promise<string> {
+  const res = await fetch(`${session.supabaseUrl}/rest/v1/server_roles`, {
+    method: 'POST',
+    headers: {
+      apikey: session.anonKey,
+      Authorization: `Bearer ${session.accessToken}`,
+      'Content-Type': 'application/json',
+      Prefer: 'return=representation',
+    },
+    body: JSON.stringify({
+      server_id: serverId,
+      name: role.name.trim(),
+      color: role.color ?? null,
+      permissions: role.permissions,
+      position: role.position ?? 1,
+    }),
+  });
+  if (!res.ok) {
+    const body = await res.text().catch(() => '');
+    throw new Error(`create role: ${res.status} ${body.slice(0, 160)}`);
+  }
+  const rows = (await res.json().catch(() => [])) as { id?: string }[];
+  if (!rows[0]?.id) throw new Error('the instance did not return the new role');
+  return rows[0].id;
+}
+
+export async function deleteRole(session: Session, roleId: string): Promise<void> {
+  const res = await fetch(`${session.supabaseUrl}/rest/v1/server_roles?id=eq.${encodeURIComponent(roleId)}`, {
+    method: 'DELETE',
+    headers: {
+      apikey: session.anonKey,
+      Authorization: `Bearer ${session.accessToken}`,
+      Prefer: 'return=minimal',
+    },
+  });
+  if (!res.ok) {
+    const body = await res.text().catch(() => '');
+    throw new Error(`delete role: ${res.status} ${body.slice(0, 160)}`);
+  }
+}
+
+export async function setRole(
+  session: Session,
+  args: { serverId: string; userId: string; roleId: string; assign: boolean; by?: string | null }
+): Promise<void> {
+  if (args.assign) {
+    const res = await fetch(`${session.supabaseUrl}/rest/v1/user_roles`, {
+      method: 'POST',
+      headers: {
+        apikey: session.anonKey,
+        Authorization: `Bearer ${session.accessToken}`,
+        'Content-Type': 'application/json',
+        Prefer: 'return=minimal',
+      },
+      body: JSON.stringify({
+        user_id: args.userId,
+        role_id: args.roleId,
+        server_id: args.serverId,
+        ...(args.by ? { assigned_by: args.by } : {}),
+      }),
+    });
+    // 409 is the unique (user, role) index: already assigned, which is what the tap wanted.
+    if (res.ok || res.status === 409) return;
+    const body = await res.text().catch(() => '');
+    throw new Error(`assign role: ${res.status} ${body.slice(0, 160)}`);
+  }
+  const res = await fetch(
+    `${session.supabaseUrl}/rest/v1/user_roles?user_id=eq.${encodeURIComponent(args.userId)}` +
+      `&role_id=eq.${encodeURIComponent(args.roleId)}`,
+    {
+      method: 'DELETE',
+      headers: {
+        apikey: session.anonKey,
+        Authorization: `Bearer ${session.accessToken}`,
+        Prefer: 'return=minimal',
+      },
+    }
+  );
+  if (!res.ok) {
+    const body = await res.text().catch(() => '');
+    throw new Error(`remove role: ${res.status} ${body.slice(0, 160)}`);
+  }
 }
 
 /** Per-server notification defaults: the row the instance keeps for "this whole server". */

@@ -48,8 +48,8 @@ Effort is a guess for one person; "server" says whether the instance already sup
 |---|---|---|---|---|
 | 1 | **Presence and typing** | days | realtime `server-presence:<id>` | The member list has no "online", nobody sees "typing…". This is the most obvious difference from the official client in ordinary use. |
 | 2 | **Unread navigation** | hours | `get_unread_counts`, `mark_*_as_read` | "Mark all read" per channel/conversation/server, badges on servers and categories, and a jump to the first unread. The data is already there; only the buttons are missing. |
-| 3 | **Roles and permissions** | week | `server_roles`, `user_roles`, `has_permission` | The sidebar shows ADMIN/MOD and nothing else. You cannot grant a role, see why somebody can do something, or manage who may post where. |
-| 4 | **Moderation** | week+ | bans, timeouts, reports, automod | Kick, ban, timeout, report. Only matters once a guild has strangers in it, which is now one invite away. |
+| 3 | ~~Roles~~ | done | `server_roles`, `user_roles`, `get_user_permissions` | Role list, member assignment, creating a role with permission switches. **What is left** is per-channel permission overrides. |
+| 4 | **Moderation** | days | bans, timeouts, reports, automod | Kick, ban, timeout, report. Only matters once a guild has strangers in it, which is now one invite away. |
 | 5 | **Threads: list and unread** | days | `active_threads_view`, `thread_members` | Threads work, but there is no list of them and no sign that a thread has new replies. |
 | ~~6~~ | ~~Search that can be aimed~~ | done | `search_messages` | `in:`, `from:`, `has:image`, `has:link`, `before:`, `after:` map to the RPC's own arguments. |
 | ~~7~~ | ~~GIF~~ | done | `/api/federation/gifs/*` | Picker with trending and search; the key lives on the instance, the flagship has one. |
