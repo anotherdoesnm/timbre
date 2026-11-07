@@ -1,106 +1,75 @@
-# Timbre — where it stands, and what upstream has that we do not
+# Timbre — where it stands, and what is left
 
-Updated 2026-11-05, against Harmony 1.9.2. The comparison comes from upstream's own tree
-(`src/views`, `src/stores`, `src/components`, the router) rather than from its README, which is
-written for instance operators.
+Updated 2026-11-07, against Harmony 1.9.x. The comparison comes from upstream's own tree
+(`src/views`, `src/stores`, `src/components`, `src/router`) and from the instance's schema, which is
+what decides whether something is a client job or a project.
 
-The point of this file is to answer one question honestly: **if someone used the official client
-for a day and then this one, what would they miss?**
+The question this file answers: **if someone used the official client for a day and then this one,
+what would they miss?**
 
 ## What we have
 
-Sign-in (password, OAuth via PKCE, the instance's own OIDC providers), registration and profile
-creation, session import, per-instance sessions.
+**Getting in.** Password sign-in, the instance's OAuth providers including its own OIDC ones,
+registration and profile creation, session import, one session per instance.
 
-Servers, channels (with categories), message history with pagination, realtime over one socket
-for every channel, unread counters and a first-unread anchor, an unread badge in the title.
+**Places.** Servers with their icons, channels grouped by category in the instance's own order,
+guild switching on phone and desktop, public-server discovery, joining by invite link or code,
+creating a server (the instance builds its default channels), creating channels, creating invites.
 
-Message rendering: text with markdown (bold, italic, code, links), `@mentions` (as links to a
-profile card), `#channel` references, custom-emoji names, stickers, attachments with signed URLs
-and a lightbox, replies with quotes, edits and deletes, reactions with a picker, webhook authors.
+**Chat.** History with pagination, one realtime socket for everything, unread counters and a
+first-unread anchor, an unread badge in the title, drafts per channel, a reading position that comes
+back, sending with client-generated ids so a retry cannot duplicate, an offline banner.
 
-Sending: attachments with upload, drafts per channel, a retry that cannot duplicate the message
-(the id is the client's), an offline banner.
+**Message rendering.** Markdown (bold, italic, code, links), clickable `@mentions` with a profile
+card, clickable `#channels`, custom emoji as pictures (parts carry their own image), stickers,
+attachments with signed URLs and a lightbox, replies with quotes, edits, deletes, reactions,
+webhook authors, polls with voting.
 
-Notifications while the app is open: a system notification where the platform has one, a toast and
-a vibration in the shell, per-channel mute, do-not-disturb including the daily window, and the
-instance's full per-event matrix (notify and sound, five event kinds) actually deciding what
-interrupts. A notification list with the unread dot sits beside the account.
+**Conversations that are not the main channel.** Direct messages (list, create, send, attachments,
+read cursors), threads beside the channel with a "N replies" line, pinned messages.
 
-Direct conversations (list, create, send, attachments, read cursors), pinned messages, polls with
-voting, threads beside the channel, an emoji picker over all of Unicode plus the instance's own
-emoji.
+**Interruptions.** A notification list with the unread dot, a system notification where the platform
+has one, a toast and a vibration in the shell, per-channel mute, do-not-disturb with its window, and
+the instance's full per-event matrix (notify and sound, five kinds) deciding what actually
+interrupts.
 
-Account: rename, avatar upload, sign out. Member list (join order, no presence). Search across the
-instance's messages. Mobile layout, Android hardware Back, safe-area insets.
+**Composer.** Emoji over all of Unicode by name or shortcode, the instance's and your servers' custom
+emoji grouped by guild, stickers with uploads, polls.
 
-## What upstream has that we do not
+**Everything else.** Search across the instance, profile editing (name, avatar), sign-out, mobile
+layout with Android Back and safe-area insets, a build stamp in the account sheet, a release channel
+and a nightly.
 
-Grouped by what it would take, with the server support that already exists in the instance's
-schema — that is what decides whether a feature is a client job or a project.
+## What is left, in the order it hurts
 
-### Done since this list was written
+Effort is a guess for one person; "server" says whether the instance already supports it.
 
-| Feature | Where it came from |
-|---|---|
-| **Direct messages** | `conversations`, `get_user_conversations`, `create_or_get_direct_conversation`, `mark_conversation_as_read`; topic `dm-conversation-<id>` |
-| **Notifications screen** | `get_user_notifications`, `notifications` PATCH, `mark_all_notifications_read`; a bell beside the account |
-| **The preference matrix** | `notification_preferences`: desktop and sound per event type, plus the quiet hours, now actually deciding what interrupts |
-| **Pinned messages** | `pin_message` / `unpin_message` / `count_pinned_messages`, a panel in the header |
-| **Polls** | `create_message_poll`, `get_message_polls`, `vote_message_poll`; a card in the message and a dialog in the composer |
-| **Emoji picker** | `unicode-emoji-json` + `gemoji` (the pair upstream uses), plus the instance's custom emoji, for reactions and the composer |
-| **Stickers** | `stickers` bucket (public, `user/<profile>/…`), `create_sticker`, a `sticker` message part that must carry a description; a picker with upload |
-| **Threads** | `create_thread`, `messages.thread_id`, `active_threads_view`; a panel beside the channel and a "N replies" line |
+| # | Feature | Effort | Server | Why it is here |
+|---|---|---|---|---|
+| 1 | **Presence and typing** | days | realtime `server-presence:<id>` | The member list has no "online", nobody sees "typing…". This is the most obvious difference from the official client in ordinary use. |
+| 2 | **Unread navigation** | hours | `get_unread_counts`, `mark_*_as_read` | "Mark all read" per channel/conversation/server, badges on servers and categories, and a jump to the first unread. The data is already there; only the buttons are missing. |
+| 3 | **Roles and permissions** | week | `server_roles`, `user_roles`, `has_permission` | The sidebar shows ADMIN/MOD and nothing else. You cannot grant a role, see why somebody can do something, or manage who may post where. |
+| 4 | **Moderation** | week+ | bans, timeouts, reports, automod | Kick, ban, timeout, report. Only matters once a guild has strangers in it, which is now one invite away. |
+| 5 | **Threads: list and unread** | days | `active_threads_view`, `thread_members` | Threads work, but there is no list of them and no sign that a thread has new replies. |
+| 6 | **Search that can be aimed** | days | `search_messages` (`p_channel_id`, filters) | Search is global to the instance; `in:#channel`, `from:person` and a channel-scoped search are what people actually type. |
+| 7 | **GIF** | hours + keys | `/api/gifs/search` (klipy) | The client half is small; the instance has no `KLIPY_API_KEY_*`, so the route answers with the SPA. Blocked on an operator decision, not on code. |
+| 8 | **Per-category mute** | hours | `notification_channels.category_id` | Same write as channel mute with one column different. Bundles with #2. |
+| 9 | **Attachment niceties** | days | — | Paste-to-upload, drag and drop on desktop, resumable uploads, image dimensions before send, voice messages. |
+| 10 | **Keyboard, a11y, i18n** | days | — | Shortcuts (jump to unread, quick switcher), a full screen-reader pass, and translation. English only today. |
+| 11 | **Background push** | week+ | `push_subscriptions`, `unified_push_register` | A WebView has no `PushManager`. Needs a native bridge (or a port of upstream's Kotlin plugin) and a distributor app on the phone. |
+| 12 | **Voice and video** | weeks | LiveKit, `unifiedVoiceChannel` | A different kind of work: media and native code, not a Vue screen. |
+| 13 | **E2EE** | weeks | Megolm tables, `useChannelEncryption` | Deliberately a placeholder: no downgrade, and interop with upstream's session sharing is not a weekend. |
+| 14 | **Drive** | weeks | `drive_folders`, quotas | File storage with folders and sharing — a second product on the same server. |
+| 15 | **Microblog (ActivityPub)** | weeks | posts, lists, follows, hashtags | A bonus, not the core. Federated *chat* needs nothing here: it runs in the federation backend, and this client only writes rows and renders what it reads. |
 
-### Small: the tables and RPCs are there and the UI is one screen
+### Small things worth bundling with the above
 
-| Feature | Server side | Notes |
-|---|---|---|
-| **Notifications screen + bell** | `notifications` (own RLS), `get_user_notifications`, `get_unread_notification_count` | Upstream's bell widget lists mentions, replies, DMs, follows. Ours has no place to look at what happened while the app was closed. |
-| **Mark all as read** | `mark_channel_as_read` / `mark_conversation_as_read` / `mark_server_as_read`, `get_unread_counts` | One button; the counters already exist. |
-| **Per-category mute** | `notification_channels.category_id`, unique index in place | Same write as channel mute, one column different. |
+Swipe-to-reply, message forwarding, copy message link, per-server notification defaults, sound
+selection, presence in DM headers, notification grouping, deep links into a channel from a
+notification, "add to home screen" prompts, an in-app changelog.
 
-### Medium: a fair amount of UI, no new concepts
+## How work ships
 
-| Feature | Server side | Notes |
-|---|---|---|
-
-| **GIF picker** | instance endpoint (klipy) | **Blocked on the instance**: the backend has `KLIPY_API_KEY_ADS` / `NOADS` paths, but our box has no keys, so `/api/gifs/search` falls through to the SPA. The client half is small once a key exists. |
-| **Presence and typing** | realtime `server-presence:<id>` topic | The member list currently has no "online", and nobody sees "typing…". |
-| **Settings beyond the profile** | appearance, language | The notification matrix is done; themes, language and privacy are not. |
-
-### Large: weeks, not hours
-
-| Feature | Server side | Notes |
-|---|---|---|
-| **Server and channel management** | roles, permissions, invites, `join_public_server` | Create a server, create channels, roles, permissions, invites. Without it a new person cannot make a place of their own. |
-| **Moderation** | reports, bans, timeouts, automod tables | Only matters on an instance with other people on it. |
-| **Microblog (ActivityPub)** | posts, lists, hashtags, follows, notifications | A bonus, not the core: chat federation is ActivityPub too and runs entirely on the server, so nothing here is needed for federated *chat*. A second product otherwise: timelines, post cards, replies, likes, boosts, lists, trends. |
-| **Voice and video** | LiveKit, `unifiedVoiceChannel`, egress | A different kind of work: native code and media, not a Vue screen. |
-| **Drive** | `drive_folders`, quota tables | File storage with folders and sharing. |
-| **E2EE** | Megolm tables, `useChannelEncryption` | Deliberately a placeholder: no downgrade, and interop with upstream's session sharing is not a weekend job. |
-| **Background push** | `push_subscriptions`, `unified_push_register` | A WebView has no `PushManager`; this needs a native bridge (or a port of upstream's Kotlin plugin) plus a distributor app on the phone. |
-
-### Smaller things, worth bundling with something else
-
-Unread badges for servers and categories (only channels have them), swipe-to-reply, message
-forwarding, sound preferences, voice messages, keyboard shortcuts, i18n, deep links into a
-channel from a notification, resumable uploads.
-
-## What I would do next
-
-Everything the first version of this list called small or medium is now in the client: notifications,
-DMs, the preference matrix, pins, polls, emoji and threads. What is left:
-
-1. **Mark all as read**, per channel, conversation or server — three RPCs already exist.
-2. **Server and channel management.** Needed the day somebody else wants to use the instance.
-3. **GIF**, once an instance has klipy keys (a server setting, not a client one).
-4. **Microblog**, **voice**, **drive**, **moderation** — different products on the same server.
-
-Modern Android clients live or die by notifications and DMs, in that order; the microblog and voice
-are different products sharing a server.
-
-Worth saying plainly: **federated chat is not a client feature.** Sending a message to a member of
-another instance is the federation backend's job (ActivityPub delivery, signatures, WebFinger), and
-this client only ever writes a row and renders what it reads back. The gaps above are about the
-interface, not about federation.
+`main` is the trunk and CI builds it; **nightly** is a pre-release whose APK is replaced every
+night (`releases/download/nightly/app-arm64-release.apk`), and **tagged releases** (`vX.Y.Z`) are the
+announced batches, with their notes taken from `CHANGELOG.md`. A fix does not need a version.
