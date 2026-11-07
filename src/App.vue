@@ -76,7 +76,6 @@ import {
   acceptServerRules,
   type ServerWelcome,
   fetchCustomEmojis,
-  fetchServerNames,
   fetchStickers,
   uploadSticker,
   sendSticker,
@@ -961,20 +960,16 @@ async function refreshCustomEmoji(): Promise<void> {
   const s = session.value;
   if (!s) return;
   try {
-    customEmoji.value = await fetchCustomEmojis(s);
-    // Headings for guilds the person is not in: the emoji list names servers this account has no
-    // row in, and "Another server" twice is not a heading.
-    const unknown = [...new Set(customEmoji.value.map((e) => e.serverId).filter((id): id is string => !!id))]
-      .filter((id) => !liveServers.value.some((server) => server.id === id));
-    if (unknown.length) emojiServerNamesExtra.value = await fetchServerNames(s, unknown);
+    // Scoped to the guilds this account is actually in; every id in the answer is therefore a name
+    // the sidebar already knows.
+    customEmoji.value = await fetchCustomEmojis(s, liveServers.value.map((server) => server.id));
   } catch {
     /* the picker falls back to Unicode only */
   }
 }
 
-const emojiServerNamesExtra = ref<Record<string, string>>({});
 const emojiServerNames = computed<Record<string, string>>(() => {
-  const map: Record<string, string> = { ...emojiServerNamesExtra.value };
+  const map: Record<string, string> = {};
   for (const server of liveServers.value) map[server.id] = server.name;
   return map;
 });

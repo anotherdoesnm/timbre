@@ -3,6 +3,15 @@
 Notable changes to Timbre, newest first. The format follows [Keep a
 Changelog](https://keepachangelog.com/en/1.1.0/), and the project follows semantic versioning.
 
+## [0.9.7] — 2026-11-06
+
+### Changed
+
+- **Emoji packs are scoped to the guilds you are in.** 0.9.6 grouped every pack the instance hands
+  out, including servers this account has no membership in; that is somebody else's pack and it is
+  not what the official client does. The picker keeps the headings — Standard unicode, then each
+  guild by name — but only for the instance's own emoji and the servers you belong to.
+
 ## [0.9.6] — 2026-11-06
 
 ### Fixed

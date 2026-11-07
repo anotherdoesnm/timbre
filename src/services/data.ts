@@ -785,20 +785,23 @@ export async function redeemInvite(session: Session, code: string): Promise<stri
 }
 
 /**
- * Every custom emoji the instance exposes, each tagged with the server it belongs to.
+ * Custom emoji this person may use: the instance's own, plus those of the servers they are in.
  *
- * `emojis_select_all` is `USING (true)`: the whole table is readable by any client, which is also
- * why the official client shows other guilds' emoji. The picker groups them by guild rather than
- * hiding them — a name that reads `thinking` in three packs needs its heading.
+ * `emojis_select_all` is `USING (true)`, so the table hands out every server's pack and the scoping
+ * has to happen here. Showing another guild's emoji in this one is not a feature — it is somebody
+ * else's pack, and it is also the thing that made this client look different from the official one.
  */
-export async function fetchCustomEmojis(session: Session): Promise<CustomEmoji[]> {
-  // Every emoji the instance hands out, tagged with its server so the picker can group them by
-  // guild. `emojis_select_all` is `USING (true)` — there is no per-server filter to apply, and the
-  // headings are what make the list readable.
+export async function fetchCustomEmojis(
+  session: Session,
+  serverIds: string[] = []
+): Promise<CustomEmoji[]> {
+  const scope = serverIds.length
+    ? `or=(server_id.is.null,server_id.in.(${serverIds.map(encodeURIComponent).join(',')}))&`
+    : 'server_id=is.null&';
   const rows = await rest<Record<string, unknown>[]>(
     session,
     'emojis',
-    'select=id,name,url,scope,server_id&order=name.asc&limit=800'
+    `${scope}select=id,name,url,scope,server_id&order=name.asc&limit=800`
   ).catch(() => [] as Record<string, unknown>[]);
   const out: CustomEmoji[] = [];
   for (const row of rows) {
@@ -811,23 +814,6 @@ export async function fetchCustomEmojis(session: Session): Promise<CustomEmoji[]
       serverId: typeof row.server_id === 'string' ? row.server_id : undefined,
     });
   }
-  return out;
-}
-
-/** Names for a set of servers, including ones this person is not a member of. */
-export async function fetchServerNames(
-  session: Session,
-  serverIds: string[]
-): Promise<Record<string, string>> {
-  const ids = [...new Set(serverIds.filter(Boolean))];
-  if (!ids.length) return {};
-  const rows = await rest<Row[]>(
-    session,
-    'servers',
-    `id=in.(${ids.map(encodeURIComponent).join(',')})&select=id,name`
-  ).catch(() => [] as Row[]);
-  const out: Record<string, string> = {};
-  for (const row of rows) out[String(row.id)] = String(row.name ?? 'Server');
   return out;
 }
 
