@@ -32,6 +32,7 @@ const emit = defineEmits<{
   (e: 'create-poll'): void;
   (e: 'stickers'): void;
   (e: 'typing'): void;
+  (e: 'gifs'): void;
   (e: 'cancel-edit'): void;
 }>();
 const text = ref(loadDraft(props.draftInstance, props.draftChannel));
@@ -143,6 +144,9 @@ function send() {
             <Icon name="clip" :size="18" />
           </button>
           <input ref="fileInput" type="file" hidden @change="pickFile" />
+          <button :disabled="disabled" title="GIFs" @click="emit('gifs')">
+            <Icon name="gif" :size="18" />
+          </button>
           <button :disabled="disabled" title="Stickers" @click="emit('stickers')">
             <Icon name="sticker" :size="18" />
           </button>

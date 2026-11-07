@@ -7,6 +7,16 @@ Changelog](https://keepachangelog.com/en/1.1.0/), and the project follows semant
 
 ### Added
 
+- **GIFs**, through the instance's own klipy proxy (`/api/federation/gifs/…`, authenticated with the
+  user's token — the key never reaches a client). The composer's GIF button opens trending, typing
+  searches, and picking one sends a `url` part pointing at the file, which this client renders as the
+  picture and other clients inline too. An instance without the key says so instead of failing
+  quietly. Verified against the flagship: trending and search return items, and the url part inserts
+  with 201.
+
+
+### Added
+
 - **Per-server notification defaults**, in the create/manage sheet's new "Alerts" tab: everything,
   mentions only, or nothing, plus a mute for the whole server. They live in `notification_channels`
   as a row with `server_id` and no `channel_id` — the same table channel mutes use — and a channel's

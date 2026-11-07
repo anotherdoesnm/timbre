@@ -81,6 +81,12 @@ export function renderContentParts(content: unknown): RenderedContent {
       continue;
     }
     if (type === 'url' && typeof o.url === 'string' && o.url) {
+      // A GIF (or any picture that arrives as a url part) shows as the picture: the whole point of
+      // sending one is that the room sees it, not a link to it.
+      if (/\.(gif|webp|png|jpe?g)(\?|#|$)/i.test(o.url)) {
+        images.push(o.url);
+        continue;
+      }
       texts.push(o.url);
       continue;
     }
@@ -484,7 +490,9 @@ export async function sendMessage(
    */
   id?: string,
   /** Custom emoji this person may use, so `:name:` becomes a picture part. */
-  emoji: { id?: string; name: string; url: string }[] = []
+  emoji: { id?: string; name: string; url: string }[] = [],
+  /** Parts that are not text: a GIF is a `url` part and nothing else. */
+  extra: unknown[] = []
 ): Promise<void> {
   // A year rather than the hour used for display: this URL is written into the message, where
   // other clients read it as-is and never re-sign. Harmony's own messages carry long-lived links
@@ -511,6 +519,7 @@ export async function sendMessage(
       // there as a bare file chip titled with the object's UUID.
       content: [
         ...composeContent(content, emoji ?? []),
+        ...extra,
         ...files.map((f) => ({
           type: 'file',
           path: f.path,

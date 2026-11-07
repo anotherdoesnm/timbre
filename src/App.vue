@@ -20,11 +20,13 @@ import StickerPicker from './components/StickerPicker.vue';
 import ThreadsSheet from './components/ThreadsSheet.vue';
 import ForwardSheet from './components/ForwardSheet.vue';
 import QuickSwitcher from './components/QuickSwitcher.vue';
+import GifPicker from './components/GifPicker.vue';
 import WhatsNew from './components/WhatsNew.vue';
 import JoinSheet from './components/JoinSheet.vue';
 import DiscoverSheet from './components/DiscoverSheet.vue';
 import { rpc } from './services/api';
 import { playSound, soundPreference } from './services/notify';
+import { fetchGifs, type Gif } from './services/gifs';
 import { heartbeat, fetchPresence, goOffline, statusLabel, STATUS_AWAY, STATUS_BUSY } from './services/presence';
 import type { PresenceUpdate, TypingUser } from './services/realtime';
 import ServerAdminSheet from './components/ServerAdminSheet.vue';
@@ -217,6 +219,11 @@ const createOpen = ref(false);
 const threadsOpen = ref(false);
 const forwardTarget = ref<Message | null>(null);
 const switcherOpen = ref(false);
+const gifsOpen = ref(false);
+const gifs = ref<Gif[]>([]);
+const gifsLoading = ref(false);
+const gifsError = ref('');
+const gifsUnavailable = ref(false);
 const appVersion = __APP_VERSION__;
 const whatsNewOpen = ref(false);
 const threadList = ref<ThreadSummary[]>([]);
@@ -1476,6 +1483,57 @@ async function loadDirectPresence(): Promise<void> {
   directPresence.value = next;
 }
 
+/** Search or trending, depending on whether the box has anything in it. */
+async function loadGifs(query = ''): Promise<void> {
+  const s = session.value;
+  if (!s) return;
+  gifsLoading.value = true;
+  gifsError.value = '';
+  try {
+    const feed = await fetchGifs(s, { query, limit: 24 });
+    gifs.value = feed.gifs;
+    gifsUnavailable.value = feed.unavailable === true;
+  } catch (e) {
+    gifsError.value = e instanceof Error ? e.message : String(e);
+  } finally {
+    gifsLoading.value = false;
+  }
+}
+
+function openGifs(): void {
+  gifsOpen.value = true;
+  gifs.value = [];
+  void loadGifs('');
+}
+
+/** A GIF goes as a url part pointing at the file: every client inlines that, and so do we. */
+async function onGif(gif: Gif): Promise<void> {
+  const s = session.value;
+  const ch = channel.value;
+  gifsOpen.value = false;
+  if (!s || !ch || !myProfileId.value) return;
+  try {
+    const target = isDirect(ch.id) ? { conversationId: ch.id } : { channelId: ch.id };
+    await sendMessage(
+      s,
+      target.channelId ?? '',
+      myProfileId.value,
+      '',
+      null,
+      [],
+      globalThis.crypto?.randomUUID?.(),
+      customEmoji.value,
+      [{ type: 'url', url: gif.media, preview: true }]
+    );
+    const page = isDirect(ch.id)
+      ? await fetchConversationMessages(s, ch.id)
+      : await fetchMessages(s, ch.id);
+    liveMessages.value[ch.id] = page.messages;
+  } catch (e) {
+    showError(e instanceof Error ? e.message : String(e));
+  }
+}
+
 /** A link to one message, in this client's own query form. */
 function messageLink(m: Message): string {
   const s = session.value;
@@ -2125,6 +2183,7 @@ watch([activeServer, activeChannel], () => {
         @create-poll="pollOpen = true"
         @stickers="openStickers"
         @typing="onTyping"
+        @gifs="openGifs"
         :custom-emoji="customEmoji"
       :server-names="emojiServerNames"
         :draft-instance="session?.instance"
@@ -2208,6 +2267,16 @@ watch([activeServer, activeChannel], () => {
       :error="rulesError"
       @accept="onAcceptRules"
       @close="rulesSheet = null"
+    />
+    <GifPicker
+      v-if="gifsOpen"
+      :gifs="gifs"
+      :loading="gifsLoading"
+      :error="gifsError"
+      :unavailable="gifsUnavailable"
+      @search="loadGifs"
+      @pick="onGif"
+      @close="gifsOpen = false"
     />
     <QuickSwitcher
       v-if="switcherOpen"
