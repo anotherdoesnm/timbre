@@ -3,7 +3,7 @@ import { computed, nextTick, ref, watch } from 'vue';
 import Icon from './Icon.vue';
 import EmojiPicker from './EmojiPicker.vue';
 import PollCard from './PollCard.vue';
-import type { CustomEmoji } from '../services/emoji';
+import { resolveEmoji, type CustomEmoji } from '../services/emoji';
 import type { Channel, Message } from '../data/mock';
 import { parseSegments, safeHref, type Segment } from '../services/markdown';
 
@@ -93,9 +93,8 @@ const customEmoji = computed(() => props.customEmoji ?? []);
  * instance's own list knows its picture when the aggregate did not carry one.
  */
 function customEmojiUrl(emoji: string): string | undefined {
-  const name = emoji.replace(/^:|:$/g, '');
-  if (!name || /\p{Extended_Pictographic}/u.test(name)) return undefined;
-  return customEmoji.value.find((e) => e.name === name)?.url;
+  if (/\p{Extended_Pictographic}/u.test(emoji)) return undefined;
+  return resolveEmoji(emoji, customEmoji.value).url;
 }
 const pickerFor = ref<string | null>(null);
 const menuFor = ref<string | null>(null);
@@ -330,7 +329,7 @@ watch(
                 class="reaction-image"
                 :src="r.url ?? customEmojiUrl(r.emoji)!"
                 :alt="r.emoji"
-                :title="`:${r.emoji.replace(/:/g, '')}:`"
+                :title="`:${resolveEmoji(r.emoji, customEmoji).label}:`"
                 loading="lazy"
                 referrerpolicy="no-referrer"
               />

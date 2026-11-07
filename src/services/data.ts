@@ -785,23 +785,20 @@ export async function redeemInvite(session: Session, code: string): Promise<stri
 }
 
 /**
- * Custom emoji this person may use: the instance's own, plus those of the servers they are in.
+ * Every custom emoji the instance exposes, each tagged with the server it belongs to.
  *
- * `emojis_select_all` is `USING (true)` — every row is readable — so the scoping has to happen
- * here. Showing every server's emoji is both wrong and a small leak: other guilds' pictures appear
- * in this one, which the official client does not do.
+ * `emojis_select_all` is `USING (true)`: the whole table is readable by any client, which is also
+ * why the official client shows other guilds' emoji. The picker groups them by guild rather than
+ * hiding them — a name that reads `thinking` in three packs needs its heading.
  */
-export async function fetchCustomEmojis(
-  session: Session,
-  serverIds: string[] = []
-): Promise<CustomEmoji[]> {
-  const scope = serverIds.length
-    ? `or=(server_id.is.null,server_id.in.(${serverIds.map(encodeURIComponent).join(',')}))&`
-    : 'server_id=is.null&';
+export async function fetchCustomEmojis(session: Session): Promise<CustomEmoji[]> {
+  // Every emoji the instance hands out, tagged with its server so the picker can group them by
+  // guild. `emojis_select_all` is `USING (true)` — there is no per-server filter to apply, and the
+  // headings are what make the list readable.
   const rows = await rest<Record<string, unknown>[]>(
     session,
     'emojis',
-    `${scope}select=id,name,url,scope,server_id&order=name.asc&limit=500`
+    'select=id,name,url,scope,server_id&order=name.asc&limit=800'
   ).catch(() => [] as Record<string, unknown>[]);
   const out: CustomEmoji[] = [];
   for (const row of rows) {
@@ -814,6 +811,23 @@ export async function fetchCustomEmojis(
       serverId: typeof row.server_id === 'string' ? row.server_id : undefined,
     });
   }
+  return out;
+}
+
+/** Names for a set of servers, including ones this person is not a member of. */
+export async function fetchServerNames(
+  session: Session,
+  serverIds: string[]
+): Promise<Record<string, string>> {
+  const ids = [...new Set(serverIds.filter(Boolean))];
+  if (!ids.length) return {};
+  const rows = await rest<Row[]>(
+    session,
+    'servers',
+    `id=in.(${ids.map(encodeURIComponent).join(',')})&select=id,name`
+  ).catch(() => [] as Row[]);
+  const out: Record<string, string> = {};
+  for (const row of rows) out[String(row.id)] = String(row.name ?? 'Server');
   return out;
 }
 
@@ -1315,10 +1329,15 @@ export async function fetchReactions(
     // RPC hands both over — without the URL the chip could only print `toothy` as text.
     const emoji = row.custom_emoji_content || row.emoji_name || '';
     if (!emoji || !row.message_id) continue;
-    const url = typeof row.emoji_url === 'string' && row.emoji_url ? row.emoji_url : undefined;
+    const rawUrl = typeof row.emoji_url === 'string' && row.emoji_url ? row.emoji_url : undefined;
+    const url = rawUrl
+      ? /^https?:\/\//i.test(rawUrl)
+        ? rawUrl
+        : `https://${session.instance}${rawUrl.startsWith('/') ? '' : '/'}${rawUrl}`
+      : undefined;
     (out[row.message_id] ??= []).push({
       emoji,
-      ...(url ? { url: /^https?:\/\//i.test(url) ? url : `https://${session.instance}${url.startsWith('/') ? '' : '/'}${url}` } : {}),
+      ...(url ? { url } : {}),
       count: Number(row.reaction_count ?? 0),
       mine: row.current_user_reacted === true,
     });

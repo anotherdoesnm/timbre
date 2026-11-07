@@ -3,6 +3,22 @@
 Notable changes to Timbre, newest first. The format follows [Keep a
 Changelog](https://keepachangelog.com/en/1.1.0/), and the project follows semantic versioning.
 
+## [0.9.6] — 2026-11-06
+
+### Fixed
+
+- **Custom emoji reactions that still showed text.** Three shapes reach a chip: a plain name, the
+  bridge's `discord:name:id`, and a unicode character. Only the first was matched against the emoji
+  list, so a bridged emoji — which has a name in the list *and* an id in the identifier — fell
+  through to text. One resolver now handles all three and is shared by chips and inline shortcodes.
+
+### Changed
+
+- **The emoji picker groups by guild.** Standard unicode emoji have their own heading, and every
+  guild's pack follows under the guild's name — including packs of servers this account has no row
+  in, which is where most of the emoji in a bridged instance live. Two emoji called `thinking` from
+  two guilds are finally distinguishable.
+
 ## [0.9.5] — 2026-11-06
 
 Custom emoji now travel as emoji, not as their names.

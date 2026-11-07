@@ -41,6 +41,11 @@ const results = computed(() => searchEmoji(entries.value, query.value, 72));
  * is in. A single "This instance" heading was a lie — most of those pictures belong to guilds, and
  * the list used to include emoji from servers the person was not even in.
  */
+/**
+ * Custom emoji grouped by where they come from — the instance's own first, then each guild by name.
+ * The guilds are shown whether or not the person is a member: their names are what tells two
+ * `thinking` emoji apart, and the instance hands every client the whole list anyway.
+ */
 const customGroups = computed(() => {
   const q = query.value.trim().toLowerCase();
   const list = (props.custom ?? []).filter((c) => !q || c.name.toLowerCase().includes(q));
@@ -49,16 +54,18 @@ const customGroups = computed(() => {
     const key = emoji.serverId ?? '';
     if (!groups.has(key)) {
       groups.set(key, {
-        title: key ? props.serverNames?.[key] ?? 'Server' : 'This instance',
+        title: key ? props.serverNames?.[key] ?? 'Another server' : 'Instance',
         items: [],
       });
     }
     groups.get(key)!.items.push(emoji);
   }
-  // The instance first, servers after it in the order they arrived.
-  return [...groups.entries()]
-    .sort(([a], [b]) => (a === '' ? -1 : b === '' ? 1 : 0))
-    .map(([, group]) => ({ ...group, items: group.items.slice(0, 60) }));
+  const ordered = [...groups.entries()].sort(([a, ga], [b, gb]) => {
+    if (a === '') return -1;
+    if (b === '') return 1;
+    return ga.title.localeCompare(gb.title);
+  });
+  return ordered.map(([, group]) => ({ ...group, items: group.items.slice(0, 80) }));
 });
 </script>
 
@@ -95,7 +102,9 @@ const customGroups = computed(() => {
       </section>
 
       <p v-if="loading" class="hint">Loading…</p>
-      <div v-else class="grid">
+      <template v-else>
+        <div class="title">Standard</div>
+        <div class="grid">
         <button
           v-for="e in results"
           :key="e.char"
@@ -103,9 +112,10 @@ const customGroups = computed(() => {
           :title="e.shortcodes.length ? `:${e.shortcodes[0]}:` : e.name"
           @click="emit('pick', { char: e.char })"
         >
-          {{ e.char }}
-        </button>
-      </div>
+            {{ e.char }}
+          </button>
+        </div>
+      </template>
     </div>
   </div>
 </template>

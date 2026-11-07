@@ -69,3 +69,33 @@ export function searchEmoji(entries: EmojiEntry[], query: string, limit = 60): E
   }
   return [...exact, ...loose].slice(0, limit);
 }
+
+/**
+ * What to draw for an emoji named by a reaction or a message part.
+ *
+ * Three shapes arrive in practice: a plain name (`fire`, `6303_monkaSTEER`), the Discord
+ * identifier the bridge writes (`discord:monkaSTEER:1101145607604801586`), and a unicode
+ * character. Only the middle one carries its own image; the rest need the instance's emoji list,
+ * which is why a chip that "shows text" is usually a lookup that missed.
+ */
+export function resolveEmoji(
+  raw: string,
+  list: CustomEmoji[],
+  url?: string
+): { label: string; url?: string } {
+  if (url) return { label: raw, url };
+  const discord = /^discord:([^:]*):(\d+)$/.exec(raw);
+  if (discord) {
+    return {
+      label: discord[1] || raw,
+      url: `https://cdn.discordapp.com/emojis/${discord[2]}.png`,
+    };
+  }
+  const name = raw.replace(/^:|:$/g, '');
+  if (!name) return { label: raw };
+  const hit =
+    list.find((e) => e.name === name) ??
+    list.find((e) => e.name.toLowerCase() === name.toLowerCase()) ??
+    list.find((e) => e.id === name);
+  return hit ? { label: hit.name, url: hit.url } : { label: name };
+}
