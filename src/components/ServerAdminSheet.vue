@@ -18,13 +18,21 @@ const props = defineProps<{
   instanceUrl: string;
   busy?: boolean;
   error?: string;
+  /** The server's current defaults, if it has any. */
+  notify?: { muted: boolean; level: string };
   onJoinServer?: (name: string, isPublic: boolean) => Promise<void>;
   onJoinChannel?: (name: string, type: 0 | 1) => Promise<void>;
   onCreateInvite?: () => Promise<string>;
+  onNotify?: (patch: { muted?: boolean; level?: string }) => Promise<void>;
 }>();
 const emit = defineEmits<{ (e: 'close'): void }>();
 
-const tab = ref<'server' | 'channel' | 'invite'>('server');
+const tab = ref<'server' | 'channel' | 'invite' | 'alerts'>('server');
+const LEVELS: { value: string; label: string; hint: string }[] = [
+  { value: 'all', label: 'Everything', hint: 'every message' },
+  { value: 'mentions', label: 'Mentions', hint: 'only @you and replies' },
+  { value: 'none', label: 'Nothing', hint: 'no notifications from this server' },
+];
 const serverName = ref('');
 const serverPublic = ref(false);
 const channelName = ref('');
@@ -106,6 +114,7 @@ async function copy(): Promise<void> {
         <button :class="{ on: tab === 'server' }" @click="tab = 'server'">Server</button>
         <button :class="{ on: tab === 'channel' }" @click="tab = 'channel'">Channel</button>
         <button :class="{ on: tab === 'invite' }" @click="tab = 'invite'">Invite</button>
+        <button :class="{ on: tab === 'alerts' }" @click="tab = 'alerts'">Alerts</button>
       </nav>
 
       <p v-if="localError || error" class="error">{{ localError || error }}</p>
@@ -146,6 +155,25 @@ async function copy(): Promise<void> {
           Only a server's owner may add channels — that is the instance's rule, not this sheet's.
           {{ textChannels.length }} text {{ textChannels.length === 1 ? 'channel' : 'channels' }} here.
         </p>
+      </template>
+
+      <template v-else-if="tab === 'alerts'">
+        <p class="lead">How <strong>{{ activeServer?.name ?? 'this server' }}</strong> may interrupt.</p>
+        <button
+          v-for="level in LEVELS"
+          :key="level.value"
+          class="level"
+          :class="{ on: (props.notify?.level ?? 'mentions') === level.value }"
+          @click="props.onNotify?.({ level: level.value })"
+        >
+          <span class="level-label">{{ level.label }}</span>
+          <span class="level-hint">{{ level.hint }}</span>
+        </button>
+        <button class="toggle" :aria-pressed="props.notify?.muted ? 'true' : 'false'" @click="props.onNotify?.({ muted: !props.notify?.muted })">
+          <Icon :name="props.notify?.muted ? 'bell-off' : 'bell'" :size="14" />
+          <span>{{ props.notify?.muted ? 'Muted — the badges still move' : 'Mute this server' }}</span>
+        </button>
+        <p class="fine">A per-channel mute always wins over this.</p>
       </template>
 
       <template v-else>
@@ -203,6 +231,20 @@ header {
   color: var(--text-secondary);
   font-size: var(--fs-sm);
 }
+.level {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-bottom: var(--sp-200);
+  padding: var(--sp-300);
+  border-radius: var(--radius-lg);
+  background: var(--sf-base);
+  text-align: left;
+}
+.level.on { outline: 1px solid var(--primary-main); background: var(--primary-container); }
+.level-label { color: var(--text); font-weight: 600; }
+.level-hint { color: var(--text-tertiary); font-size: var(--fs-xs); }
 .tabs button.on { background: var(--primary-container); color: var(--primary-on-container); font-weight: 600; }
 .lead { margin: 0 0 var(--sp-300); color: var(--text-secondary); font-size: var(--fs-sm); }
 .field { display: flex; flex-direction: column; gap: var(--sp-100); margin-bottom: var(--sp-300); }

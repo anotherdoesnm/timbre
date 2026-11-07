@@ -24,6 +24,7 @@ import WhatsNew from './components/WhatsNew.vue';
 import JoinSheet from './components/JoinSheet.vue';
 import DiscoverSheet from './components/DiscoverSheet.vue';
 import { rpc } from './services/api';
+import { playSound, soundPreference } from './services/notify';
 import { heartbeat, fetchPresence, goOffline, statusLabel, STATUS_AWAY, STATUS_BUSY } from './services/presence';
 import type { PresenceUpdate, TypingUser } from './services/realtime';
 import ServerAdminSheet from './components/ServerAdminSheet.vue';
@@ -94,6 +95,9 @@ import {
   createServer,
   createChannel,
   createInvite,
+  fetchServerNotification,
+  setServerNotification,
+  type ServerNotification,
   fetchStickers,
   uploadSticker,
   sendSticker,
@@ -220,6 +224,8 @@ const threadsLoading = ref(false);
 const threadsError = ref('');
 // Presence: who is online in the open server, and who is typing in the open room.
 const presence = ref<Record<string, { online: boolean; status: number; label: string }>>({});
+/** Per-server notification defaults, keyed by server id; the channel rows still win over them. */
+const serverNotify = ref<Record<string, ServerNotification>>({});
 /** Presence of the people in the DM list, keyed by profile id. */
 const directPresence = ref<Record<string, { online: boolean; status: number; label: string }>>({});
 const typingUsers = ref<TypingUser[]>([]);
@@ -771,6 +777,7 @@ async function boot() {
       prefs.value = await fetchNotificationPrefs(s, String(profile?.id ?? ''));
       void loadNotifications({ silent: true });
       void refreshCustomEmoji();
+      void loadServerNotify(list[0].id);
     void loadConversations();
       const chans = await fetchChannels(s, list[0].id);
       liveChannels.value[list[0].id] = chans;
@@ -966,16 +973,33 @@ function onLiveEvent(channelId: string, event: MessageEvent): void {
   // closes at 08:00 takes effect without a reload.
   const quiet = prefs.value?.dndEnabled === true && inQuietHours(prefs.value.dndStart, prefs.value.dndEnd);
   if (mutedChannels.value[channelId] || quiet) return;
+
+  // A server can be quiet on its own: `none` silences it, `mentions` lets only direct calls through.
+  // A channel row still overrides both, which is why it is checked first.
+  const serverDefault = where ? serverNotify.value[where.serverId] : undefined;
+  if (serverDefault?.muted || serverDefault?.level === 'none') return;
+
   const named = mentions(
     record.content,
     mentionNames(me.value.username, me.value.name),
     record.metadata
   );
+  if (serverDefault?.level === 'mentions' && !named) return;
+
+  // The account's own matrix, per event kind: a mention and an ordinary message are different
+  // events, and the instance stores a switch for each.
+  const prefsNow = prefs.value;
+  const allowed = named ? prefsNow?.desktop.mentions !== false : prefsNow?.desktop.messages !== false;
+  if (!allowed) return;
+
   const body = `${preview(record.content)}${where ? ` · #${where.name}` : ''}`;
   showNotification(named ? 'You were mentioned' : 'Timbre', body, () => jumpToChannel(channelId));
-  if (named) {
+  if (named) showToast(`Mentioned in #${where?.name ?? 'a channel'}: ${preview(record.content)}`, channelId);
+
+  const soundAllowed = named ? prefsNow?.sound.mentions !== false : prefsNow?.sound.messages !== false;
+  if (soundAllowed) {
     buzz();
-    showToast(`Mentioned in #${where?.name ?? 'a channel'}: ${preview(record.content)}`, channelId);
+    playSound(soundPreference());
   }
 }
 
@@ -1293,6 +1317,32 @@ function watchTyping(): void {
     ? { kind: 'conversation' as const, id: ch.id, myId: myProfileId.value }
     : { kind: 'channel' as const, id: ch.id, myId: myProfileId.value };
   typingSubscription = conn.subscribeTyping(context, (users) => (typingUsers.value = users));
+}
+
+async function loadServerNotify(serverId: string): Promise<void> {
+  const s = session.value;
+  const me = myProfileId.value;
+  if (!s || !me || !serverId) return;
+  const row = await fetchServerNotification(s, me, serverId);
+  serverNotify.value = { ...serverNotify.value, [serverId]: row ?? { muted: false, level: 'mentions' } };
+}
+
+async function setServerNotify(patch: { muted?: boolean; level?: string }): Promise<void> {
+  const s = session.value;
+  const me = myProfileId.value;
+  const serverId = activeServer.value;
+  if (!s || !me || !serverId) return;
+  const before = serverNotify.value[serverId] ?? { muted: false, level: 'mentions' };
+  serverNotify.value = {
+    ...serverNotify.value,
+    [serverId]: { muted: patch.muted ?? before.muted, level: patch.level ?? before.level },
+  };
+  try {
+    await setServerNotification(s, me, serverId, patch);
+  } catch (e) {
+    serverNotify.value = { ...serverNotify.value, [serverId]: before };
+    showError(e instanceof Error ? e.message : String(e));
+  }
 }
 
 /** "I have seen this server": one call, then the badges for it are cleared locally too. */
@@ -2194,6 +2244,8 @@ watch([activeServer, activeChannel], () => {
       :on-join-server="onCreateServer"
       :on-join-channel="onCreateChannel"
       :on-create-invite="onCreateInvite"
+      :notify="serverNotify[activeServer]"
+      :on-notify="setServerNotify"
       @close="createOpen = false"
     />
     <DiscoverSheet

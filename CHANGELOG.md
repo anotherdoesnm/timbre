@@ -7,6 +7,17 @@ Changelog](https://keepachangelog.com/en/1.1.0/), and the project follows semant
 
 ### Added
 
+- **Per-server notification defaults**, in the create/manage sheet's new "Alerts" tab: everything,
+  mentions only, or nothing, plus a mute for the whole server. They live in `notification_channels`
+  as a row with `server_id` and no `channel_id` — the same table channel mutes use — and a channel's
+  own row still wins. The decision path reads them before the account matrix.
+- **Sound selection** — silent, soft, ping or chime — chosen in notification settings and synthesised
+  with three oscillator envelopes rather than shipped as audio files. The choice is a local
+  preference (`timbre.sound`), because the instance has no table for it.
+
+
+### Added
+
 - **Swipe to reply** — dragging a message to the right arms a reply to it, the way every phone chat
   does it; a vertical drag is still a scroll.
 - **Forward and copy link** in the message menu, for every message and not only your own. A copied

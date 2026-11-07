@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { ref } from 'vue';
 import Icon from './Icon.vue';
 import type { NotificationPrefs } from '../services/data';
 
@@ -9,11 +10,26 @@ import type { NotificationPrefs } from '../services/data';
  * plus the quiet hours — and this screen is where they are actually visible. Before it, the client
  * only ever touched do-not-disturb and two push flags.
  */
+import { soundPreference, setSoundPreference, playSound, type SoundName } from '../services/notify';
+
 const props = defineProps<{ prefs: NotificationPrefs | null; saving?: boolean; error?: string }>();
 const emit = defineEmits<{
   (e: 'close'): void;
   (e: 'change', field: string, value: boolean): void;
 }>();
+
+const SOUNDS: { name: SoundName; label: string }[] = [
+  { name: 'none', label: 'Silent' },
+  { name: 'soft', label: 'Soft' },
+  { name: 'ping', label: 'Ping' },
+  { name: 'chime', label: 'Chime' },
+];
+const soundChoice = ref<SoundName>(soundPreference());
+function chooseSound(name: SoundName): void {
+  soundChoice.value = name;
+  setSoundPreference(name);
+  playSound(name);
+}
 
 const EVENTS: { key: 'mentions' | 'replies' | 'dms' | 'reactions' | 'messages'; label: string; hint: string }[] = [
   { key: 'mentions', label: 'Mentions', hint: 'somebody writes @you' },
@@ -70,6 +86,26 @@ function sound(key: string): boolean {
             @click="emit('change', `sound_${event.key === 'messages' ? 'chat_messages' : event.key}`, !sound(event.key))"
           >
             <span class="knob" />
+          </button>
+        </div>
+
+        <div class="row quiet">
+          <span class="text">
+            <span class="name">Sound</span>
+            <span class="hint">what a notification sounds like here</span>
+          </span>
+          <span />
+          <span />
+        </div>
+        <div class="sounds">
+          <button
+            v-for="option in SOUNDS"
+            :key="option.name"
+            class="sound"
+            :class="{ on: soundChoice === option.name }"
+            @click="chooseSound(option.name)"
+          >
+            {{ option.label }}
           </button>
         </div>
 
@@ -136,6 +172,16 @@ header {
 .row { padding: var(--sp-300) 0; border-top: 1px solid var(--sf-line); }
 .text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .name { color: var(--text); }
+.sounds { display: flex; gap: var(--sp-200); padding: var(--sp-200) 0 var(--sp-300); border-top: 1px solid var(--sf-line); }
+.sound {
+  flex: 1;
+  padding: var(--sp-200);
+  border-radius: var(--radius-md);
+  background: var(--sf-base);
+  color: var(--text-secondary);
+  font-size: var(--fs-sm);
+}
+.sound.on { background: var(--primary-container); color: var(--primary-on-container); font-weight: 600; }
 .quiet .text { padding-right: var(--sp-200); }
 .switch {
   width: 42px;

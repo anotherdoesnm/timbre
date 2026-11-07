@@ -178,3 +178,67 @@ export function describeDevice(userAgent: string | null | undefined): string {
   if (browser && os) return `${browser} on ${os}`;
   return browser || os;
 }
+
+/**
+ * Notification sounds, chosen by the person and synthesised rather than shipped as files.
+ *
+ * A bundled mp3 per sound is a few hundred kilobytes and a licensing question; three short
+ * oscillator envelopes are neither, and a chat client only needs "somebody said something".
+ */
+export type SoundName = 'none' | 'soft' | 'ping' | 'chime';
+
+const SOUND_KEY = 'timbre.sound';
+
+export function soundPreference(): SoundName {
+  try {
+    const stored = localStorage.getItem(SOUND_KEY);
+    if (stored === 'none' || stored === 'soft' || stored === 'ping' || stored === 'chime') return stored;
+  } catch {
+    /* storage disabled */
+  }
+  return 'ping';
+}
+
+export function setSoundPreference(name: SoundName): void {
+  try {
+    localStorage.setItem(SOUND_KEY, name);
+  } catch {
+    /* nothing to remember */
+  }
+}
+
+/** Plays the chosen sound; silent when the person picked none or the platform has no audio. */
+export function playSound(name: SoundName = soundPreference()): void {
+  if (name === 'none' || typeof window === 'undefined') return;
+  const Ctx = window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+  if (!Ctx) return;
+  try {
+    const ctx = new Ctx();
+    const now = ctx.currentTime;
+    const gain = ctx.createGain();
+    gain.connect(ctx.destination);
+    const tone = (freq: number, start: number, length: number, volume: number): void => {
+      const osc = ctx.createOscillator();
+      osc.type = name === 'soft' ? 'sine' : 'triangle';
+      osc.frequency.value = freq;
+      osc.connect(gain);
+      osc.start(now + start);
+      osc.stop(now + start + length);
+      gain.gain.setValueAtTime(0, now + start);
+      gain.gain.linearRampToValueAtTime(volume, now + start + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + start + length);
+    };
+    if (name === 'soft') {
+      tone(320, 0, 0.28, 0.05);
+    } else if (name === 'ping') {
+      tone(880, 0, 0.16, 0.08);
+    } else {
+      // chime: a rising two-note figure, which reads as "message" rather than "alarm"
+      tone(660, 0, 0.18, 0.07);
+      tone(990, 0.12, 0.26, 0.06);
+    }
+    setTimeout(() => void ctx.close().catch(() => undefined), 900);
+  } catch {
+    /* audio is a nicety */
+  }
+}

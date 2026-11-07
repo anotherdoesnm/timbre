@@ -943,6 +943,82 @@ export async function createInvite(
   return code;
 }
 
+/** Per-server notification defaults: the row the instance keeps for "this whole server". */
+export interface ServerNotification {
+  muted: boolean;
+  /** `all`, `mentions` or `none` — the same vocabulary channel overrides use. */
+  level: string;
+}
+
+export async function fetchServerNotification(
+  session: Session,
+  profileId: string,
+  serverId: string
+): Promise<ServerNotification | null> {
+  const rows = await rest<Row[]>(
+    session,
+    'notification_channels',
+    `user_id=eq.${encodeURIComponent(profileId)}&server_id=eq.${encodeURIComponent(serverId)}` +
+      '&channel_id=is.null&conversation_id=is.null&select=muted,notification_level&limit=1'
+  ).catch(() => [] as Row[]);
+  const row = rows[0];
+  if (!row) return null;
+  return {
+    muted: row.muted === true,
+    level: typeof row.notification_level === 'string' ? row.notification_level : 'mentions',
+  };
+}
+
+/**
+ * Writes a server's defaults. The unique indexes are partial — one per channel, one per
+ * conversation — so there is no conflict target for a server row: update the existing one, insert
+ * when there is none.
+ */
+export async function setServerNotification(
+  session: Session,
+  profileId: string,
+  serverId: string,
+  patch: { muted?: boolean; level?: string }
+): Promise<void> {
+  const body = {
+    ...(patch.muted === undefined ? {} : { muted: patch.muted }),
+    ...(patch.level === undefined ? {} : { notification_level: patch.level }),
+  };
+  const filter =
+    `user_id=eq.${encodeURIComponent(profileId)}&server_id=eq.${encodeURIComponent(serverId)}` +
+    '&channel_id=is.null&conversation_id=is.null';
+  const res = await fetch(`${session.supabaseUrl}/rest/v1/notification_channels?${filter}`, {
+    method: 'PATCH',
+    headers: {
+      apikey: session.anonKey,
+      Authorization: `Bearer ${session.accessToken}`,
+      'Content-Type': 'application/json',
+      Prefer: 'return=representation',
+    },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(`server notifications: ${res.status} ${text.slice(0, 140)}`);
+  }
+  const rows = (await res.json().catch(() => [])) as unknown[];
+  if (Array.isArray(rows) && rows.length) return;
+  const insert = await fetch(`${session.supabaseUrl}/rest/v1/notification_channels`, {
+    method: 'POST',
+    headers: {
+      apikey: session.anonKey,
+      Authorization: `Bearer ${session.accessToken}`,
+      'Content-Type': 'application/json',
+      Prefer: 'return=minimal',
+    },
+    body: JSON.stringify({ user_id: profileId, server_id: serverId, ...body }),
+  });
+  if (!insert.ok) {
+    const text = await insert.text().catch(() => '');
+    throw new Error(`server notifications: ${insert.status} ${text.slice(0, 140)}`);
+  }
+}
+
 /** A server anybody may join, as the discover list shows it. */
 export interface PublicServer {
   id: string;
