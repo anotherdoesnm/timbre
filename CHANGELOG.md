@@ -7,6 +7,17 @@ Changelog](https://keepachangelog.com/en/1.1.0/), and the project follows semant
 
 ### Fixed
 
+- **`:RIP:` from another pack stayed text.** A message part names its emoji together with the
+  picture it shipped (`{type:'emoji', emoji:{id,name,url}}`); the renderer kept only the name and
+  then looked it up in *this person's* packs, so an emoji from a pack they do not have came out as
+  the shortcode. The part's own picture is used now.
+- **Initials without a tile.** A server whose picture failed to load showed its initials on a
+  transparent background instead of the filled tile a server with no icon gets.
+
+
+
+### Fixed
+
 - **Broken server pictures in discovery.** Two causes, measured against the live instance's 27
   public servers: 3 icons point at *other* instances' storage (`db.spacify.cloud` answers 404,
   `db.chat.mstdn.ca` 403) and one row still carries the legacy `/default_server_icon.png` sentinel,

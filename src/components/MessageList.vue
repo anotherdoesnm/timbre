@@ -47,10 +47,10 @@ const segmentCache = new Map<string, Segment[]>();
 function segments(m: Message): Segment[] {
   const hit = segmentCache.get(m.id);
   if (hit) return hit;
-  const parsed = withEmoji(parseSegments(m.text));
+  const parsed = withEmoji(parseSegments(m.text), m.emojis);
   // Nothing is cached before the emoji list arrives: the first paint happens with `customEmoji`
   // still empty, and a cache filled then keeps `:fire:` as text forever.
-  if (customEmoji.value.length) segmentCache.set(m.id, parsed);
+  if (customEmoji.value.length || m.emojis?.length) segmentCache.set(m.id, parsed);
   return parsed;
 }
 
@@ -69,8 +69,13 @@ function nameSegments(name: string): Segment[] {
  * Replaces `:name:` with the picture when the instance has an emoji by that name — the same rule
  * the other clients follow, so a message written here reads the same on their side and back.
  */
-function withEmoji(parsed: Segment[]): Segment[] {
-  if (!customEmoji.value.length) return parsed;
+function withEmoji(
+  parsed: Segment[],
+  own?: { name: string; url?: string; id?: string }[]
+): Segment[] {
+  if (!customEmoji.value.length && !own?.length) return parsed;
+  const ownUrl = (name: string): string | undefined =>
+    own?.find((e) => e.name === name || e.name.toLowerCase() === name.toLowerCase())?.url;
   const out: Segment[] = [];
   const pattern = /:([a-z0-9_+-]{1,64}):/gi;
   for (const seg of parsed) {
@@ -80,7 +85,7 @@ function withEmoji(parsed: Segment[]): Segment[] {
     }
     let last = 0;
     for (const match of seg.text.matchAll(pattern)) {
-      const url = customEmojiUrl(match[1]);
+      const url = ownUrl(match[1]) ?? customEmojiUrl(match[1]);
       if (!url || match.index === undefined) continue;
       if (match.index > last) out.push({ kind: 'text', text: seg.text.slice(last, match.index) });
       out.push({ kind: 'emoji', text: match[0], image: url });

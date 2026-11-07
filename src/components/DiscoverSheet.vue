@@ -42,7 +42,10 @@ const broken = ref<Record<string, true>>({});
         :key="server.id"
         class="row"
       >
-        <span class="tile" :style="server.iconUrl ? undefined : { background: 'var(--primary-main)' }">
+        <span
+          class="tile"
+          :style="server.iconUrl && !broken[server.id] ? undefined : { background: 'var(--primary-main)' }"
+        >
           <img
             v-if="server.iconUrl && !broken[server.id]"
             :src="server.iconUrl"

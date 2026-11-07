@@ -32,7 +32,7 @@ const broken = ref<Record<string, true>>({});
         :class="{ active: s.id === activeId }"
         @click="emit('select', s.id)"
       >
-        <span class="tile" :style="s.iconUrl ? undefined : { background: s.color }">
+        <span class="tile" :style="s.iconUrl && !broken[s.id] ? undefined : { background: s.color }">
           <img
             v-if="s.iconUrl && !broken[s.id]"
             :src="s.iconUrl"

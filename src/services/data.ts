@@ -22,9 +22,17 @@ function colorFor(seed: string): string {
  * `messages.content` is jsonb: a string, an array of parts, or an object with a text field.
  * Anything else is shown as compact JSON rather than `[object Object]`.
  */
+export interface RenderedEmoji {
+  name: string;
+  url?: string;
+  id?: string;
+}
+
 export interface RenderedContent {
   text: string;
   images: string[];
+  /** Emoji the message itself names, with the picture it shipped. */
+  emojis: RenderedEmoji[];
 }
 
 /** Splits a jsonb message body into its text and its attachments. */
@@ -32,6 +40,9 @@ export function renderContentParts(content: unknown): RenderedContent {
   const parts = Array.isArray(content) ? content : content ? [content] : [];
   const texts: string[] = [];
   const images: string[] = [];
+  // The parts name their own emoji with a picture and an id; dropping that and re-resolving the name
+  // against this person's packs is how a foreign pack's emoji came out as `:RIP:` text.
+  const emojis: RenderedEmoji[] = [];
   /** Set once a poll part was seen: the text that follows is its fallback, not a message. */
   let hasPoll = false;
   for (const part of parts) {
@@ -59,7 +70,14 @@ export function renderContentParts(content: unknown): RenderedContent {
     if (type === 'emoji') {
       const emoji = (o.emoji ?? {}) as Record<string, unknown>;
       const name = typeof emoji.name === 'string' ? emoji.name : '';
-      if (name) texts.push(`:${name}:`);
+      if (name) {
+        texts.push(`:${name}:`);
+        emojis.push({
+          name,
+          url: typeof emoji.url === 'string' ? emoji.url : undefined,
+          id: typeof emoji.id === 'string' ? emoji.id : undefined,
+        });
+      }
       continue;
     }
     if (type === 'url' && typeof o.url === 'string' && o.url) {
@@ -109,7 +127,7 @@ export function renderContentParts(content: unknown): RenderedContent {
   if (!texts.length && !images.length && parts.length && !hasAttachment) {
     texts.push('[unsupported message content]');
   }
-  return { text: texts.join(''), images };
+  return { text: texts.join(''), images, emojis };
 }
 
 export interface FilePart {
@@ -1272,6 +1290,9 @@ async function fetchMessagePage(
       time: at.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }),
       text: system ? `${byId.get(String(subjectOf(m)))?.display_name ?? byId.get(String(subjectOf(m)))?.username ?? ''} ${parts.text}`.trim() : parts.text,
       images: parts.images,
+      // The message knows which emoji it shipped, picture included; that beats re-resolving a name
+      // against this person's own packs (a foreign pack's `:RIP:` otherwise comes out as text).
+      ...('emojis' in parts && parts.emojis.length ? { emojis: parts.emojis } : {}),
       edited:
         typeof m.updated_at === 'string' &&
         typeof m.created_at === 'string' &&

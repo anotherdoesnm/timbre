@@ -40,6 +40,8 @@ export interface Message {
   edited?: boolean;
   /** Pinned in its channel or conversation. */
   pinned?: boolean;
+  /** Emoji the message names, with the picture each part shipped. */
+  emojis?: { name: string; url?: string; id?: string }[];
   /** A poll attached to the message, once its votes are known. */
   poll?: {
     id: string;

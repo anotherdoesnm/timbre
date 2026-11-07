@@ -20,7 +20,11 @@ const broken = ref<Record<string, true>>({});
       class="rail-btn server"
       :class="{ active: s.id === activeId }"
       :title="s.name"
-      :style="{ background: s.id === activeId ? s.color : 'var(--sfv-container)', color: 'var(--text)' }"
+      :style="
+        s.iconUrl && !broken[s.id]
+          ? undefined
+          : { background: s.id === activeId ? s.color : 'var(--sfv-container)', color: 'var(--text)' }
+      "
       @click="emit('select', s.id)"
     >
       <img
