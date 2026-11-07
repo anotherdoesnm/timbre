@@ -3,6 +3,19 @@
 Notable changes to Timbre, newest first. The format follows [Keep a
 Changelog](https://keepachangelog.com/en/1.1.0/), and the project follows semantic versioning.
 
+## [0.9.8] — 2026-11-06
+
+### Fixed
+
+- **` :fire:` in a message stayed text.** The segment cache was filled on the first paint, when the
+  emoji list was still empty, and nothing ever invalidated it — so shortcodes parsed before the packs
+  arrived stayed shortcodes. The cache is skipped while the list is empty and cleared when it grows.
+- **Custom reactions would not join their chip.** Reacting sent the emoji's *name*; a reaction the
+  official client made references `emoji_id`, so the aggregate reported two chips of the same emoji
+  instead of one and the tap looked like it did nothing. A known custom emoji now reacts by
+  `emoji_id`, verified against the live instance: one chip, count 1, with its picture.
+- Display names that carry shortcodes (`y4my4m:fire:`) draw the picture too.
+
 ## [0.9.7] — 2026-11-06
 
 ### Changed

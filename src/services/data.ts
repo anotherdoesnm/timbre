@@ -1391,7 +1391,10 @@ export async function toggleReaction(
       message_id: messageId,
       ...(target.conversationId ? { conversation_id: target.conversationId } : { channel_id: target.channelId }),
       user_id: userId,
-      custom_emoji_content: emoji,
+      // A custom emoji is a reference (`emoji_id`), not a name: the name-only form creates a second
+      // row that the aggregate reports as a separate chip, which is why two `RIP`s appeared where
+      // one was expected instead of the tap joining the group.
+      ...(emojiId ? { emoji_id: emojiId } : { custom_emoji_content: emoji }),
     }),
   });
   // 409 is reactions_message_user_emoji_key: the reaction was already there even though the

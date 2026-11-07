@@ -537,7 +537,9 @@ async function onReact(m: { id: string }, emoji: string, mine: boolean): Promise
       myProfileId.value,
       emoji,
       mine,
-      customEmoji.value.find((e) => e.name === emoji.replace(/^:|:$/g, ''))?.id
+      customEmoji.value.find(
+        (e) => e.name === emoji.replace(/^:|:$/g, '') || e.id === emoji
+      )?.id
     );
     // A reaction can be on a message of the channel or of the thread beside it; refresh whichever
     // holds it, because a chip that never appears reads as a broken button.

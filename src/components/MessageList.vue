@@ -48,8 +48,21 @@ function segments(m: Message): Segment[] {
   const hit = segmentCache.get(m.id);
   if (hit) return hit;
   const parsed = withEmoji(parseSegments(m.text));
-  segmentCache.set(m.id, parsed);
+  // Nothing is cached before the emoji list arrives: the first paint happens with `customEmoji`
+  // still empty, and a cache filled then keeps `:fire:` as text forever.
+  if (customEmoji.value.length) segmentCache.set(m.id, parsed);
   return parsed;
+}
+
+/** The emoji list changed under the cache — the packs arrive after the first messages do. */
+watch(
+  () => customEmoji.value.length,
+  () => segmentCache.clear()
+);
+
+/** A display name can carry shortcodes too (`y4my4m:fire:`); they are pictures there as well. */
+function nameSegments(name: string): Segment[] {
+  return withEmoji([{ kind: 'text', text: name }]);
 }
 
 /**
@@ -257,7 +270,20 @@ watch(
             <span class="quote-text">{{ m.replyTo.text }}</span>
           </div>
           <header v-if="!m.grouped && !m.system" class="meta">
-            <span class="author">{{ m.author.name }}</span>
+            <span class="author">
+              <template v-for="(part, i) in nameSegments(m.author.name)" :key="i">
+                <img
+                  v-if="part.kind === 'emoji' && part.image"
+                  class="emoji-inline name-emoji"
+                  :src="part.image"
+                  :alt="part.text"
+                  :title="part.text"
+                  loading="lazy"
+                  referrerpolicy="no-referrer"
+                />
+                <template v-else>{{ part.text }}</template>
+              </template>
+            </span>
             <span v-if="m.author.role" class="role" :class="m.author.role">{{ m.author.role === 'admin' ? 'admin' : 'mod' }}</span>
             <span v-else-if="m.author.bot" class="role bot">bot</span>
             <span class="time">{{ m.time }}</span>
@@ -561,6 +587,7 @@ watch(
 }
 .reaction.mine { border-color: var(--primary-main); background: color-mix(in srgb, var(--primary-container) 45%, transparent); }
 .reaction-count { color: var(--text-secondary); font-variant-numeric: tabular-nums; }
+.name-emoji { width: 16px; height: 16px; vertical-align: -3px; }
 .emoji-inline { width: 22px; height: 22px; vertical-align: -5px; object-fit: contain; }
 .reaction-image { width: 16px; height: 16px; object-fit: contain; vertical-align: -3px; }
 .reaction-emoji { font-size: 13px; }
