@@ -23,6 +23,8 @@ import QuickSwitcher from './components/QuickSwitcher.vue';
 import GifPicker from './components/GifPicker.vue';
 import RolesSheet from './components/RolesSheet.vue';
 import MemberActionsSheet from './components/MemberActionsSheet.vue';
+import BansSheet from './components/BansSheet.vue';
+import ReportsSheet from './components/ReportsSheet.vue';
 import WhatsNew from './components/WhatsNew.vue';
 import JoinSheet from './components/JoinSheet.vue';
 import DiscoverSheet from './components/DiscoverSheet.vue';
@@ -106,6 +108,12 @@ import {
   kickMember,
   banMember,
   createReport,
+  fetchBans,
+  unbanMember,
+  fetchReports,
+  moderateReport,
+  type BanEntry,
+  type ReportEntry,
   type ReportReason,
   fetchUserRoles,
   createRole,
@@ -244,6 +252,16 @@ const rolesError = ref('');
 /** Whether this person may manage roles here — the instance's own answer, not a guess. */
 const canManageRoles = ref(false);
 const memberActions = ref<Author | null>(null);
+const bansOpen = ref(false);
+const bans = ref<BanEntry[]>([]);
+const bansLoading = ref(false);
+const bansError = ref('');
+const unbanBusyId = ref('');
+const reportsOpen = ref(false);
+const reports = ref<ReportEntry[]>([]);
+const reportsLoading = ref(false);
+const reportsError = ref('');
+const reportBusyId = ref('');
 const reportMessageTarget = ref<Message | null>(null);
 const memberBusy = ref(false);
 const memberError = ref('');
@@ -1616,6 +1634,71 @@ function openMemberActions(person: Author): void {
   memberActions.value = person;
 }
 
+async function openBans(): Promise<void> {
+  const s = session.value;
+  if (!s) return;
+  bansOpen.value = true;
+  bansLoading.value = true;
+  bansError.value = '';
+  try {
+    bans.value = await fetchBans(s, activeServer.value);
+  } catch (e) {
+    bansError.value = e instanceof Error ? e.message : String(e);
+  } finally {
+    bansLoading.value = false;
+  }
+}
+
+async function onUnban(userId: string): Promise<void> {
+  const s = session.value;
+  if (!s) return;
+  unbanBusyId.value = userId;
+  bansError.value = '';
+  try {
+    await unbanMember(s, activeServer.value, userId);
+    bans.value = bans.value.filter((ban) => ban.userId !== userId);
+  } catch (e) {
+    bansError.value = e instanceof Error ? e.message : String(e);
+  } finally {
+    unbanBusyId.value = '';
+  }
+}
+
+async function openReports(): Promise<void> {
+  const s = session.value;
+  if (!s) return;
+  reportsOpen.value = true;
+  reportsLoading.value = true;
+  reportsError.value = '';
+  try {
+    reports.value = await fetchReports(s, 'pending');
+  } catch (e) {
+    reportsError.value = e instanceof Error ? e.message : String(e);
+  } finally {
+    reportsLoading.value = false;
+  }
+}
+
+async function onModerateReport(
+  reportId: string,
+  action: 'investigate' | 'resolve' | 'dismiss',
+  note?: string
+): Promise<void> {
+  const s = session.value;
+  if (!s) return;
+  reportBusyId.value = reportId;
+  reportsError.value = '';
+  try {
+    await moderateReport(s, reportId, action, note);
+    // Investigate keeps the report in the queue; the other two take it out.
+    if (action !== 'investigate') reports.value = reports.value.filter((r) => r.id !== reportId);
+  } catch (e) {
+    reportsError.value = e instanceof Error ? e.message : String(e);
+  } finally {
+    reportBusyId.value = '';
+  }
+}
+
 /** The permissions the moderation sheet gates on, refreshed with the server. */
 async function loadPermissions(serverId: string): Promise<void> {
   const s = session.value;
@@ -2540,6 +2623,24 @@ watch([activeServer, activeChannel], () => {
       @accept="onAcceptRules"
       @close="rulesSheet = null"
     />
+    <BansSheet
+      v-if="bansOpen"
+      :bans="bans"
+      :loading="bansLoading"
+      :error="bansError"
+      :busy-id="unbanBusyId"
+      @unban="onUnban"
+      @close="bansOpen = false"
+    />
+    <ReportsSheet
+      v-if="reportsOpen"
+      :reports="reports"
+      :loading="reportsLoading"
+      :error="reportsError"
+      :busy-id="reportBusyId"
+      @act="onModerateReport"
+      @close="reportsOpen = false"
+    />
     <MemberActionsSheet
       v-if="reportMessageTarget"
       :person="reportMessageTarget.author"
@@ -2549,6 +2650,24 @@ watch([activeServer, activeChannel], () => {
       :error="memberError"
       :on-report="(_id, reason, comment) => onReportMessage(reportMessageTarget!, reason, comment)"
       @close="reportMessageTarget = null"
+    />
+    <BansSheet
+      v-if="bansOpen"
+      :bans="bans"
+      :loading="bansLoading"
+      :error="bansError"
+      :busy-id="unbanBusyId"
+      @unban="onUnban"
+      @close="bansOpen = false"
+    />
+    <ReportsSheet
+      v-if="reportsOpen"
+      :reports="reports"
+      :loading="reportsLoading"
+      :error="reportsError"
+      :busy-id="reportBusyId"
+      @act="onModerateReport"
+      @close="reportsOpen = false"
     />
     <MemberActionsSheet
       v-if="memberActions"
@@ -2624,6 +2743,8 @@ watch([activeServer, activeChannel], () => {
       :notify="serverNotify[activeServer]"
       :on-notify="setServerNotify"
       :on-roles="onOpenRoles"
+      :on-bans="serverPermissions.BAN_MEMBERS === true || serverPermissions.ADMINISTRATOR === true ? openBans : undefined"
+      :on-reports="me?.role ? openReports : undefined"
       @close="createOpen = false"
     />
     <DiscoverSheet

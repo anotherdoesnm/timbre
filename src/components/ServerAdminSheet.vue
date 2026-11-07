@@ -25,6 +25,8 @@ const props = defineProps<{
   onCreateInvite?: () => Promise<string>;
   onNotify?: (patch: { muted?: boolean; level?: string }) => Promise<void>;
   onRoles?: () => void;
+  onBans?: () => void;
+  onReports?: () => void;
 }>();
 const emit = defineEmits<{ (e: 'close'): void }>();
 
@@ -177,6 +179,12 @@ async function copy(): Promise<void> {
         <p class="fine">A per-channel mute always wins over this.</p>
         <button class="ghost-wide" @click="props.onRoles?.()">
           <Icon name="shield" :size="14" /> Roles and permissions
+        </button>
+        <button v-if="props.onBans" class="ghost-wide" @click="props.onBans?.()">
+          <Icon name="bell-off" :size="14" /> Banned members
+        </button>
+        <button v-if="props.onReports" class="ghost-wide" @click="props.onReports?.()">
+          <Icon name="inbox" :size="14" /> Reports
         </button>
       </template>
 

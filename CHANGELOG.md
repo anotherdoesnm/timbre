@@ -7,6 +7,18 @@ Changelog](https://keepachangelog.com/en/1.1.0/), and the project follows semant
 
 ### Added
 
+- **The ban list**, with unban. `get_server_bans` answers only to `BAN_MEMBERS` (it refuses with
+  `Missing BAN_MEMBERS permission`), so the entry point appears only when `get_user_permissions`
+  grants it; unbanning is `unban_server_member` and the row leaves the list at once.
+- **The moderators' report queue**: pending reports with reason, reporter, target and the reported
+  message's text, and the instance's own actions — `investigate`, `resolve`, `dismiss` — with a note
+  that goes to the reporter. `get_reports_with_details` answers `Permission denied: moderator access
+  required` to anybody else, so the entry point follows the profile's moderator flag rather than
+  pretending everyone can see it.
+
+
+### Added
+
 - **Moderation: kick and ban.** A "…" on any member opens actions, gated by what
   `get_user_permissions` says this person may do (`KICK_MEMBERS`, `BAN_MEMBERS`, or
   `ADMINISTRATOR`), with a reason. The call is `kick_server_member` / `ban_server_member`, which the

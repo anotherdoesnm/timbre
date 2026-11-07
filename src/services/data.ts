@@ -1060,6 +1060,64 @@ export async function fetchBans(session: Session, serverId: string): Promise<Ban
   }
 }
 
+/** A report as the moderators' queue shows it. */
+export interface ReportEntry {
+  id: string;
+  type: string;
+  status: string;
+  reason: string;
+  comment?: string;
+  createdAt: string;
+  reporter: string;
+  target: string;
+  /** What the reported message said, when the report is about one. */
+  preview?: string;
+}
+
+/** The queue: `get_reports_with_details`, which the instance answers for moderators. */
+export async function fetchReports(
+  session: Session,
+  status: string = 'pending'
+): Promise<ReportEntry[]> {
+  const rows = await rpc<Record<string, unknown>[]>(session, 'get_reports_with_details', {
+    p_status: status,
+    p_limit: 50,
+    p_offset: 0,
+  });
+  return (rows ?? []).map((row) => ({
+    id: String(row.id ?? ''),
+    type: String(row.report_type ?? 'user'),
+    status: String(row.status ?? 'pending'),
+    reason: String(row.reason ?? 'other'),
+    comment: typeof row.comment === 'string' ? row.comment : undefined,
+    createdAt: String(row.created_at ?? ''),
+    reporter: String(row.reporter_display_name ?? row.reporter_username ?? 'somebody'),
+    target: String(
+      row.reported_user_display_name ??
+        row.reported_user_username ??
+        row.reported_message_id ??
+        'something'
+    ),
+    preview: typeof row.reported_message_preview === 'string' ? row.reported_message_preview : undefined,
+  }));
+}
+
+/** Resolves, dismisses or investigates a report, with an optional note to the reporter. */
+export async function moderateReport(
+  session: Session,
+  reportId: string,
+  action: 'investigate' | 'resolve' | 'dismiss',
+  note?: string
+): Promise<void> {
+  await rpc(session, 'moderate_report', {
+    p_report_id: reportId,
+    p_action: action,
+    p_note: note?.trim() || null,
+    p_reason: null,
+    p_show_resolver: false,
+  });
+}
+
 /** The reasons `create_report` understands; anything else is treated as `other`. */
 export type ReportReason =
   | 'spam'
