@@ -8,6 +8,8 @@ defineProps<{
   live?: boolean;
   muted?: boolean;
   pins?: number;
+  /** Unread threads in this channel, for the badge next to the icon. */
+  threads?: number;
 }>();
 const emit = defineEmits<{
   (e: 'toggle-members'): void;
@@ -15,6 +17,7 @@ const emit = defineEmits<{
   (e: 'search'): void;
   (e: 'toggle-mute'): void;
   (e: 'pins'): void;
+  (e: 'threads'): void;
 }>();
 </script>
 
@@ -30,6 +33,15 @@ const emit = defineEmits<{
     </div>
     <div class="right">
       <button class="action" title="Search" @click="emit('search')"><Icon name="search" :size="18" /></button>
+      <button
+        class="action"
+        :class="{ on: !!threads }"
+        :title="threads ? `Threads (${threads} unread)` : 'Threads'"
+        @click="emit('threads')"
+      >
+        <Icon name="thread" :size="18" />
+        <span v-if="threads" class="thread-count">{{ threads }}</span>
+      </button>
       <button
         class="action"
         :class="{ on: !!pins }"

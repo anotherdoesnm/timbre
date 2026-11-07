@@ -7,6 +7,15 @@ Changelog](https://keepachangelog.com/en/1.1.0/), and the project follows semant
 
 ### Added
 
+- **A threads list.** Threads had no front door: a reply only showed as "N replies" under its parent,
+  and a thread somebody else kept talking in was invisible. The channel header opens a list of its
+  open threads by activity — name, replies, how long ago — with an unread dot driven by
+  `thread_members.last_read_at`, and a badge on the icon counting them. Opening a thread from the
+  list works without its parent message being on screen, and records the read marker.
+
+
+### Added
+
 - **Unread that is visible where the decision is made.** Servers in the rail and in the switcher
   carry the sum of their channels' unread, categories say how much is inside them, and the servers
   sheet has "Mark this server read" (`mark_server_as_read`, then the counters clear locally too).

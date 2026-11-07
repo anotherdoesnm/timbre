@@ -17,6 +17,7 @@ import PollComposer from './components/PollComposer.vue';
 import NotificationSettings from './components/NotificationSettings.vue';
 import ThreadPanel from './components/ThreadPanel.vue';
 import StickerPicker from './components/StickerPicker.vue';
+import ThreadsSheet from './components/ThreadsSheet.vue';
 import JoinSheet from './components/JoinSheet.vue';
 import DiscoverSheet from './components/DiscoverSheet.vue';
 import { rpc } from './services/api';
@@ -74,6 +75,9 @@ import {
   fetchChannelThreads,
   ensureThread,
   fetchThreadMessages,
+  fetchThreadSummaries,
+  markThreadRead,
+  type ThreadSummary,
   sendThreadMessage,
   type ThreadInfo,
   parseInviteCode,
@@ -203,6 +207,10 @@ const notifSettingsOpen = ref(false);
 const prefsSaving = ref(false);
 const joinOpen = ref(false);
 const createOpen = ref(false);
+const threadsOpen = ref(false);
+const threadList = ref<ThreadSummary[]>([]);
+const threadsLoading = ref(false);
+const threadsError = ref('');
 // Presence: who is online in the open server, and who is typing in the open room.
 const presence = ref<Record<string, { online: boolean; status: number; label: string }>>({});
 const typingUsers = ref<TypingUser[]>([]);
@@ -1368,6 +1376,57 @@ async function refreshThreadCounts(): Promise<void> {
   }
 }
 
+/** The threads of the open channel, by activity, with this person's read state. */
+async function openThreads(): Promise<void> {
+  const s = session.value;
+  const ch = channel.value;
+  if (!s || !ch || !myProfileId.value || isDirect(ch.id)) return;
+  threadsOpen.value = true;
+  threadsLoading.value = true;
+  threadsError.value = '';
+  try {
+    threadList.value = await fetchThreadSummaries(s, ch.id, myProfileId.value);
+  } catch (e) {
+    threadsError.value = e instanceof Error ? e.message : String(e);
+  } finally {
+    threadsLoading.value = false;
+  }
+}
+
+/** Opens a thread straight from the list, without needing its parent message on screen. */
+async function openThreadFromList(thread: ThreadSummary): Promise<void> {
+  const s = session.value;
+  const ch = channel.value;
+  if (!s || !ch) return;
+  threadsOpen.value = false;
+  threadOpen.value = true;
+  threadLoading.value = true;
+  threadId.value = thread.id;
+  try {
+    const page = await fetchThreadMessages(s, thread.id);
+    threadMessages.value = page.messages;
+    threadParent.value =
+      (liveMessages.value[ch.id] ?? []).find((m) => m.id === thread.parentMessageId) ??
+      ({
+        id: thread.parentMessageId,
+        author: { name: '', initial: '?', color: 'var(--primary-main)', role: null },
+        time: '',
+        text: thread.name,
+      } as Message);
+    if (myProfileId.value) await markThreadRead(s, thread.id, myProfileId.value);
+    threadList.value = threadList.value.map((item) =>
+      item.id === thread.id ? { ...item, unread: false } : item
+    );
+  } catch (e) {
+    showError(e instanceof Error ? e.message : String(e));
+  } finally {
+    threadLoading.value = false;
+  }
+}
+
+/** Unread threads in the open channel: the header badge. */
+const unreadThreads = computed(() => threadList.value.filter((t) => t.unread).length);
+
 /** Opens (or creates) the thread of a message and loads what is in it. */
 async function openThread(m: Message): Promise<void> {
   const s = session.value;
@@ -1381,6 +1440,10 @@ async function openThread(m: Message): Promise<void> {
     threadId.value = id;
     const page = id ? await fetchThreadMessages(s, id) : null;
     threadMessages.value = page?.messages ?? [];
+    if (id && myProfileId.value) await markThreadRead(s, id, myProfileId.value);
+    threadList.value = threadList.value.map((item) =>
+      item.id === id ? { ...item, unread: false } : item
+    );
     await refreshThreadCounts();
   } catch (e) {
     loadError.value = e instanceof Error ? e.message : String(e);
@@ -1851,6 +1914,8 @@ watch([activeServer, activeChannel], () => {
         :members-open="membersOpen"
         :muted="!!mutedChannels[channel.id]"
         :pins="pinnedCount"
+        :threads="unreadThreads"
+        @threads="openThreads"
         @pins="openPins"
         :live="live"
         @search="openSearch"
@@ -1979,6 +2044,14 @@ watch([activeServer, activeChannel], () => {
       :error="rulesError"
       @accept="onAcceptRules"
       @close="rulesSheet = null"
+    />
+    <ThreadsSheet
+      v-if="threadsOpen"
+      :threads="threadList"
+      :loading="threadsLoading"
+      :error="threadsError"
+      @open="openThreadFromList"
+      @close="threadsOpen = false"
     />
     <ServerAdminSheet
       v-if="createOpen"

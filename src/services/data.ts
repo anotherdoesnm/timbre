@@ -1156,6 +1156,123 @@ export async function fetchChannelThreads(
   return out;
 }
 
+/** A thread as the list shows it: what it is called, what it hangs off, and how alive it is. */
+export interface ThreadSummary {
+  id: string;
+  parentMessageId: string;
+  name: string;
+  replies: number;
+  lastAt: string;
+  unread: boolean;
+  locked: boolean;
+}
+
+/**
+ * Open threads of a channel with this person's read state.
+ *
+ * `active_threads_view` gives the counters and `thread_members` holds `last_read_at` per person —
+ * the instance does not compute thread unread for us, so the comparison happens here: a thread is
+ * unread when its last message is newer than the last time it was opened.
+ */
+export async function fetchThreadSummaries(
+  session: Session,
+  channelId: string,
+  profileId: string
+): Promise<ThreadSummary[]> {
+  const rows = await rest<Row[]>(
+    session,
+    'active_threads_view',
+    `channel_id=eq.${encodeURIComponent(channelId)}` +
+      '&archived=is.false&select=id,parent_message_id,name,message_count,last_message_at,locked&limit=100'
+  ).catch(() => [] as Row[]);
+  if (!rows.length) return [];
+
+  const ids = rows.map((r) => String(r.id));
+  const [parents, memberRows] = await Promise.all([
+    rest<Row[]>(
+      session,
+      'messages',
+      `id=in.(${rows.map((r) => encodeURIComponent(String(r.parent_message_id))).join(',')})` +
+        '&select=id,content'
+    ).catch(() => [] as Row[]),
+    rest<Row[]>(
+      session,
+      'thread_members',
+      `thread_id=in.(${ids.map(encodeURIComponent).join(',')})` +
+        `&user_id=eq.${encodeURIComponent(profileId)}&select=thread_id,last_read_at`
+    ).catch(() => [] as Row[]),
+  ]);
+
+  const textOf = new Map(parents.map((m) => [String(m.id), renderContentParts(m.content).text] as const));
+  const readAt = new Map(
+    memberRows.map((m) => [String(m.thread_id), String(m.last_read_at ?? '')] as const)
+  );
+
+  return rows
+    .map((row) => {
+      const id = String(row.id);
+      const parentId = String(row.parent_message_id ?? '');
+      const lastAt = String(row.last_message_at ?? '');
+      const seen = readAt.get(id);
+      const snippet = (textOf.get(parentId) ?? '').trim().slice(0, 120);
+      return {
+        id,
+        parentMessageId: parentId,
+        name: (typeof row.name === 'string' && row.name.trim()) || snippet || 'Thread',
+        replies: Number(row.message_count ?? 0),
+        lastAt,
+        // No membership row means it was never opened here, which reads as unread.
+        unread: lastAt ? (!seen || seen < lastAt) : false,
+        locked: row.locked === true,
+      } satisfies ThreadSummary;
+    })
+    .sort((a, b) => (b.lastAt || '').localeCompare(a.lastAt || ''));
+}
+
+/** Records that this person has read a thread up to now. */
+export async function markThreadRead(
+  session: Session,
+  threadId: string,
+  profileId: string
+): Promise<void> {
+  const now = new Date().toISOString();
+  const patch = async (): Promise<boolean> => {
+    const res = await fetch(
+      `${session.supabaseUrl}/rest/v1/thread_members?thread_id=eq.${encodeURIComponent(threadId)}` +
+        `&user_id=eq.${encodeURIComponent(profileId)}`,
+      {
+        method: 'PATCH',
+        headers: {
+          apikey: session.anonKey,
+          Authorization: `Bearer ${session.accessToken}`,
+          'Content-Type': 'application/json',
+          Prefer: 'return=representation',
+        },
+        body: JSON.stringify({ last_read_at: now }),
+      }
+    );
+    if (!res.ok) return false;
+    const rows = (await res.json().catch(() => [])) as unknown[];
+    return Array.isArray(rows) && rows.length > 0;
+  };
+  try {
+    // The row may not exist yet: joining a thread is an insert, and the policies allow both.
+    if (await patch()) return;
+    await fetch(`${session.supabaseUrl}/rest/v1/thread_members`, {
+      method: 'POST',
+      headers: {
+        apikey: session.anonKey,
+        Authorization: `Bearer ${session.accessToken}`,
+        'Content-Type': 'application/json',
+        Prefer: 'return=minimal',
+      },
+      body: JSON.stringify({ thread_id: threadId, user_id: profileId, last_read_at: now }),
+    });
+  } catch {
+    /* a read marker is not worth an error banner */
+  }
+}
+
 /** The thread of a message, if one exists. */
 export async function fetchThreadForMessage(
   session: Session,
