@@ -61,6 +61,8 @@ export interface Channel {
   name: string;
   kind: 'text' | 'voice';
   category: string;
+  /** The category's id, when the instance gave one — needed to file a new channel under it. */
+  categoryId?: string;
   encrypted?: boolean;
   unread?: number;
   mention?: number;

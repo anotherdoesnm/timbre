@@ -19,6 +19,7 @@ import ThreadPanel from './components/ThreadPanel.vue';
 import StickerPicker from './components/StickerPicker.vue';
 import JoinSheet from './components/JoinSheet.vue';
 import DiscoverSheet from './components/DiscoverSheet.vue';
+import ServerAdminSheet from './components/ServerAdminSheet.vue';
 import RulesSheet from './components/RulesSheet.vue';
 import type { CustomEmoji } from './services/emoji';
 import AuthScreen from './components/AuthScreen.vue';
@@ -80,6 +81,9 @@ import {
   fetchPublicServers,
   joinPublicServer,
   type PublicServer,
+  createServer,
+  createChannel,
+  createInvite,
   fetchStickers,
   uploadSticker,
   sendSticker,
@@ -195,6 +199,9 @@ const newDmOpen = ref(false);
 const notifSettingsOpen = ref(false);
 const prefsSaving = ref(false);
 const joinOpen = ref(false);
+const createOpen = ref(false);
+const createBusy = ref(false);
+const createError = ref('');
 const discoverOpen = ref(false);
 const discoverServers = ref<PublicServer[]>([]);
 const discoverLoading = ref(false);
@@ -1116,6 +1123,60 @@ async function onDiscoverJoin(server: PublicServer): Promise<void> {
   }
 }
 
+/** Creates a server and lands in it: the instance builds its default channels on insert. */
+async function onCreateServer(name: string, isPublic: boolean): Promise<void> {
+  const s = session.value;
+  const me = myProfileId.value;
+  if (!s || !me) return;
+  createBusy.value = true;
+  createError.value = '';
+  try {
+    const id = await createServer(s, me, name, isPublic);
+    createOpen.value = false;
+    await onJoined(id);
+  } catch (e) {
+    createError.value = e instanceof Error ? e.message : String(e);
+    throw e;
+  } finally {
+    createBusy.value = false;
+  }
+}
+
+async function onCreateChannel(name: string, type: 0 | 1): Promise<void> {
+  const s = session.value;
+  const serverId = activeServer.value;
+  if (!s || !serverId) return;
+  createBusy.value = true;
+  createError.value = '';
+  try {
+    // The instance's default structure already has a category per kind; the new channel joins the
+    // one its type belongs to (a nullable category is legal, so an unknown kind simply has none).
+    const sameKind = channels.value.filter((c) => c.kind === (type === 1 ? 'voice' : 'text'));
+    await createChannel(s, serverId, {
+      name,
+      type,
+      categoryId: sameKind.length ? (sameKind[sameKind.length - 1].categoryId ?? null) : null,
+      position: channels.value.length,
+    });
+    const list = await fetchChannels(s, serverId);
+    liveChannels.value[serverId] = list;
+    createOpen.value = false;
+  } catch (e) {
+    createError.value = e instanceof Error ? e.message : String(e);
+    throw e;
+  } finally {
+    createBusy.value = false;
+  }
+}
+
+async function onCreateInvite(): Promise<string> {
+  const s = session.value;
+  const me = myProfileId.value;
+  const serverId = activeServer.value;
+  if (!s || !me || !serverId) throw new Error('pick a server first');
+  return createInvite(s, serverId, me, activeChannel.value || null);
+}
+
 /** After joining, the new server has to appear in the sidebar before it can be opened. */
 async function onJoined(serverId: string): Promise<void> {
   const s = session.value;
@@ -1754,6 +1815,19 @@ watch([activeServer, activeChannel], () => {
       @accept="onAcceptRules"
       @close="rulesSheet = null"
     />
+    <ServerAdminSheet
+      v-if="createOpen"
+      :servers="servers"
+      :active-id="activeServer"
+      :channels="channels"
+      :instance-url="session?.instance ? `https://${session.instance}` : ''"
+      :busy="createBusy"
+      :error="createError"
+      :on-join-server="onCreateServer"
+      :on-join-channel="onCreateChannel"
+      :on-create-invite="onCreateInvite"
+      @close="createOpen = false"
+    />
     <DiscoverSheet
       v-if="discoverOpen"
       :servers="discoverServers"
@@ -1841,6 +1915,7 @@ watch([activeServer, activeChannel], () => {
       @select="(id) => { pickServer(id); serversOpen = false; void checkRules(id); }"
       @join="serversOpen = false; inviteSeed = ''; joinOpen = true"
       @discover="serversOpen = false; openDiscover()"
+      @create="serversOpen = false; createError = ''; createOpen = true"
       @close="closeServers"
     />
   </div>

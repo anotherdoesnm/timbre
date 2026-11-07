@@ -838,6 +838,111 @@ export async function fetchCustomEmojis(
   return out;
 }
 
+/**
+ * Creates a server owned by this person.
+ *
+ * The instance does the rest: a trigger builds the default `Text Channels`/`Voice Channels`
+ * categories with `general` and `voice chat`, and the owner's membership row is theirs to insert
+ * (`user_servers_insert_self`).
+ */
+export async function createServer(
+  session: Session,
+  profileId: string,
+  name: string,
+  isPublic: boolean
+): Promise<string> {
+  const res = await fetch(`${session.supabaseUrl}/rest/v1/servers`, {
+    method: 'POST',
+    headers: {
+      apikey: session.anonKey,
+      Authorization: `Bearer ${session.accessToken}`,
+      'Content-Type': 'application/json',
+      Prefer: 'return=representation',
+    },
+    body: JSON.stringify({ name: name.trim(), owner: profileId, public: isPublic }),
+  });
+  if (!res.ok) {
+    const body = await res.text().catch(() => '');
+    throw new Error(`create server: ${res.status} ${body.slice(0, 160)}`);
+  }
+  const rows = (await res.json().catch(() => [])) as { id?: string }[];
+  const id = rows[0]?.id;
+  if (!id) throw new Error('the instance did not return the new server');
+
+  // The instance already puts the owner in the new server (a membership row exists the moment the
+  // server does), so there is nothing to join here.
+  return id;
+}
+
+/** Adds a channel to a server this person owns (`channels_insert_owner` enforces that). */
+export async function createChannel(
+  session: Session,
+  serverId: string,
+  channel: { name: string; type: 0 | 1; categoryId?: string | null; position?: number }
+): Promise<string> {
+  const res = await fetch(`${session.supabaseUrl}/rest/v1/channels`, {
+    method: 'POST',
+    headers: {
+      apikey: session.anonKey,
+      Authorization: `Bearer ${session.accessToken}`,
+      'Content-Type': 'application/json',
+      Prefer: 'return=representation',
+    },
+    body: JSON.stringify({
+      server_id: serverId,
+      name: channel.name.trim().toLowerCase().replace(/\s+/g, '-'),
+      type: channel.type,
+      ...(channel.categoryId ? { category: channel.categoryId } : {}),
+      order: channel.position ?? 0,
+    }),
+  });
+  if (!res.ok) {
+    const body = await res.text().catch(() => '');
+    throw new Error(`create channel: ${res.status} ${body.slice(0, 160)}`);
+  }
+  const rows = (await res.json().catch(() => [])) as { id?: string }[];
+  if (!rows[0]?.id) throw new Error('the instance did not return the new channel');
+  return rows[0].id;
+}
+
+/** A new invite code, in the alphabet the instance accepts (`^[A-Za-z0-9_-]{1,64}$`). */
+function inviteCode(): string {
+  const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  const bytes = new Uint8Array(8);
+  crypto.getRandomValues(bytes);
+  return [...bytes].map((b) => alphabet[b % alphabet.length]).join('');
+}
+
+/** Creates an invite link for a server and returns the code. */
+export async function createInvite(
+  session: Session,
+  serverId: string,
+  profileId: string,
+  channelId?: string | null
+): Promise<string> {
+  const code = inviteCode();
+  const res = await fetch(`${session.supabaseUrl}/rest/v1/invites`, {
+    method: 'POST',
+    headers: {
+      apikey: session.anonKey,
+      Authorization: `Bearer ${session.accessToken}`,
+      'Content-Type': 'application/json',
+      Prefer: 'return=minimal',
+    },
+    body: JSON.stringify({
+      code,
+      server_id: serverId,
+      created_by: profileId,
+      ...(channelId ? { channel_id: channelId } : {}),
+    }),
+  });
+  if (!res.ok) {
+    const body = await res.text().catch(() => '');
+    throw new Error(`create invite: ${res.status} ${body.slice(0, 160)}`);
+  }
+  return code;
+}
+
 /** A server anybody may join, as the discover list shows it. */
 export interface PublicServer {
   id: string;
