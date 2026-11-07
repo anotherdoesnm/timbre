@@ -26,6 +26,7 @@ import JoinSheet from './components/JoinSheet.vue';
 import DiscoverSheet from './components/DiscoverSheet.vue';
 import { rpc } from './services/api';
 import { playSound, soundPreference } from './services/notify';
+import { parseSearchQuery, type ParsedSearch } from './services/searchQuery';
 import { fetchGifs, type Gif } from './services/gifs';
 import { heartbeat, fetchPresence, goOffline, statusLabel, STATUS_AWAY, STATUS_BUSY } from './services/presence';
 import type { PresenceUpdate, TypingUser } from './services/realtime';
@@ -94,6 +95,7 @@ import {
   fetchPublicServers,
   joinPublicServer,
   type PublicServer,
+  type SearchFilters,
   createServer,
   createChannel,
   createInvite,
@@ -323,20 +325,73 @@ let lastLoad = Date.now();
 const searchOpen = ref(false);
 const searchResults = ref<SearchHit[]>([]);
 const searching = ref(false);
+const searchParsed = ref<ParsedSearch | null>(null);
+const searchUnknown = ref('');
 const searchError = ref('');
 const focusId = ref<string | null>(null);
+
+/** Channels and people named by `in:` and `from:`, resolved against what this client knows. */
+function resolveSearchScope(parsed: ParsedSearch): {
+  channelId?: string;
+  userId?: string;
+  unknown?: string;
+} {
+  const out: { channelId?: string; userId?: string; unknown?: string } = {};
+  if (parsed.channel) {
+    const wanted = parsed.channel.toLowerCase();
+    // The open server first, then anywhere: a name is a name, and the open server is where a
+    // person most likely means.
+    const here = (liveChannels.value[activeServer.value] ?? []).find(
+      (c) => c.name.toLowerCase() === wanted
+    );
+    const anywhere = Object.values(liveChannels.value)
+      .flat()
+      .find((c) => c.name.toLowerCase() === wanted);
+    const hit = here ?? anywhere;
+    if (hit) out.channelId = hit.id;
+    else out.unknown = `#${parsed.channel}`;
+  }
+  if (parsed.from) {
+    const wanted = parsed.from.toLowerCase();
+    const people = Object.values(liveMembers.value).flat();
+    const person = people.find(
+      (p) => p.name.toLowerCase() === wanted || p.name.toLowerCase().startsWith(wanted)
+    );
+    if (person?.id) out.userId = person.id;
+    else out.unknown = out.unknown ? `${out.unknown}, @${parsed.from}` : `@${parsed.from}`;
+  }
+  return out;
+}
 
 async function runSearch(query: string): Promise<void> {
   const s = session.value;
   if (!s) return;
   searchError.value = '';
-  if (query.trim().length < 2) {
+  searchUnknown.value = '';
+  const parsed = parseSearchQuery(query);
+  if (!parsed.text && !parsed.channel && !parsed.from && !parsed.has && !parsed.before && !parsed.after) {
     searchResults.value = [];
     return;
   }
+  if (parsed.text && parsed.text.length < 2 && !parsed.channel && !parsed.from && !parsed.has) {
+    searchResults.value = [];
+    return;
+  }
+  const scope = resolveSearchScope(parsed);
+  if (scope.unknown) searchUnknown.value = scope.unknown;
+  searchParsed.value = parsed;
   searching.value = true;
   try {
-    searchResults.value = await searchMessages(s, query, { serverId: activeServer.value });
+    searchResults.value = await searchMessages(s, parsed.text, {
+      // `in:dm` means "not in a channel": the server scope would hide conversations.
+      serverId: parsed.inDirect || scope.channelId ? undefined : activeServer.value,
+      channelId: scope.channelId,
+      userId: scope.userId,
+      hasMedia: parsed.has === 'image' ? true : undefined,
+      hasUrl: parsed.has === 'link' ? true : undefined,
+      from: parsed.before ? undefined : parsed.after,
+      to: parsed.before,
+    });
   } catch (e) {
     searchError.value = e instanceof Error ? e.message : String(e);
   } finally {
@@ -2369,6 +2424,8 @@ watch([activeServer, activeChannel], () => {
       :results="searchResults"
       :searching="searching"
       :error="searchError"
+      :filters="searchParsed"
+      :unknown="searchUnknown"
       @search="runSearch"
       @select="openHit"
       @close="closeSearch"

@@ -3,7 +3,15 @@ import { ref, watch } from 'vue';
 import Icon from './Icon.vue';
 import type { SearchHit } from '../services/data';
 
-defineProps<{ scope: string; results: SearchHit[]; searching: boolean; error?: string }>();
+const props = defineProps<{
+  scope: string;
+  results: SearchHit[];
+  searching: boolean;
+  error?: string;
+  /** Filters the query parser understood, and any name it could not resolve. */
+  filters?: { channel?: string; from?: string; has?: string; before?: string; after?: string } | null;
+  unknown?: string;
+}>();
 const emit = defineEmits<{
   (e: 'search', query: string): void;
   (e: 'select', hit: SearchHit): void;
@@ -24,7 +32,11 @@ watch(query, (value) => {
     <div class="panel" role="dialog" aria-label="Search">
       <header>
         <Icon name="search" :size="16" />
-        <input v-model="query" autofocus placeholder="Search messages" />
+        <input
+          v-model="query"
+          autofocus
+          placeholder="Search — try in:#channel from:someone has:image"
+        />
         <button class="close" aria-label="Close" @click="emit('close')"><Icon name="close" :size="16" /></button>
       </header>
       <p class="scope">{{ scope }}</p>

@@ -7,6 +7,16 @@ Changelog](https://keepachangelog.com/en/1.1.0/), and the project follows semant
 
 ### Added
 
+- **Search that can be aimed.** `in:#channel`, `from:person`, `has:image`, `has:link`, `before:` and
+  `after:` are parsed out of the box and sent as the RPC's own arguments (`p_channel_id`,
+  `p_user_id`, `p_has_media`/`p_has_url`, `p_from_date`/`p_to_date`), with the recognised filters
+  shown as chips and an unknown name reported instead of silently ignored. `in:dm` drops the server
+  scope, because a conversation is not in one. Words left over are what the full-text search gets, so
+  "everything in #general last week" works with no terms at all.
+
+
+### Added
+
 - **GIFs**, through the instance's own klipy proxy (`/api/federation/gifs/…`, authenticated with the
   user's token — the key never reaches a client). The composer's GIF button opens trending, typing
   searches, and picking one sends a `url` part pointing at the file, which this client renders as the

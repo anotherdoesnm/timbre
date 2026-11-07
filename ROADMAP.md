@@ -51,9 +51,9 @@ Effort is a guess for one person; "server" says whether the instance already sup
 | 3 | **Roles and permissions** | week | `server_roles`, `user_roles`, `has_permission` | The sidebar shows ADMIN/MOD and nothing else. You cannot grant a role, see why somebody can do something, or manage who may post where. |
 | 4 | **Moderation** | week+ | bans, timeouts, reports, automod | Kick, ban, timeout, report. Only matters once a guild has strangers in it, which is now one invite away. |
 | 5 | **Threads: list and unread** | days | `active_threads_view`, `thread_members` | Threads work, but there is no list of them and no sign that a thread has new replies. |
-| 6 | **Search that can be aimed** | days | `search_messages` (`p_channel_id`, filters) | Search is global to the instance; `in:#channel`, `from:person` and a channel-scoped search are what people actually type. |
-| 7 | **GIF** | hours + keys | `/api/gifs/search` (klipy) | The client half is small; the instance has no `KLIPY_API_KEY_*`, so the route answers with the SPA. Blocked on an operator decision, not on code. |
-| 8 | **Per-category mute** | hours | `notification_channels.category_id` | Same write as channel mute with one column different. Bundles with #2. |
+| ~~6~~ | ~~Search that can be aimed~~ | done | `search_messages` | `in:`, `from:`, `has:image`, `has:link`, `before:`, `after:` map to the RPC's own arguments. |
+| ~~7~~ | ~~GIF~~ | done | `/api/federation/gifs/*` | Picker with trending and search; the key lives on the instance, the flagship has one. |
+| 8 | **Per-category mute** | hours | `notification_channels.category_id` | Server-wide defaults are in; per-category is the same row with a category id. |
 | 9 | **Attachment niceties** | days | — | Paste-to-upload, drag and drop on desktop, resumable uploads, image dimensions before send, voice messages. |
 | 10 | **Keyboard, a11y, i18n** | days | — | Shortcuts (jump to unread, quick switcher), a full screen-reader pass, and translation. English only today. |
 | 11 | **Background push** | week+ | `push_subscriptions`, `unified_push_register` | A WebView has no `PushManager`. Needs a native bridge (or a port of upstream's Kotlin plugin) and a distributor app on the phone. |
@@ -67,6 +67,12 @@ Effort is a guess for one person; "server" says whether the instance already sup
 Swipe-to-reply, message forwarding, copy message link, per-server notification defaults, sound
 selection, presence in DM headers, notification grouping, deep links into a channel from a
 notification, "add to home screen" prompts, an in-app changelog.
+
+## Done recently
+
+Presence and typing, unread badges on servers and categories with "mark server read", the threads list
+with unread dots, swipe-to-reply, forward, copy-link with working deep links, quick switcher,
+"What's new", per-server notification defaults, sound selection, GIFs and search filters.
 
 ## How work ships
 

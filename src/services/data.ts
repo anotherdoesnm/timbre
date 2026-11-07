@@ -1809,19 +1809,47 @@ export interface SearchHit {
  * by channel or by server. It returns ids and text, not authors — the caller maps what it
  * already knows.
  */
+export interface SearchFilters {
+  channelId?: string;
+  serverId?: string;
+  userId?: string;
+  conversationId?: string;
+  hasMedia?: boolean;
+  hasUrl?: boolean;
+  from?: string;
+  to?: string;
+  limit?: number;
+}
+
+/**
+ * Search with everything `search_messages` accepts.
+ *
+ * The RPC takes more than a query — a channel, a person, media and link flags, a date range — and
+ * the panel parses `in:#channel`, `from:person`, `has:image`, `has:link`, `before:` and `after:`
+ * into those arguments. A term with no words left still searches, which is how "everything in
+ * #general last week" works.
+ */
 export async function searchMessages(
   session: Session,
   query: string,
-  opts: { channelId?: string; serverId?: string; limit?: number } = {}
+  opts: SearchFilters = {}
 ): Promise<SearchHit[]> {
   const term = query.trim();
-  if (term.length < 2) return [];
+  const filtered =
+    opts.channelId || opts.userId || opts.conversationId || opts.hasMedia || opts.hasUrl || opts.from || opts.to;
+  if (term.length < 2 && !filtered) return [];
   const row = await rpc<
     { message_id: string; content_text: string; channel_id: string; created_at: string; fuzzy: boolean | null }[]
   >(session, 'search_messages', {
-    p_query: term,
+    p_query: term || null,
     p_channel_id: opts.channelId ?? null,
     p_server_id: opts.serverId ?? null,
+    p_user_id: opts.userId ?? null,
+    p_conversation_id: opts.conversationId ?? null,
+    p_has_media: opts.hasMedia ?? null,
+    p_has_url: opts.hasUrl ?? null,
+    p_from_date: opts.from ?? null,
+    p_to_date: opts.to ?? null,
     p_limit: opts.limit ?? 30,
   });
   return (row ?? []).map((r) => ({
