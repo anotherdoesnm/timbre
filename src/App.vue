@@ -105,6 +105,8 @@ import {
   fetchMyPermissions,
   kickMember,
   banMember,
+  createReport,
+  type ReportReason,
   fetchUserRoles,
   createRole,
   deleteRole,
@@ -242,6 +244,7 @@ const rolesError = ref('');
 /** Whether this person may manage roles here — the instance's own answer, not a guess. */
 const canManageRoles = ref(false);
 const memberActions = ref<Author | null>(null);
+const reportMessageTarget = ref<Message | null>(null);
 const memberBusy = ref(false);
 const memberError = ref('');
 /** What this person may do in the open server: read from the instance, not assumed. */
@@ -1565,6 +1568,48 @@ async function loadDirectPresence(): Promise<void> {
   directPresence.value = next;
 }
 
+async function onReportMessage(message: Message, reason: string, comment: string): Promise<void> {
+  const s = session.value;
+  if (!s) return;
+  memberBusy.value = true;
+  memberError.value = '';
+  try {
+    await createReport(s, {
+      type: 'message',
+      messageId: message.id,
+      reason: reason as ReportReason,
+      comment,
+    });
+    reportMessageTarget.value = null;
+  } catch (e) {
+    memberError.value = e instanceof Error ? e.message : String(e);
+    throw e;
+  } finally {
+    memberBusy.value = false;
+  }
+}
+
+async function onReportMember(userId: string, reason: string, comment: string): Promise<void> {
+  const s = session.value;
+  if (!s) return;
+  memberBusy.value = true;
+  memberError.value = '';
+  try {
+    await createReport(s, {
+      type: 'user',
+      userId,
+      serverId: activeServer.value,
+      reason: reason as ReportReason,
+      comment,
+    });
+  } catch (e) {
+    memberError.value = e instanceof Error ? e.message : String(e);
+    throw e;
+  } finally {
+    memberBusy.value = false;
+  }
+}
+
 /** Opens the moderation sheet for one person; the permissions decide what it offers. */
 function openMemberActions(person: Author): void {
   memberError.value = '';
@@ -2385,6 +2430,7 @@ watch([activeServer, activeChannel], () => {
         @thread="openThread"
         @forward="(m) => (forwardTarget = m)"
         @copy-link="copyMessageLink"
+        @report="(m) => (reportMessageTarget = m)"
         :thread-counts="threadCounts"
         @channel="openChannelRef"
       />
@@ -2495,6 +2541,16 @@ watch([activeServer, activeChannel], () => {
       @close="rulesSheet = null"
     />
     <MemberActionsSheet
+      v-if="reportMessageTarget"
+      :person="reportMessageTarget.author"
+      :can-kick="false"
+      :can-ban="false"
+      :busy="memberBusy"
+      :error="memberError"
+      :on-report="(_id, reason, comment) => onReportMessage(reportMessageTarget!, reason, comment)"
+      @close="reportMessageTarget = null"
+    />
+    <MemberActionsSheet
       v-if="memberActions"
       :person="memberActions"
       :can-kick="serverPermissions.KICK_MEMBERS === true || serverPermissions.ADMINISTRATOR === true"
@@ -2503,6 +2559,7 @@ watch([activeServer, activeChannel], () => {
       :error="memberError"
       :on-kick="onKickMember"
       :on-ban="onBanMember"
+      :on-report="onReportMember"
       @close="memberActions = null"
     />
     <RolesSheet

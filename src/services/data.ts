@@ -1060,6 +1060,46 @@ export async function fetchBans(session: Session, serverId: string): Promise<Ban
   }
 }
 
+/** The reasons `create_report` understands; anything else is treated as `other`. */
+export type ReportReason =
+  | 'spam'
+  | 'harassment'
+  | 'impersonation'
+  | 'nsfw'
+  | 'illegal_content'
+  | 'other';
+
+/**
+ * Files a report.
+ *
+ * The table is not writable by a client — a direct insert answers `permission denied for table
+ * reports` — because the instance has `create_report()` instead: it snapshots the target, routes the
+ * report to the right instance or server moderators, and returns the existing report when the same
+ * person already has one open on the same target.
+ */
+export async function createReport(
+  session: Session,
+  params: {
+    type: 'user' | 'message' | 'post' | 'server';
+    userId?: string;
+    messageId?: string;
+    serverId?: string;
+    reason: ReportReason;
+    comment?: string;
+  }
+): Promise<string> {
+  const id = await rpc<string>(session, 'create_report', {
+    p_report_type: params.type,
+    p_reported_user_id: params.userId ?? null,
+    p_reported_message_id: params.messageId ?? null,
+    p_reported_server_id: params.serverId ?? null,
+    p_reason: params.reason,
+    p_comment: params.comment?.trim() || null,
+    p_forward: false,
+  });
+  return typeof id === 'string' ? id : '';
+}
+
 /** This person's own permissions in a server, as `get_user_permissions` maps them. */
 export async function fetchMyPermissions(
   session: Session,

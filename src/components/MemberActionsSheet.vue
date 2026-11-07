@@ -19,14 +19,17 @@ const props = defineProps<{
   error?: string;
   onKick?: (userId: string, reason: string) => Promise<void>;
   onBan?: (userId: string, reason: string) => Promise<void>;
+  onReport?: (userId: string, reason: string, comment: string) => Promise<void>;
 }>();
 const emit = defineEmits<{ (e: 'close'): void }>();
 
-const mode = ref<'menu' | 'kick' | 'ban'>('menu');
+const mode = ref<'menu' | 'kick' | 'ban' | 'report'>('menu');
 const reason = ref('');
+const comment = ref('');
 const localError = ref('');
 
-const REASONS = ['spam', 'harassment', 'off-topic', 'other'];
+/** The words `create_report` accepts; anything else it treats as `other`. */
+const REASONS = ['spam', 'harassment', 'impersonation', 'nsfw', 'illegal_content', 'other'];
 
 async function run(): Promise<void> {
   const id = props.person.id;
@@ -35,6 +38,7 @@ async function run(): Promise<void> {
   try {
     if (mode.value === 'kick') await props.onKick?.(id, reason.value);
     else if (mode.value === 'ban') await props.onBan?.(id, reason.value);
+    else if (mode.value === 'report') await props.onReport?.(id, reason.value || 'other', comment.value);
     emit('close');
   } catch (e) {
     localError.value = e instanceof Error ? e.message : String(e);
@@ -61,9 +65,12 @@ async function run(): Promise<void> {
         <button v-if="canBan" class="row danger" @click="mode = 'ban'">
           <Icon name="shield" :size="16" /><span>Ban from the server</span>
         </button>
+        <button v-if="props.onReport" class="row" @click="mode = 'report'">
+          <Icon name="bell" :size="16" /><span>Report to the moderators</span>
+        </button>
         <p class="fine">
-          Kick and ban are checked by the instance against your permissions and your role's rank.
-          Reporting a person is not offered: this instance exposes no way for a client to file one.
+          Kick and ban are checked by the instance against your permissions and your role's rank;
+          a report goes to the instance's moderators through `create_report`.
         </p>
       </template>
 
@@ -79,12 +86,16 @@ async function run(): Promise<void> {
             {{ r }}
           </button>
         </div>
-        <label class="field">
+        <label v-if="mode === 'report'" class="field">
+          <span class="label">What happened (kept with the report)</span>
+          <textarea v-model="comment" class="input" rows="3" maxlength="1000" />
+        </label>
+        <label v-else class="field">
           <span class="label">Reason (optional, shown to moderators)</span>
           <input v-model="reason" class="input" maxlength="200" :placeholder="reason" />
         </label>
-        <button class="primary danger" :disabled="busy" @click="run">
-          {{ busy ? 'Working…' : mode === 'kick' ? 'Kick' : 'Ban' }}
+        <button class="primary" :class="{ danger: mode !== 'report' }" :disabled="busy" @click="run">
+          {{ busy ? 'Working…' : mode === 'report' ? 'Send report' : mode === 'kick' ? 'Kick' : 'Ban' }}
         </button>
       </template>
     </div>

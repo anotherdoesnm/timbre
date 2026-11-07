@@ -35,6 +35,7 @@ const emit = defineEmits<{
   (e: 'thread', m: Message): void;
   (e: 'forward', m: Message): void;
   (e: 'copy-link', m: Message): void;
+  (e: 'report', m: Message): void;
   (e: 'channel', name: string): void;
   (e: 'edit', m: Message): void;
   (e: 'delete', m: Message): void;
@@ -433,6 +434,7 @@ watch(
           <button @click.stop="menuFor = null; emit('reply', m)">Reply</button>
           <button @click.stop="menuFor = null; emit('forward', m)">Forward</button>
           <button @click.stop="menuFor = null; emit('copy-link', m)">Copy link</button>
+          <button @click.stop="menuFor = null; emit('report', m)">Report message</button>
           <button v-if="isMine(m)" @click.stop="menuFor = null; emit('edit', m)">Edit</button>
           <button v-if="isMine(m)" class="danger" @click.stop="menuFor = null; emit('delete', m)">Delete</button>
         </div>

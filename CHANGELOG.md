@@ -13,9 +13,10 @@ Changelog](https://keepachangelog.com/en/1.1.0/), and the project follows semant
   instance checks against permissions *and* rank, and whose refusal is shown in its own words —
   verified live: a plain member attempting a kick gets `Missing KICK_MEMBERS permission`.
 
-  Reporting a person is **not** offered: `reports` has no client-side grant and no RPC on this
-  instance (a direct insert answers 403 `permission denied for table reports`), so a button for it
-  would only ever fail.
+  **Reporting** goes through `create_report` — the table itself is not writable by a client, which is
+  what a first check mistook for "reports do not exist". A person is reported from the moderation
+  sheet, a message from its menu, with the instance's own reasons (`spam`, `harassment`,
+  `impersonation`, `nsfw`, `illegal_content`, `other`).
 
 
 ### Added
