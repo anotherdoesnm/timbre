@@ -22,6 +22,7 @@ import ForwardSheet from './components/ForwardSheet.vue';
 import QuickSwitcher from './components/QuickSwitcher.vue';
 import GifPicker from './components/GifPicker.vue';
 import RolesSheet from './components/RolesSheet.vue';
+import MemberActionsSheet from './components/MemberActionsSheet.vue';
 import WhatsNew from './components/WhatsNew.vue';
 import JoinSheet from './components/JoinSheet.vue';
 import DiscoverSheet from './components/DiscoverSheet.vue';
@@ -102,6 +103,8 @@ import {
   createInvite,
   fetchRoles,
   fetchMyPermissions,
+  kickMember,
+  banMember,
   fetchUserRoles,
   createRole,
   deleteRole,
@@ -238,6 +241,11 @@ const rolesBusy = ref(false);
 const rolesError = ref('');
 /** Whether this person may manage roles here — the instance's own answer, not a guess. */
 const canManageRoles = ref(false);
+const memberActions = ref<Author | null>(null);
+const memberBusy = ref(false);
+const memberError = ref('');
+/** What this person may do in the open server: read from the instance, not assumed. */
+const serverPermissions = ref<Record<string, boolean>>({});
 const gifs = ref<Gif[]>([]);
 const gifsLoading = ref(false);
 const gifsError = ref('');
@@ -856,6 +864,7 @@ async function boot() {
       void loadNotifications({ silent: true });
       void refreshCustomEmoji();
       void loadServerNotify(list[0].id);
+      void loadPermissions(list[0].id);
     void loadConversations();
       const chans = await fetchChannels(s, list[0].id);
       liveChannels.value[list[0].id] = chans;
@@ -983,6 +992,7 @@ let linkOpened = false;
 watch([activeServer, activeChannel], () => {
   presence.value = {};
   if (liveConn) void loadPresence(activeServer.value);
+  void loadPermissions(activeServer.value);
   watchTyping();
 });
 
@@ -1511,6 +1521,7 @@ async function onJoined(serverId: string): Promise<void> {
     void refreshCustomEmoji();
     // A server that requires its rules accepted would otherwise fail the first message.
     await checkRules(serverId);
+    void loadPermissions(serverId);
   } catch (e) {
     loadError.value = e instanceof Error ? e.message : String(e);
   }
@@ -1552,6 +1563,58 @@ async function loadDirectPresence(): Promise<void> {
     next[row.profileId] = { online: row.online, status: row.status, label: statusLabel(row.status) };
   }
   directPresence.value = next;
+}
+
+/** Opens the moderation sheet for one person; the permissions decide what it offers. */
+function openMemberActions(person: Author): void {
+  memberError.value = '';
+  memberActions.value = person;
+}
+
+/** The permissions the moderation sheet gates on, refreshed with the server. */
+async function loadPermissions(serverId: string): Promise<void> {
+  const s = session.value;
+  const me = myProfileId.value;
+  if (!s || !me || !serverId) return;
+  serverPermissions.value = await fetchMyPermissions(s, me, serverId);
+}
+
+async function refreshMembers(serverId: string): Promise<void> {
+  const s = session.value;
+  if (!s) return;
+  liveMembers.value = { ...liveMembers.value, [serverId]: await fetchServerMembers(s, serverId) };
+}
+
+async function onKickMember(userId: string, reason: string): Promise<void> {
+  const s = session.value;
+  if (!s) return;
+  memberBusy.value = true;
+  memberError.value = '';
+  try {
+    await kickMember(s, activeServer.value, userId, reason);
+    await refreshMembers(activeServer.value);
+  } catch (e) {
+    memberError.value = e instanceof Error ? e.message : String(e);
+    throw e;
+  } finally {
+    memberBusy.value = false;
+  }
+}
+
+async function onBanMember(userId: string, reason: string): Promise<void> {
+  const s = session.value;
+  if (!s) return;
+  memberBusy.value = true;
+  memberError.value = '';
+  try {
+    await banMember(s, activeServer.value, userId, reason);
+    await refreshMembers(activeServer.value);
+  } catch (e) {
+    memberError.value = e instanceof Error ? e.message : String(e);
+    throw e;
+  } finally {
+    memberBusy.value = false;
+  }
 }
 
 /** Roles of the open server, with who holds them. Owners can change them; the instance decides. */
@@ -2378,6 +2441,7 @@ watch([activeServer, activeChannel], () => {
       :members="members"
       :presence="presence"
       @select="startDirect"
+      @actions="openMemberActions"
     />
     <div v-if="threadOpen && narrow && threadParent" class="thread-backdrop" @click.self="closeThread">
       <ThreadPanel
@@ -2398,7 +2462,13 @@ watch([activeServer, activeChannel], () => {
       />
     </div>
     <div v-else-if="membersOpen && narrow" class="members-backdrop" @click.self="membersOpen = false">
-      <MemberList class="members-overlay" :members="members" :presence="presence" @select="startDirect" />
+      <MemberList
+        class="members-overlay"
+        :members="members"
+        :presence="presence"
+        @select="startDirect"
+        @actions="openMemberActions"
+      />
     </div>
     <PinnedPanel
       v-if="pinnedOpen"
@@ -2423,6 +2493,17 @@ watch([activeServer, activeChannel], () => {
       :error="rulesError"
       @accept="onAcceptRules"
       @close="rulesSheet = null"
+    />
+    <MemberActionsSheet
+      v-if="memberActions"
+      :person="memberActions"
+      :can-kick="serverPermissions.KICK_MEMBERS === true || serverPermissions.ADMINISTRATOR === true"
+      :can-ban="serverPermissions.BAN_MEMBERS === true || serverPermissions.ADMINISTRATOR === true"
+      :busy="memberBusy"
+      :error="memberError"
+      :on-kick="onKickMember"
+      :on-ban="onBanMember"
+      @close="memberActions = null"
     />
     <RolesSheet
       v-if="rolesOpen"

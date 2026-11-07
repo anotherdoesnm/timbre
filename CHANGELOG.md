@@ -7,6 +7,19 @@ Changelog](https://keepachangelog.com/en/1.1.0/), and the project follows semant
 
 ### Added
 
+- **Moderation: kick and ban.** A "…" on any member opens actions, gated by what
+  `get_user_permissions` says this person may do (`KICK_MEMBERS`, `BAN_MEMBERS`, or
+  `ADMINISTRATOR`), with a reason. The call is `kick_server_member` / `ban_server_member`, which the
+  instance checks against permissions *and* rank, and whose refusal is shown in its own words —
+  verified live: a plain member attempting a kick gets `Missing KICK_MEMBERS permission`.
+
+  Reporting a person is **not** offered: `reports` has no client-side grant and no RPC on this
+  instance (a direct insert answers 403 `permission denied for table reports`), so a button for it
+  would only ever fail.
+
+
+### Added
+
 - **Roles.** The manage sheet opens a roles list — colour, name, how many people hold each — with the
   default role marked. Tapping one shows the members with a toggle, and an owner (or a moderator the
   instance grants `MANAGE_ROLES`) can also create a role: name, colour, and a set of permission

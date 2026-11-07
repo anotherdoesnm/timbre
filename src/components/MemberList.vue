@@ -12,7 +12,10 @@ const props = defineProps<{
   /** Who is online, by profile id, as the instance reports it. */
   presence?: Record<string, { online: boolean; status: number; label: string }>;
 }>();
-const emit = defineEmits<{ (e: 'select', person: Author): void }>();
+const emit = defineEmits<{
+  (e: 'select', person: Author): void;
+  (e: 'actions', person: Author): void;
+}>();
 
 interface Row {
   /** The profile id — presence, and every other per-person thing, is keyed by it. */
@@ -82,6 +85,19 @@ const isOnline = (id: string | undefined): boolean => presenceOf(id)?.online ===
           <span class="name">{{ m.name }}</span>
           <span v-if="m.role" class="role" :class="m.role">{{ m.role === 'admin' ? 'admin' : 'mod' }}</span>
         </div>
+        <button
+          class="more"
+          title="Actions"
+          :disabled="!props.members?.length"
+          @click.stop="
+            emit(
+              'actions',
+              (props.members ?? []).find((p) => p.name === m.name) ?? { name: m.name, initial: m.initial, color: m.color }
+            )
+          "
+        >
+          <Icon name="dots" :size="14" />
+        </button>
         <span
           v-if="presenceOf(m.id)"
           class="presence"
@@ -128,6 +144,7 @@ const isOnline = (id: string | undefined): boolean => presenceOf(id)?.online ===
   font-weight: 700;
 }
 .who { display: flex; align-items: center; gap: var(--sp-200); min-width: 0; }
+.more { flex: none; padding: 2px 4px; color: var(--text-tertiary); }
 .presence {
   width: 7px;
   height: 7px;

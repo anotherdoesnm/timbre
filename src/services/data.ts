@@ -990,6 +990,76 @@ export const PERMISSION_BITS: { name: string; label: string; bit: number }[] = [
   { name: 'PIN_MESSAGES', label: 'Pin messages', bit: 1 << 23 },
 ];
 
+/** A ban the server keeps, for the unban list. */
+export interface BanEntry {
+  userId: string;
+  name: string;
+  reason?: string;
+  at?: string;
+}
+
+/**
+ * Moderation the instance already implements: kick, ban, unban, and reporting.
+ *
+ * The functions check the caller's permission and their role's rank against the target's, and they
+ * answer in their own words when they refuse — "cannot act on a member with an equal or higher role"
+ * and the like. All this client does is ask, and show what came back.
+ */
+export async function kickMember(
+  session: Session,
+  serverId: string,
+  userId: string,
+  reason: string
+): Promise<void> {
+  await rpc(session, 'kick_server_member', {
+    p_server_id: serverId,
+    p_user_id: userId,
+    p_reason: reason.trim() || null,
+    p_delete_message_seconds: 0,
+  });
+}
+
+export async function banMember(
+  session: Session,
+  serverId: string,
+  userId: string,
+  reason: string
+): Promise<void> {
+  await rpc(session, 'ban_server_member', {
+    p_server_id: serverId,
+    p_user_id: userId,
+    p_reason: reason.trim() || null,
+    p_delete_message_seconds: 0,
+  });
+}
+
+export async function unbanMember(
+  session: Session,
+  serverId: string,
+  userId: string
+): Promise<void> {
+  await rpc(session, 'unban_server_member', { p_server_id: serverId, p_user_id: userId });
+}
+
+/** Bans of a server, as the unban list needs them. */
+export async function fetchBans(session: Session, serverId: string): Promise<BanEntry[]> {
+  try {
+    const raw = await rpc<unknown>(session, 'get_server_bans', { p_server_id: serverId });
+    const rows = Array.isArray(raw) ? raw : [];
+    return rows.map((entry) => {
+      const row = (entry ?? {}) as Record<string, unknown>;
+      return {
+        userId: String(row.user_id ?? row.profile_id ?? ''),
+        name: String(row.display_name ?? row.username ?? row.name ?? 'member'),
+        reason: typeof row.reason === 'string' ? row.reason : undefined,
+        at: typeof row.created_at === 'string' ? row.created_at : undefined,
+      };
+    });
+  } catch {
+    return [];
+  }
+}
+
 /** This person's own permissions in a server, as `get_user_permissions` maps them. */
 export async function fetchMyPermissions(
   session: Session,
