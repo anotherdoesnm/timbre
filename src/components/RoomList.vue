@@ -12,6 +12,8 @@ const props = defineProps<{
   live?: boolean;
   unreadNotifications?: number;
   dms?: Conversation[];
+  /** Unread per category, so a collapsed or busy category can say how much is in it. */
+  categoryUnread?: Record<string, number>;
 }>();
 const emit = defineEmits<{
   (e: 'select', id: string): void;
@@ -76,7 +78,10 @@ const groups = computed(() => {
       </section>
 
       <section v-for="g in groups" :key="g.title" class="group">
-        <div class="group-title">{{ g.title }}</div>
+        <div class="group-title">
+          <span>{{ g.title }}</span>
+          <span v-if="props.categoryUnread?.[g.title]" class="group-count">{{ props.categoryUnread[g.title] }}</span>
+        </div>
         <button
           v-for="c in g.items"
           :key="c.id"
@@ -172,6 +177,10 @@ const groups = computed(() => {
 @media (hover: hover) and (pointer: fine) { .scroll { scrollbar-gutter: stable; } }
 .group { margin-bottom: var(--sp-200); }
 .group-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-200);
   padding: var(--sp-200) var(--sp-300) var(--sp-100);
   font-size: var(--fs-xs);
   font-weight: 600;
@@ -194,6 +203,14 @@ const groups = computed(() => {
 .row:hover { background: var(--sf-hover); color: var(--text); }
 .row.active { background: var(--sfv-active); color: var(--text); }
 .muted-mark { color: var(--text-tertiary); flex: none; }
+.group-count {
+  padding: 0 5px;
+  border-radius: var(--radius-xs);
+  background: var(--primary-container);
+  color: var(--primary-on-container);
+  font-size: var(--fs-xs);
+  font-weight: 700;
+}
 .dm-title { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-200); }
 .new-dm { padding: 2px; color: var(--text-tertiary); }
 .dm-empty { margin: 0; padding: var(--sp-100) var(--sp-300) var(--sp-200); color: var(--text-tertiary); font-size: var(--fs-xs); }

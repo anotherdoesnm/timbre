@@ -7,6 +7,13 @@ Changelog](https://keepachangelog.com/en/1.1.0/), and the project follows semant
 
 ### Added
 
+- **Unread that is visible where the decision is made.** Servers in the rail and in the switcher
+  carry the sum of their channels' unread, categories say how much is inside them, and the servers
+  sheet has "Mark this server read" (`mark_server_as_read`, then the counters clear locally too).
+
+
+### Added
+
 - **Presence.** The member list is a roster of who is *here* now, not just who joined: a heartbeat
   keeps this tab online (`presence_heartbeat(p_device_id, p_status, …)`), `get_presence` fills the
   list, and `server-presence:<id>` keeps it live. Online/away/offline dots, with the instance's own

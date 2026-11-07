@@ -19,6 +19,7 @@ import ThreadPanel from './components/ThreadPanel.vue';
 import StickerPicker from './components/StickerPicker.vue';
 import JoinSheet from './components/JoinSheet.vue';
 import DiscoverSheet from './components/DiscoverSheet.vue';
+import { rpc } from './services/api';
 import { heartbeat, fetchPresence, goOffline, statusLabel, STATUS_AWAY, STATUS_BUSY } from './services/presence';
 import type { PresenceUpdate, TypingUser } from './services/realtime';
 import ServerAdminSheet from './components/ServerAdminSheet.vue';
@@ -477,8 +478,11 @@ const myProfileId = ref<string | null>(null);
 // A session means the mocks are a lie: show the real thing or nothing. Rendering the mock
 // first and swapping it is what produced the visible flash.
 const servers = computed(() => {
-  if (session.value) return live.value ? liveServers.value : [];
-  return mockServers;
+  if (!session.value) return mockServers;
+  if (!live.value) return [];
+  return liveServers.value.map((server) =>
+    serverUnread.value[server.id] ? { ...server, unread: serverUnread.value[server.id] } : server
+  );
 });
 const server = computed(() => servers.value.find((s) => s.id === activeServer.value) ?? servers.value[0]);
 const channels = computed(() => {
@@ -493,6 +497,37 @@ const channels = computed(() => {
     return { ...c, unread: total, mention: state?.mentions, muted: mutedChannels.value[c.id] === true };
   });
 });
+/** Unread per server and per category: the numbers the badge promised, summed where they live. */
+const serverUnread = computed<Record<string, number>>(() => {
+  const out: Record<string, number> = {};
+  if (!session.value) return out;
+  for (const [serverId, list] of Object.entries(liveChannels.value)) {
+    let total = 0;
+    for (const c of list) {
+      if (c.kind !== 'text') continue;
+      total += (unread.value[c.id]?.unread ?? 0) + (localUnread.value[c.id] ?? 0);
+    }
+    if (total) out[serverId] = total;
+  }
+  // A direct conversation is nobody's channel, but somebody has to carry its dot.
+  let direct = 0;
+  for (const conversation of conversations.value) {
+    direct += (unread.value[conversation.id]?.unread ?? 0) + (localUnread.value[conversation.id] ?? 0);
+  }
+  if (direct) out.__direct = direct;
+  return out;
+});
+
+const categoryUnread = computed<Record<string, number>>(() => {
+  const out: Record<string, number> = {};
+  for (const c of channels.value) {
+    if (c.kind !== 'text') continue;
+    const total = (unread.value[c.id]?.unread ?? 0) + (localUnread.value[c.id] ?? 0);
+    if (total) out[c.category] = (out[c.category] ?? 0) + total;
+  }
+  return out;
+});
+
 const channel = computed(() => {
   const direct = conversations.value.find((c) => c.id === activeChannel.value);
   if (direct) {
@@ -1222,6 +1257,26 @@ function watchTyping(): void {
   typingSubscription = conn.subscribeTyping(context, (users) => (typingUsers.value = users));
 }
 
+/** "I have seen this server": one call, then the badges for it are cleared locally too. */
+async function markServerRead(serverId: string): Promise<void> {
+  const s = session.value;
+  if (!s || !serverId) return;
+  try {
+    await rpc(s, 'mark_server_as_read', { p_server_id: serverId });
+    const list = liveChannels.value[serverId] ?? [];
+    const nextUnread = { ...unread.value };
+    const nextLocal = { ...localUnread.value };
+    for (const c of list) {
+      delete nextUnread[c.id];
+      delete nextLocal[c.id];
+    }
+    unread.value = nextUnread;
+    localUnread.value = nextLocal;
+  } catch (e) {
+    showError(e instanceof Error ? e.message : String(e));
+  }
+}
+
 /** Creates a server and lands in it: the instance builds its default channels on insert. */
 async function onCreateServer(name: string, isPublic: boolean): Promise<void> {
   const s = session.value;
@@ -1787,6 +1842,7 @@ watch([activeServer, activeChannel], () => {
       @notifications="openNotifications"
       :unread-notifications="unreadNotifications"
       :dms="live ? conversations : undefined"
+      :category-unread="categoryUnread"
       @new-dm="newDmOpen = true"
     />
     <main v-if="channel" class="chat">
@@ -2025,6 +2081,7 @@ watch([activeServer, activeChannel], () => {
       @join="serversOpen = false; inviteSeed = ''; joinOpen = true"
       @discover="serversOpen = false; openDiscover()"
       @create="serversOpen = false; createError = ''; createOpen = true"
+      @mark-read="serversOpen = false; markServerRead(activeServer)"
       @close="closeServers"
     />
   </div>

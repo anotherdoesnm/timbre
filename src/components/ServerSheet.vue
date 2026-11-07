@@ -10,6 +10,7 @@ const emit = defineEmits<{
   (e: 'join'): void;
   (e: 'discover'): void;
   (e: 'create'): void;
+  (e: 'mark-read'): void;
 }>();
 const broken = ref<Record<string, true>>({});
 </script>
@@ -50,6 +51,10 @@ const broken = ref<Record<string, true>>({});
       <button class="row add" @click="emit('join')">
         <span class="tile add-tile"><Icon name="plus" :size="16" /></span>
         <span class="name">Join with an invite</span>
+      </button>
+      <button class="row" @click="emit('mark-read')">
+        <span class="tile add-tile"><Icon name="check" :size="16" /></span>
+        <span class="name">Mark this server read</span>
       </button>
       <button class="row add" @click="emit('discover')">
         <span class="tile add-tile"><Icon name="search" :size="16" /></span>
