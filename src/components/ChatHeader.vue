@@ -18,6 +18,7 @@ const emit = defineEmits<{
   (e: 'toggle-mute'): void;
   (e: 'pins'): void;
   (e: 'threads'): void;
+  (e: 'channel-settings'): void;
 }>();
 </script>
 

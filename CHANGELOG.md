@@ -7,6 +7,16 @@ Changelog](https://keepachangelog.com/en/1.1.0/), and the project follows semant
 
 ### Added
 
+- **Per-channel permission overrides.** A "…" in the channel header opens the channel's permissions:
+  pick a role, then allow or deny each of twelve channel-scoped permissions (see, send, thread, attach,
+  react, mention everyone, manage messages, pin…). "Neither" is neutral and lets the server's roles
+  decide. The instance stores both masks on one row per (channel, role); since the unique index that
+  would allow an upsert is partial, the write is PATCH-then-INSERT, and clearing both masks deletes the
+  row instead of leaving a meaningless one.
+
+
+### Added
+
 - **The ban list**, with unban. `get_server_bans` answers only to `BAN_MEMBERS` (it refuses with
   `Missing BAN_MEMBERS permission`), so the entry point appears only when `get_user_permissions`
   grants it; unbanning is `unban_server_member` and the row leaves the list at once.

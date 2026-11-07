@@ -1060,6 +1060,114 @@ export async function fetchBans(session: Session, serverId: string): Promise<Ban
   }
 }
 
+/** A permission override on one channel for one role. */
+export interface ChannelOverride {
+  id: string;
+  roleId: string;
+  allow: number;
+  deny: number;
+}
+
+/** Permissions worth overriding per channel; the rest are server-wide by nature. */
+export const CHANNEL_PERMISSIONS: { name: string; label: string; bit: number }[] = [
+  { name: 'VIEW_CHANNEL', label: 'See this channel', bit: 1 << 1 },
+  { name: 'SEND_MESSAGES', label: 'Send messages', bit: 1 << 12 },
+  { name: 'SEND_MESSAGES_IN_THREADS', label: 'Reply in threads', bit: 1 << 13 },
+  { name: 'CREATE_PUBLIC_THREADS', label: 'Start threads', bit: 1 << 14 },
+  { name: 'EMBED_LINKS', label: 'Link previews', bit: 1 << 16 },
+  { name: 'ATTACH_FILES', label: 'Attach files', bit: 1 << 17 },
+  { name: 'ADD_REACTIONS', label: 'Add reactions', bit: 1 << 18 },
+  { name: 'USE_EXTERNAL_EMOJIS', label: 'Use external emoji', bit: 1 << 19 },
+  { name: 'MENTION_EVERYONE', label: 'Mention everyone', bit: 1 << 20 },
+  { name: 'MANAGE_MESSAGES', label: 'Manage messages', bit: 1 << 21 },
+  { name: 'READ_MESSAGE_HISTORY', label: 'Read history', bit: 1 << 22 },
+  { name: 'PIN_MESSAGES', label: 'Pin messages', bit: 1 << 23 },
+];
+
+/** Overrides of one channel, for whoever may see the channel at all. */
+export async function fetchChannelOverrides(
+  session: Session,
+  channelId: string
+): Promise<ChannelOverride[]> {
+  const rows = await rest<Row[]>(
+    session,
+    'channel_permission_overrides',
+    `channel_id=eq.${encodeURIComponent(channelId)}&target_type=eq.role` +
+      '&select=id,role_id,allow_permissions,deny_permissions'
+  ).catch(() => [] as Row[]);
+  return rows.map((row) => ({
+    id: String(row.id),
+    roleId: String(row.role_id ?? ''),
+    allow: Number(row.allow_permissions ?? 0),
+    deny: Number(row.deny_permissions ?? 0),
+  }));
+}
+
+/**
+ * Writes one role's override. The unique index that makes this an upsert is partial
+ * (`channel_id, role_id` where `user_id IS NULL`), which PostgREST's `on_conflict` cannot name, so
+ * it is a PATCH followed by an INSERT — and an all-zero mask deletes the row instead of leaving a
+ * meaningless one.
+ */
+export async function setChannelOverride(
+  session: Session,
+  channelId: string,
+  roleId: string,
+  allow: number,
+  deny: number
+): Promise<void> {
+  const filter =
+    `channel_id=eq.${encodeURIComponent(channelId)}&role_id=eq.${encodeURIComponent(roleId)}` +
+    '&user_id=is.null';
+  if (!allow && !deny) {
+    const res = await fetch(`${session.supabaseUrl}/rest/v1/channel_permission_overrides?${filter}`, {
+      method: 'DELETE',
+      headers: {
+        apikey: session.anonKey,
+        Authorization: `Bearer ${session.accessToken}`,
+        Prefer: 'return=minimal',
+      },
+    });
+    if (!res.ok) throw new Error(`override: ${res.status}`);
+    return;
+  }
+  const body = JSON.stringify({ allow_permissions: allow, deny_permissions: deny });
+  const patch = await fetch(`${session.supabaseUrl}/rest/v1/channel_permission_overrides?${filter}`, {
+    method: 'PATCH',
+    headers: {
+      apikey: session.anonKey,
+      Authorization: `Bearer ${session.accessToken}`,
+      'Content-Type': 'application/json',
+      Prefer: 'return=representation',
+    },
+    body,
+  });
+  if (!patch.ok) {
+    throw new Error(`override: ${patch.status} ${(await patch.text()).slice(0, 140)}`);
+  }
+  const rows = (await patch.json().catch(() => [])) as unknown[];
+  if (Array.isArray(rows) && rows.length) return;
+  const insert = await fetch(`${session.supabaseUrl}/rest/v1/channel_permission_overrides`, {
+    method: 'POST',
+    headers: {
+      apikey: session.anonKey,
+      Authorization: `Bearer ${session.accessToken}`,
+      'Content-Type': 'application/json',
+      Prefer: 'return=minimal',
+    },
+    body: JSON.stringify({
+      channel_id: channelId,
+      target_type: 'role',
+      role_id: roleId,
+      allow_permissions: allow,
+      deny_permissions: deny,
+    }),
+  });
+  if (!insert.ok) {
+    throw new Error(`override: ${insert.status} ${(await insert.text()).slice(0, 140)}`);
+  }
+}
+
 /** A report as the moderators' queue shows it. */
 export interface ReportEntry {
   id: string;

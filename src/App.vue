@@ -25,6 +25,7 @@ import RolesSheet from './components/RolesSheet.vue';
 import MemberActionsSheet from './components/MemberActionsSheet.vue';
 import BansSheet from './components/BansSheet.vue';
 import ReportsSheet from './components/ReportsSheet.vue';
+import ChannelPermissionsSheet from './components/ChannelPermissionsSheet.vue';
 import WhatsNew from './components/WhatsNew.vue';
 import JoinSheet from './components/JoinSheet.vue';
 import DiscoverSheet from './components/DiscoverSheet.vue';
@@ -111,6 +112,9 @@ import {
   fetchBans,
   unbanMember,
   fetchReports,
+  fetchChannelOverrides,
+  setChannelOverride,
+  type ChannelOverride,
   moderateReport,
   type BanEntry,
   type ReportEntry,
@@ -258,6 +262,11 @@ const bansLoading = ref(false);
 const bansError = ref('');
 const unbanBusyId = ref('');
 const reportsOpen = ref(false);
+const channelPermsOpen = ref(false);
+const channelOverrides = ref<ChannelOverride[]>([]);
+const channelPermsLoading = ref(false);
+const channelPermsBusy = ref(false);
+const channelPermsError = ref('');
 const reports = ref<ReportEntry[]>([]);
 const reportsLoading = ref(false);
 const reportsError = ref('');
@@ -1699,6 +1708,54 @@ async function onModerateReport(
   }
 }
 
+/** Overrides of the open channel: who may see and post where. */
+async function openChannelPermissions(): Promise<void> {
+  const s = session.value;
+  const ch = channel.value;
+  if (!s || !ch || isDirect(ch.id)) return;
+  channelPermsOpen.value = true;
+  channelPermsLoading.value = true;
+  channelPermsError.value = '';
+  try {
+    const [list, overrides] = await Promise.all([
+      fetchRoles(s, activeServer.value),
+      fetchChannelOverrides(s, ch.id),
+    ]);
+    roles.value = list;
+    channelOverrides.value = overrides;
+  } catch (e) {
+    channelPermsError.value = e instanceof Error ? e.message : String(e);
+  } finally {
+    channelPermsLoading.value = false;
+  }
+}
+
+async function onChannelOverride(roleId: string, allow: number, deny: number): Promise<void> {
+  const s = session.value;
+  const ch = channel.value;
+  if (!s || !ch) return;
+  channelPermsBusy.value = true;
+  channelPermsError.value = '';
+  try {
+    await setChannelOverride(s, ch.id, roleId, allow, deny);
+    const rest = channelOverrides.value.filter((o) => o.roleId !== roleId);
+    channelOverrides.value = allow || deny ? [...rest, { id: roleId, roleId, allow, deny }] : rest;
+  } catch (e) {
+    channelPermsError.value = e instanceof Error ? e.message : String(e);
+  } finally {
+    channelPermsBusy.value = false;
+  }
+}
+
+/** Who may change these: the same rule the instance's policy applies. */
+const canManageOverrides = computed(
+  () =>
+    serverPermissions.value.MANAGE_CHANNELS === true ||
+    serverPermissions.value.MANAGE_ROLES === true ||
+    serverPermissions.value.ADMINISTRATOR === true ||
+    me.value.role !== null
+);
+
 /** The permissions the moderation sheet gates on, refreshed with the server. */
 async function loadPermissions(serverId: string): Promise<void> {
   const s = session.value;
@@ -2483,6 +2540,7 @@ watch([activeServer, activeChannel], () => {
         :pins="pinnedCount"
         :threads="unreadThreads"
         @threads="openThreads"
+        @channel-settings="openChannelPermissions"
         @pins="openPins"
         :live="live"
         @search="openSearch"
@@ -2623,6 +2681,18 @@ watch([activeServer, activeChannel], () => {
       @accept="onAcceptRules"
       @close="rulesSheet = null"
     />
+    <ChannelPermissionsSheet
+      v-if="channelPermsOpen"
+      :channel-name="channel?.name ?? 'channel'"
+      :roles="roles"
+      :overrides="channelOverrides"
+      :can-manage="canManageOverrides"
+      :loading="channelPermsLoading"
+      :busy="channelPermsBusy"
+      :error="channelPermsError"
+      :on-change="onChannelOverride"
+      @close="channelPermsOpen = false"
+    />
     <BansSheet
       v-if="bansOpen"
       :bans="bans"
@@ -2650,6 +2720,18 @@ watch([activeServer, activeChannel], () => {
       :error="memberError"
       :on-report="(_id, reason, comment) => onReportMessage(reportMessageTarget!, reason, comment)"
       @close="reportMessageTarget = null"
+    />
+    <ChannelPermissionsSheet
+      v-if="channelPermsOpen"
+      :channel-name="channel?.name ?? 'channel'"
+      :roles="roles"
+      :overrides="channelOverrides"
+      :can-manage="canManageOverrides"
+      :loading="channelPermsLoading"
+      :busy="channelPermsBusy"
+      :error="channelPermsError"
+      :on-change="onChannelOverride"
+      @close="channelPermsOpen = false"
     />
     <BansSheet
       v-if="bansOpen"
