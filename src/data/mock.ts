@@ -25,7 +25,15 @@ export interface Message {
   /** Quoted parent, when this message is a reply. */
   replyTo?: { id: string; author: string; text: string };
   /** Aggregated reactions: one chip per emoji. */
-  reactions?: { emoji: string; count: number; mine: boolean; /** custom emoji picture */ url?: string }[];
+  reactions?: {
+    emoji: string;
+    count: number;
+    mine: boolean;
+    /** custom emoji picture */
+    url?: string;
+    /** the instance's emoji row this chip belongs to; two packs can share a name */
+    emojiId?: string;
+  }[];
   /** Non-image attachments, with a signed link when one could be made. */
   files?: { name: string; url?: string }[];
   /** Set when the message was edited after sending. */

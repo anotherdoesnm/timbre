@@ -28,7 +28,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   (e: 'load-older'): void;
   (e: 'reply', m: Message): void;
-  (e: 'react', m: Message, emoji: string, mine: boolean): void;
+  (e: 'react', m: Message, emoji: string, mine: boolean, emojiId?: string): void;
   (e: 'mention', handle: string): void;
   (e: 'pin', m: Message, pinned: boolean): void;
   (e: 'vote', pollId: string, optionIds: string[]): void;
@@ -116,23 +116,32 @@ const lightbox = ref<string | null>(null);
 function isMine(m: Message): boolean {
   return !!props.myId && m.author.id === props.myId;
 }
-function mine(m: Message, emoji: string): boolean {
-  return !!m.reactions?.find((r) => r.emoji === emoji)?.mine;
+/**
+ * Whether this person already has that reaction.
+ *
+ * The id wins over the name: two packs can both ship an emoji called `RIP`, and a name comparison
+ * makes both chips claim to be yours.
+ */
+function mine(m: Message, emoji: string, emojiId?: string): boolean {
+  const list = m.reactions ?? [];
+  const hit = emojiId ? list.find((r) => r.emojiId === emojiId) : list.find((r) => r.emoji === emoji);
+  return !!hit?.mine;
 }
-function pick(m: Message, emoji: string): void {
+function pick(m: Message, emoji: string, emojiId?: string): void {
   pickerFor.value = null;
-  emit('react', m, emoji, mine(m, emoji));
+  emit('react', m, emoji, mine(m, emoji, emojiId), emojiId);
 }
 
 /**
  * A custom emoji reacts by its bare name (`toothy`, not `:toothy:`): that is what the instance
  * stores in `custom_emoji_content` and what other clients resolve back to the picture.
  */
-function pickCustom(m: Message, value: { char?: string; name?: string }): void {
+function pickCustom(m: Message, value: { char?: string; name?: string; url?: string }): void {
   const emoji = value.char ?? value.name ?? '';
   if (!emoji) return;
+  const emojiId = value.name ? customEmoji.value.find((e) => e.name === value.name)?.id : undefined;
   pickerFor.value = null;
-  emit('react', m, emoji, mine(m, emoji));
+  emit('react', m, emoji, mine(m, emoji, emojiId), emojiId);
 }
 // Which one is shown is decided in CSS by the pointer, not by this file: on a phone only the
 // tapped message carries a toolbar, on a mouse the hovered one.
@@ -348,7 +357,7 @@ watch(
               :key="r.emoji"
               class="reaction"
               :class="{ mine: r.mine }"
-              @click.stop="emit('react', m, r.emoji, r.mine)"
+              @click.stop="emit('react', m, r.emoji, r.mine, r.emojiId)"
             >
               <img
                 v-if="r.url || customEmojiUrl(r.emoji)"

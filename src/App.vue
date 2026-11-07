@@ -525,7 +525,12 @@ async function openChannel(channelId: string): Promise<void> {
   }
 }
 
-async function onReact(m: { id: string }, emoji: string, mine: boolean): Promise<void> {
+async function onReact(
+  m: { id: string },
+  emoji: string,
+  mine: boolean,
+  chipEmojiId?: string
+): Promise<void> {
   const s = session.value;
   const ch = channel.value;
   if (!s || !ch || !myProfileId.value) return;
@@ -537,9 +542,9 @@ async function onReact(m: { id: string }, emoji: string, mine: boolean): Promise
       myProfileId.value,
       emoji,
       mine,
-      customEmoji.value.find(
-        (e) => e.name === emoji.replace(/^:|:$/g, '') || e.id === emoji
-      )?.id
+      // The chip knows which row it is; a name can be shared by two packs, and stacking on the
+      // wrong one creates a second chip instead of adding to this one.
+      chipEmojiId ?? customEmoji.value.find((e) => e.name === emoji.replace(/^:|:$/g, ''))?.id
     );
     // A reaction can be on a message of the channel or of the thread beside it; refresh whichever
     // holds it, because a chip that never appears reads as a broken button.

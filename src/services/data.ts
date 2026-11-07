@@ -1298,6 +1298,7 @@ export async function fetchReactions(
   if (!messageIds.length) return {};
   let rows: {
     message_id: string;
+    emoji_id: string | null;
     emoji_name: string | null;
     emoji_url: string | null;
     custom_emoji_content: string | null;
@@ -1324,6 +1325,7 @@ export async function fetchReactions(
     (out[row.message_id] ??= []).push({
       emoji,
       ...(url ? { url } : {}),
+      ...(typeof row.emoji_id === 'string' ? { emojiId: row.emoji_id } : {}),
       count: Number(row.reaction_count ?? 0),
       mine: row.current_user_reacted === true,
     });
