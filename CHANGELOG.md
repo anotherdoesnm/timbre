@@ -3,7 +3,7 @@
 Notable changes to Timbre, newest first. The format follows [Keep a
 Changelog](https://keepachangelog.com/en/1.1.0/), and the project follows semantic versioning.
 
-## [Unreleased]
+## [Unreleased] — the 0.11.0 line
 
 ### Added
 
