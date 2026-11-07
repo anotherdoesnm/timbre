@@ -3,6 +3,17 @@
 Notable changes to Timbre, newest first. The format follows [Keep a
 Changelog](https://keepachangelog.com/en/1.1.0/), and the project follows semantic versioning.
 
+## [Unreleased]
+
+### Fixed
+
+- **Broken server pictures in discovery.** Two causes, measured against the live instance's 27
+  public servers: 3 icons point at *other* instances' storage (`db.spacify.cloud` answers 404,
+  `db.chat.mstdn.ca` 403) and one row still carries the legacy `/default_server_icon.png` sentinel,
+  which the schema itself says never to store. A failed picture now leaves the initials rather than
+  the browser's broken-image glyph, and the sentinel is treated as "no icon". The web build also
+  ships `default_server_icon.png`, so an instance serving this build answers the legacy path.
+
 ## [0.10.0] — 2026-11-07
 
 ### Added

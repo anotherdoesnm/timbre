@@ -18,6 +18,7 @@ const emit = defineEmits<{
 }>();
 
 const query = ref('');
+const broken = ref<Record<string, true>>({});
 </script>
 
 <template>
@@ -42,7 +43,13 @@ const query = ref('');
         class="row"
       >
         <span class="tile" :style="server.iconUrl ? undefined : { background: 'var(--primary-main)' }">
-          <img v-if="server.iconUrl" :src="server.iconUrl" alt="" referrerpolicy="no-referrer" />
+          <img
+            v-if="server.iconUrl && !broken[server.id]"
+            :src="server.iconUrl"
+            alt=""
+            referrerpolicy="no-referrer"
+            @error="broken[server.id] = true"
+          />
           <template v-else>{{ server.name.slice(0, 2).toUpperCase() }}</template>
         </span>
         <span class="body">

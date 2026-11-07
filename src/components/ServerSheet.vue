@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { ref } from 'vue';
 import Icon from './Icon.vue';
 import type { Server } from '../data/mock';
 
@@ -9,6 +10,7 @@ const emit = defineEmits<{
   (e: 'join'): void;
   (e: 'discover'): void;
 }>();
+const broken = ref<Record<string, true>>({});
 </script>
 
 <template>
@@ -31,7 +33,13 @@ const emit = defineEmits<{
         @click="emit('select', s.id)"
       >
         <span class="tile" :style="s.iconUrl ? undefined : { background: s.color }">
-          <img v-if="s.iconUrl" :src="s.iconUrl" alt="" referrerpolicy="no-referrer" />
+          <img
+            v-if="s.iconUrl && !broken[s.id]"
+            :src="s.iconUrl"
+            alt=""
+            referrerpolicy="no-referrer"
+            @error="broken[s.id] = true"
+          />
           <template v-else>{{ s.short }}</template>
         </span>
         <span class="name">{{ s.name }}</span>

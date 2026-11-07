@@ -1,9 +1,11 @@
 <script setup lang="ts">
+import { ref } from 'vue';
 import Icon from './Icon.vue';
 import type { Server } from '../data/mock';
 
 defineProps<{ servers: Server[]; activeId: string }>();
 const emit = defineEmits<{ (e: 'select', id: string): void }>();
+const broken = ref<Record<string, true>>({});
 </script>
 
 <template>
@@ -21,7 +23,14 @@ const emit = defineEmits<{ (e: 'select', id: string): void }>();
       :style="{ background: s.id === activeId ? s.color : 'var(--sfv-container)', color: 'var(--text)' }"
       @click="emit('select', s.id)"
     >
-      <img v-if="s.iconUrl" class="rail-icon" :src="s.iconUrl" alt="" referrerpolicy="no-referrer" />
+      <img
+        v-if="s.iconUrl && !broken[s.id]"
+        class="rail-icon"
+        :src="s.iconUrl"
+        alt=""
+        referrerpolicy="no-referrer"
+        @error="broken[s.id] = true"
+      />
       <span v-else class="short">{{ s.short }}</span>
       <span v-if="s.unread" class="dot" />
     </button>

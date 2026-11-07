@@ -214,6 +214,9 @@ type Origin = { instance: string; supabaseUrl: string };
  */
 export function serverIconUrl(icon: unknown, at: Origin): string | undefined {
   if (typeof icon !== 'string' || !icon) return undefined;
+  // A path to a bundled default is not an icon: older rows still carry these sentinels, and asking
+  // a storage bucket for `/default_server_icon.png` is a 404 that renders as a broken image.
+  if (/^\/?(default_server_icon|default_server|default_avatar)\.(png|webp)$/i.test(icon)) return undefined;
   if (/^https?:\/\//i.test(icon)) return icon;
   if (icon.startsWith('/')) return `https://${at.instance}${icon}`;
   if (!/^[\w-]+\/[\w./-]+\.(png|jpe?g|webp|gif|avif)$/i.test(icon)) return undefined;
