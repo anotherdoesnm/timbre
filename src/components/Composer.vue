@@ -31,6 +31,7 @@ const emit = defineEmits<{
   (e: 'save-edit', text: string): void;
   (e: 'create-poll'): void;
   (e: 'stickers'): void;
+  (e: 'typing'): void;
   (e: 'cancel-edit'): void;
 }>();
 const text = ref(loadDraft(props.draftInstance, props.draftChannel));
@@ -50,6 +51,8 @@ watch(
 
 // Saving on every keystroke writes to storage dozens of times a second; 300 ms is below the point
 // where losing the text to a crash would hurt.
+watch(text, () => emit('typing'));
+
 watch(text, (value) => {
   if (draftTimer) clearTimeout(draftTimer);
   draftTimer = setTimeout(() => saveDraft(props.draftInstance, props.draftChannel, value), 300);

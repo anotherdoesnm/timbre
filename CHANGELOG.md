@@ -5,6 +5,17 @@ Changelog](https://keepachangelog.com/en/1.1.0/), and the project follows semant
 
 ## [Unreleased]
 
+### Added
+
+- **Presence.** The member list is a roster of who is *here* now, not just who joined: a heartbeat
+  keeps this tab online (`presence_heartbeat(p_device_id, p_status, …)`), `get_presence` fills the
+  list, and `server-presence:<id>` keeps it live. Online/away/offline dots, with the instance's own
+  status codes (1 online, 2 away, 3 busy, 4 invisible).
+- **Typing indicators.** Typing is Realtime *presence* on `typing:<kind>:<id>` — this client tracks
+  while the composer changes and clears after a pause, and shows "…is typing" above the composer.
+  Nothing is sent to the instance for it, so it costs no rows.
+
+
 ### Fixed
 
 - **`:RIP:` from another pack stayed text.** A message part names its emoji together with the

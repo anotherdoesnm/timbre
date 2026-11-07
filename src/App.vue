@@ -19,6 +19,8 @@ import ThreadPanel from './components/ThreadPanel.vue';
 import StickerPicker from './components/StickerPicker.vue';
 import JoinSheet from './components/JoinSheet.vue';
 import DiscoverSheet from './components/DiscoverSheet.vue';
+import { heartbeat, fetchPresence, goOffline, statusLabel, STATUS_AWAY, STATUS_BUSY } from './services/presence';
+import type { PresenceUpdate, TypingUser } from './services/realtime';
 import ServerAdminSheet from './components/ServerAdminSheet.vue';
 import RulesSheet from './components/RulesSheet.vue';
 import type { CustomEmoji } from './services/emoji';
@@ -200,6 +202,13 @@ const notifSettingsOpen = ref(false);
 const prefsSaving = ref(false);
 const joinOpen = ref(false);
 const createOpen = ref(false);
+// Presence: who is online in the open server, and who is typing in the open room.
+const presence = ref<Record<string, { online: boolean; status: number; label: string }>>({});
+const typingUsers = ref<TypingUser[]>([]);
+let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+let typingSubscription: { close(): void } | null = null;
+let typingSentAt = 0;
+let typingStopTimer: ReturnType<typeof setTimeout> | null = null;
 const createBusy = ref(false);
 const createError = ref('');
 const discoverOpen = ref(false);
@@ -804,7 +813,20 @@ function ensureLive(): void {
   for (const conversation of conversations.value) {
     liveConn.subscribeConversation(conversation.id, (event) => onLiveEvent(conversation.id, event));
   }
+  // Presence of the open server, live: this is what turns the member list from a roster into a
+  // list of who is around right now.
+  for (const serverId of Object.keys(liveChannels.value)) {
+    liveConn.subscribePresence(serverId, applyPresence);
+  }
+  watchTyping();
 }
+
+// A different room means a different typing channel: re-subscribe, and drop what was there.
+watch([activeServer, activeChannel], () => {
+  presence.value = {};
+  if (liveConn) void loadPresence(activeServer.value);
+  watchTyping();
+});
 
 function channelById(id: string): { name: string; serverId: string } | null {
   for (const [serverId, chans] of Object.entries(liveChannels.value)) {
@@ -885,6 +907,11 @@ function onLiveEvent(channelId: string, event: MessageEvent): void {
 }
 
 watch([session, live, liveChannels], ensureLive, { deep: true, immediate: true });
+watch(session, (s) => (s ? startHeartbeat() : undefined), { immediate: true });
+onUnmounted(() => {
+  if (heartbeatTimer) clearInterval(heartbeatTimer);
+  typingSubscription?.close();
+});
 onUnmounted(() => liveConn?.close());
 
 // The window title is the only badge a browser tab has; a shell shows the toast instead.
@@ -1121,6 +1148,78 @@ async function onDiscoverJoin(server: PublicServer): Promise<void> {
   } finally {
     discoverBusyId.value = '';
   }
+}
+
+/** Applies one presence change, whether from the socket or a fetch. */
+function applyPresence(update: PresenceUpdate): void {
+  if (!update.userId) return;
+  presence.value = {
+    ...presence.value,
+    [update.userId]: {
+      online: update.online,
+      status: update.status ?? 1,
+      label: statusLabel(update.status ?? 1),
+    },
+  };
+}
+
+async function loadPresence(serverId: string): Promise<void> {
+  const s = session.value;
+  if (!s || !serverId) return;
+  const members = liveMembers.value[serverId] ?? [];
+  const ids = members.map((m) => m.id).filter((id): id is string => !!id);
+  if (myProfileId.value) ids.push(myProfileId.value);
+  const rows = await fetchPresence(s, ids);
+  const next: Record<string, { online: boolean; status: number; label: string }> = {};
+  for (const row of rows) {
+    next[row.profileId] = { online: row.online, status: row.status, label: statusLabel(row.status) };
+  }
+  presence.value = next;
+}
+
+/** The heartbeat is what makes this tab "online"; it stops with the page. */
+function startHeartbeat(): void {
+  const s = session.value;
+  if (!s) return;
+  void heartbeat(s);
+  if (heartbeatTimer) clearInterval(heartbeatTimer);
+  heartbeatTimer = setInterval(() => void heartbeat(s), 45_000);
+  window.addEventListener('pagehide', () => goOffline(s));
+}
+
+/** Says "I am typing" at most once every few seconds, and says "stopped" after a pause. */
+function onTyping(): void {
+  const s = session.value;
+  const ch = channel.value;
+  const conn = liveConn;
+  if (!s || !ch || !conn || !myProfileId.value) return;
+  const context = isDirect(ch.id)
+    ? { kind: 'conversation' as const, id: ch.id }
+    : { kind: 'channel' as const, id: ch.id };
+  const now = Date.now();
+  if (now - typingSentAt > 2500) {
+    typingSentAt = now;
+    conn.trackTyping(context, { userId: myProfileId.value, name: me.value.name });
+  }
+  if (typingStopTimer) clearTimeout(typingStopTimer);
+  typingStopTimer = setTimeout(() => {
+    typingSentAt = 0;
+    conn.clearTyping(context);
+  }, 4000);
+}
+
+/** Follows who is typing in the open room: it changes with the room, not with the message list. */
+function watchTyping(): void {
+  const conn = liveConn;
+  const ch = channel.value;
+  typingSubscription?.close();
+  typingSubscription = null;
+  typingUsers.value = [];
+  if (!conn || !ch || !myProfileId.value) return;
+  const context = isDirect(ch.id)
+    ? { kind: 'conversation' as const, id: ch.id, myId: myProfileId.value }
+    : { kind: 'channel' as const, id: ch.id, myId: myProfileId.value };
+  typingSubscription = conn.subscribeTyping(context, (users) => (typingUsers.value = users));
 }
 
 /** Creates a server and lands in it: the instance builds its default channels on insert. */
@@ -1727,6 +1826,10 @@ watch([activeServer, activeChannel], () => {
         :thread-counts="threadCounts"
         @channel="openChannelRef"
       />
+      <p v-if="typingUsers.length" class="typing-line">
+        {{ typingUsers.map((u) => u.name || 'somebody').join(', ') }}
+        {{ typingUsers.length === 1 ? 'is typing…' : 'are typing…' }}
+      </p>
       <Composer
         :channel-name="channel.name"
         :disabled="!!channel.encrypted"
@@ -1736,6 +1839,7 @@ watch([activeServer, activeChannel], () => {
         :uploading="uploading"
         @create-poll="pollOpen = true"
         @stickers="openStickers"
+        @typing="onTyping"
         :custom-emoji="customEmoji"
       :server-names="emojiServerNames"
         :draft-instance="session?.instance"
@@ -1769,7 +1873,12 @@ watch([activeServer, activeChannel], () => {
       @delete="onDeleteMessage"
       @mention="openMention"
     />
-    <MemberList v-if="membersOpen && !narrow" :members="members" @select="startDirect" />
+    <MemberList
+      v-if="membersOpen && !narrow"
+      :members="members"
+      :presence="presence"
+      @select="startDirect"
+    />
     <div v-if="threadOpen && narrow && threadParent" class="thread-backdrop" @click.self="closeThread">
       <ThreadPanel
         :parent="threadParent"
@@ -1789,7 +1898,7 @@ watch([activeServer, activeChannel], () => {
       />
     </div>
     <div v-else-if="membersOpen && narrow" class="members-backdrop" @click.self="membersOpen = false">
-      <MemberList class="members-overlay" :members="members" @select="startDirect" />
+      <MemberList class="members-overlay" :members="members" :presence="presence" @select="startDirect" />
     </div>
     <PinnedPanel
       v-if="pinnedOpen"
@@ -2012,6 +2121,12 @@ watch([activeServer, activeChannel], () => {
 .offline .retry { color: var(--text); text-decoration: underline; }
 .offline .dismiss { color: var(--text-tertiary); }
 .chat { display: flex; flex-direction: column; min-width: 0; min-height: 0; background: var(--bg-container); }
+.typing-line {
+  margin: 0;
+  padding: 0 var(--sp-400) var(--sp-100);
+  color: var(--text-tertiary);
+  font-size: var(--fs-xs);
+}
 .banner {
   margin: 0;
   padding: var(--sp-200) var(--sp-400);

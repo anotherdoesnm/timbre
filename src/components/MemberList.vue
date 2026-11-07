@@ -7,10 +7,16 @@ import { members as mockMembers, type Author } from '../data/mock';
  * the server's presence channel), so everybody is listed in join order rather than split into
  * online and offline: a made-up "online" heading would be worse than none.
  */
-const props = defineProps<{ members?: Author[] }>();
+const props = defineProps<{
+  members?: Author[];
+  /** Who is online, by profile id, as the instance reports it. */
+  presence?: Record<string, { online: boolean; status: number; label: string }>;
+}>();
 const emit = defineEmits<{ (e: 'select', person: Author): void }>();
 
 interface Row {
+  /** The profile id — presence, and every other per-person thing, is keyed by it. */
+  id?: string;
   name: string;
   initial: string;
   color: string;
@@ -22,6 +28,7 @@ interface Row {
 const roster = computed<Row[]>(() =>
   props.members?.length
     ? props.members.map((m) => ({
+        id: m.id,
         name: m.name,
         initial: m.initial,
         color: m.color,
@@ -33,8 +40,19 @@ const roster = computed<Row[]>(() =>
 );
 /** A picture that fails to load falls back to the initial, as it does in the message list. */
 const broken = ref<Record<string, true>>({});
-const online = computed(() => roster.value.filter((m) => m.status !== 'offline'));
-const offline = computed(() => roster.value.filter((m) => m.status === 'offline'));
+/** The instance's answer wins over the roster's placeholder: it is the only one that is real. */
+function presenceOf(id: string | undefined): { online: boolean; status: number; label: string } | undefined {
+  return id ? props.presence?.[id] : undefined;
+}
+/** With real members the split is presence; the demo roster keeps its own pretend statuses. */
+const live = computed(() => (props.members?.length ?? 0) > 0);
+const online = computed(() =>
+  live.value ? roster.value.filter((m) => presenceOf(m.id)?.online) : roster.value.filter((m) => m.status !== 'offline')
+);
+const offline = computed(() =>
+  live.value ? roster.value.filter((m) => !presenceOf(m.id)?.online) : roster.value.filter((m) => m.status === 'offline')
+);
+const isOnline = (id: string | undefined): boolean => presenceOf(id)?.online === true;
 </script>
 
 <template>
@@ -45,7 +63,7 @@ const offline = computed(() => roster.value.filter((m) => m.status === 'offline'
         v-for="m in g.list"
         :key="m.name"
         class="row"
-        :class="{ dim: m.status === 'offline' }"
+        :class="{ dim: !isOnline(m.id) }"
         :disabled="!props.members?.length"
         @click="emit('select', (props.members ?? []).find((p) => p.name === m.name) ?? { name: m.name, initial: m.initial, color: m.color })"
       >
@@ -64,7 +82,12 @@ const offline = computed(() => roster.value.filter((m) => m.status === 'offline'
           <span class="name">{{ m.name }}</span>
           <span v-if="m.role" class="role" :class="m.role">{{ m.role === 'admin' ? 'admin' : 'mod' }}</span>
         </div>
-        <span v-if="m.status === 'idle'" class="idle" title="Away" />
+        <span
+          v-if="presenceOf(m.id)"
+          class="presence"
+          :class="{ off: !isOnline(m.id), away: (presenceOf(m.id)?.status ?? 1) > 1 && isOnline(m.id) }"
+          :title="presenceOf(m.id)?.label ?? (isOnline(m.id) ? 'Online' : 'Offline')"
+        />
       </button>
     </section>
   </aside>
@@ -105,6 +128,15 @@ const offline = computed(() => roster.value.filter((m) => m.status === 'offline'
   font-weight: 700;
 }
 .who { display: flex; align-items: center; gap: var(--sp-200); min-width: 0; }
+.presence {
+  width: 7px;
+  height: 7px;
+  flex: none;
+  border-radius: var(--radius-round);
+  background: var(--positive, #3fc47a);
+}
+.presence.away { background: var(--warning, #e0a33e); }
+.presence.off { background: var(--text-tertiary); opacity: 0.5; }
 .name { font-size: var(--fs-sm); color: var(--text); }
 .role {
   font-size: 9px;
