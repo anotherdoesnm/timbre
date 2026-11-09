@@ -857,6 +857,84 @@ export async function fetchCustomEmojis(
 }
 
 /**
+ * Adds a category, the heading channels are filed under.
+ *
+ * `channel_categories` is a plain table: the instance's own trigger creates the default pair per
+ * server, and a member with `MANAGE_CHANNELS` may add more. The position comes from the caller —
+ * a new heading belongs at the bottom, not wherever the default `order` lands.
+ */
+export async function createCategory(
+  session: Session,
+  serverId: string,
+  name: string
+): Promise<string> {
+  const existing = await rest<Row[]>(
+    session,
+    'channel_categories',
+    `server_id=eq.${encodeURIComponent(serverId)}&select=id,"order"`
+  ).catch(() => [] as Row[]);
+  const next = existing.reduce((max, row) => Math.max(max, Number(row.order ?? 0)), 0) + 1;
+  const res = await fetch(`${session.supabaseUrl}/rest/v1/channel_categories`, {
+    method: 'POST',
+    headers: {
+      apikey: session.anonKey,
+      Authorization: `Bearer ${session.accessToken}`,
+      'Content-Type': 'application/json',
+      Prefer: 'return=representation',
+    },
+    body: JSON.stringify({ server_id: serverId, name: name.trim(), order: next }),
+  });
+  if (!res.ok) {
+    const body = await res.text().catch(() => '');
+    throw new Error(`create category: ${res.status} ${body.slice(0, 140)}`);
+  }
+  const rows = (await res.json().catch(() => [])) as { id?: string }[];
+  const id = rows[0]?.id;
+  if (!id) throw new Error('the instance did not return the new category');
+  return id;
+}
+
+/** Renames a channel. Same table the create path writes, one column of it. */
+export async function renameChannel(session: Session, channelId: string, name: string): Promise<void> {
+  const res = await fetch(
+    `${session.supabaseUrl}/rest/v1/channels?id=eq.${encodeURIComponent(channelId)}`,
+    {
+      method: 'PATCH',
+      headers: {
+        apikey: session.anonKey,
+        Authorization: `Bearer ${session.accessToken}`,
+        'Content-Type': 'application/json',
+        Prefer: 'return=minimal',
+      },
+      body: JSON.stringify({ name: name.trim().toLowerCase().replace(/\s+/g, '-') }),
+    }
+  );
+  if (!res.ok) {
+    const body = await res.text().catch(() => '');
+    throw new Error(`rename channel: ${res.status} ${body.slice(0, 140)}`);
+  }
+}
+
+/** Deletes a channel. The instance refuses this to anybody without `MANAGE_CHANNELS`. */
+export async function deleteChannel(session: Session, channelId: string): Promise<void> {
+  const res = await fetch(
+    `${session.supabaseUrl}/rest/v1/channels?id=eq.${encodeURIComponent(channelId)}`,
+    {
+      method: 'DELETE',
+      headers: {
+        apikey: session.anonKey,
+        Authorization: `Bearer ${session.accessToken}`,
+        Prefer: 'return=minimal',
+      },
+    }
+  );
+  if (!res.ok) {
+    const body = await res.text().catch(() => '');
+    throw new Error(`delete channel: ${res.status} ${body.slice(0, 140)}`);
+  }
+}
+
+/**
  * Creates a server owned by this person.
  *
  * The instance does the rest: a trigger builds the default `Text Channels`/`Voice Channels`

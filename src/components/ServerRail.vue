@@ -4,7 +4,7 @@ import Icon from './Icon.vue';
 import type { Server } from '../data/mock';
 
 defineProps<{ servers: Server[]; activeId: string }>();
-const emit = defineEmits<{ (e: 'select', id: string): void }>();
+const emit = defineEmits<{ (e: 'select', id: string): void; (e: 'add'): void }>();
 const broken = ref<Record<string, true>>({});
 </script>
 
@@ -39,7 +39,7 @@ const broken = ref<Record<string, true>>({});
       <span v-if="s.unread" class="dot" />
     </button>
     <div class="sep" />
-    <button class="rail-btn add" title="Add a server">
+    <button class="rail-btn add" title="Add a server" @click="emit('add')">
       <Icon name="plus" :size="18" />
     </button>
   </nav>

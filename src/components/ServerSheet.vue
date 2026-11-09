@@ -60,11 +60,11 @@ const broken = ref<Record<string, true>>({});
         <span class="tile add-tile"><Icon name="search" :size="16" /></span>
         <span class="name">Discover public servers</span>
       </button>
-      <!-- The way into roles, bans, reports, per-server alerts and creating a place. It used to be
-           reachable only through "Create a server", which is not where anybody looks for it. -->
+      <!-- Making a place, or joining one. Settings for the current server live in the server menu
+           (tap its name above the channel list), where the thing they govern already is. -->
       <button class="row add" @click="emit('create')">
-        <span class="tile add-tile"><Icon name="shield" :size="16" /></span>
-        <span class="name">Server settings</span>
+        <span class="tile add-tile"><Icon name="plus" :size="16" /></span>
+        <span class="name">Add a server</span>
       </button>
     </div>
   </div>

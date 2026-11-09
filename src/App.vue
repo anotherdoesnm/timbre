@@ -36,6 +36,12 @@ import { fetchGifs, type Gif } from './services/gifs';
 import { heartbeat, fetchPresence, goOffline, statusLabel, STATUS_AWAY, STATUS_BUSY } from './services/presence';
 import type { PresenceUpdate, TypingUser } from './services/realtime';
 import ServerAdminSheet from './components/ServerAdminSheet.vue';
+import AddServerSheet from './components/AddServerSheet.vue';
+import CreateChannelSheet from './components/CreateChannelSheet.vue';
+import InviteSheet from './components/InviteSheet.vue';
+import ServerNotifySheet from './components/ServerNotifySheet.vue';
+import PromptSheet from './components/PromptSheet.vue';
+import ConfirmSheet from './components/ConfirmSheet.vue';
 import RulesSheet from './components/RulesSheet.vue';
 import type { CustomEmoji } from './services/emoji';
 import AuthScreen from './components/AuthScreen.vue';
@@ -45,6 +51,7 @@ import {
   messages as mockMessages,
   servers as mockServers,
   type Author,
+  type Channel,
   type Message,
 } from './data/mock';
 import { refreshSession, sessionAlive, sessionExpired, signOut, storedSession, type Session } from './services/auth';
@@ -103,6 +110,9 @@ import {
   joinPublicServer,
   type PublicServer,
   type SearchFilters,
+  createCategory,
+  deleteChannel,
+  renameChannel,
   createServer,
   createChannel,
   createInvite,
@@ -244,7 +254,22 @@ const newDmOpen = ref(false);
 const notifSettingsOpen = ref(false);
 const prefsSaving = ref(false);
 const joinOpen = ref(false);
+// Four small sheets instead of one big one: each answers one question, and the entry point names
+// the question. `createOpen` — the old "everything" sheet — is now server settings only.
 const createOpen = ref(false);
+const addServerOpen = ref(false);
+const createChannelOpen = ref(false);
+const inviteOpen = ref(false);
+const notifyOpen = ref(false);
+const promptOpen = ref(false);
+const promptBusy = ref(false);
+const promptError = ref('');
+/** What the one-field sheet is for: a new category, or renaming a channel. */
+const promptKind = ref<'category' | 'rename-channel'>('category');
+const promptChannel = ref<Channel | null>(null);
+const deleteTarget = ref<Channel | null>(null);
+const deleteBusy = ref(false);
+const deleteError = ref('');
 const threadsOpen = ref(false);
 const forwardTarget = ref<Message | null>(null);
 const switcherOpen = ref(false);
@@ -1507,7 +1532,7 @@ async function onCreateServer(name: string, isPublic: boolean): Promise<void> {
   createError.value = '';
   try {
     const id = await createServer(s, me, name, isPublic);
-    createOpen.value = false;
+    addServerOpen.value = false;
     await onJoined(id);
   } catch (e) {
     createError.value = e instanceof Error ? e.message : String(e);
@@ -1517,30 +1542,57 @@ async function onCreateServer(name: string, isPublic: boolean): Promise<void> {
   }
 }
 
-async function onCreateChannel(name: string, type: 0 | 1): Promise<void> {
+async function onCreateChannel(name: string, type: 0 | 1, categoryId: string | null): Promise<void> {
   const s = session.value;
   const serverId = activeServer.value;
   if (!s || !serverId) return;
   createBusy.value = true;
   createError.value = '';
   try {
-    // The instance's default structure already has a category per kind; the new channel joins the
-    // one its type belongs to (a nullable category is legal, so an unknown kind simply has none).
-    const sameKind = channels.value.filter((c) => c.kind === (type === 1 ? 'voice' : 'text'));
     await createChannel(s, serverId, {
       name,
       type,
-      categoryId: sameKind.length ? (sameKind[sameKind.length - 1].categoryId ?? null) : null,
+      // The sheet names the category; the fallback keeps an older flow working when it does not.
+      categoryId: categoryId ?? channels.value.find((c) => c.kind === (type === 1 ? 'voice' : 'text'))?.categoryId ?? null,
       position: channels.value.length,
     });
     const list = await fetchChannels(s, serverId);
     liveChannels.value[serverId] = list;
-    createOpen.value = false;
+    createChannelOpen.value = false;
   } catch (e) {
     createError.value = e instanceof Error ? e.message : String(e);
     throw e;
   } finally {
     createBusy.value = false;
+  }
+}
+
+/** The categories of the open server, for the "where does this channel go" select. */
+const channelCategories = computed(() => {
+  const seen = new Map<string, { id: string; name: string; kind: 'text' | 'voice' }>();
+  for (const c of channels.value) {
+    if (!c.categoryId || seen.has(c.categoryId)) continue;
+    seen.set(c.categoryId, { id: c.categoryId, name: c.category, kind: c.kind });
+  }
+  return [...seen.values()];
+});
+
+/** A category is a row in `channel_categories`; the instance orders them, we just name it. */
+async function createCategoryFromPrompt(name: string): Promise<void> {
+  const s = session.value;
+  const serverId = activeServer.value;
+  if (!s || !serverId) return;
+  promptBusy.value = true;
+  promptError.value = '';
+  try {
+    await createCategory(s, serverId, name);
+    const list = await fetchChannels(s, serverId);
+    liveChannels.value[serverId] = list;
+    promptOpen.value = false;
+  } catch (e) {
+    promptError.value = e instanceof Error ? e.message : String(e);
+  } finally {
+    promptBusy.value = false;
   }
 }
 
@@ -1818,10 +1870,144 @@ async function onBanMember(userId: string, reason: string): Promise<void> {
 }
 
 /** Roles of the open server, with who holds them. Owners can change them; the instance decides. */
-/** From the manage sheet: close it and open the roles sheet on top. */
+/** From the settings sheet: close it and open the roles sheet on top. */
 function onOpenRoles(): void {
   createOpen.value = false;
   void openRoles();
+}
+
+/**
+ * "Manage this server" — the bits the instance would check anyway. Used to decide whether the menu
+ * offers creating channels and categories at all, so a plain member sees a menu without dead ends.
+ */
+const canManageServer = computed(
+  () =>
+    serverPermissions.value.MANAGE_ROLES === true ||
+    serverPermissions.value.MANAGE_CHANNELS === true ||
+    serverPermissions.value.ADMINISTRATOR === true
+);
+
+function openServerSettings(): void {
+  createError.value = '';
+  createOpen.value = true;
+}
+function openCreateChannel(): void {
+  createError.value = '';
+  createChannelOpen.value = true;
+}
+function openCreateCategory(): void {
+  promptKind.value = 'category';
+  promptChannel.value = null;
+  promptError.value = '';
+  promptOpen.value = true;
+}
+
+function openRenameChannel(channel: Channel): void {
+  promptKind.value = 'rename-channel';
+  promptChannel.value = channel;
+  promptError.value = '';
+  promptOpen.value = true;
+}
+
+/** One sheet, two jobs: the submit label and the initial value follow the job. */
+const promptTitle = computed(() =>
+  promptKind.value === 'category' ? 'Create category' : 'Rename channel'
+);
+const promptSubmitLabel = computed(() =>
+  promptKind.value === 'category' ? 'Create category' : 'Rename'
+);
+const promptInitial = computed(() =>
+  promptKind.value === 'rename-channel' ? (promptChannel.value?.name ?? '') : ''
+);
+
+async function onPromptSubmit(value: string): Promise<void> {
+  if (promptKind.value === 'category') {
+    await createCategoryFromPrompt(value);
+    return;
+  }
+  const s = session.value;
+  const ch = promptChannel.value;
+  const serverId = activeServer.value;
+  if (!s || !ch || !serverId) return;
+  promptBusy.value = true;
+  promptError.value = '';
+  try {
+    await renameChannel(s, ch.id, value);
+    liveChannels.value[serverId] = await fetchChannels(s, serverId);
+    promptOpen.value = false;
+  } catch (e) {
+    promptError.value = e instanceof Error ? e.message : String(e);
+  } finally {
+    promptBusy.value = false;
+  }
+}
+
+async function onDeleteChannel(): Promise<void> {
+  const s = session.value;
+  const ch = deleteTarget.value;
+  const serverId = activeServer.value;
+  if (!s || !ch || !serverId) return;
+  deleteBusy.value = true;
+  deleteError.value = '';
+  try {
+    await deleteChannel(s, ch.id);
+    liveChannels.value[serverId] = await fetchChannels(s, serverId);
+    if (activeChannel.value === ch.id) {
+      const next = liveChannels.value[serverId].find((c) => c.kind === 'text');
+      if (next) pickChannel(next.id);
+    }
+    deleteTarget.value = null;
+  } catch (e) {
+    deleteError.value = e instanceof Error ? e.message : String(e);
+  } finally {
+    deleteBusy.value = false;
+  }
+}
+
+/** "Mark as read" on a channel that is not open: no message id, so the instance marks it to head. */
+async function markChannelReadById(id: string): Promise<void> {
+  const s = session.value;
+  if (!s || !id) return;
+  await markChannelRead(s, id, null);
+  const rest = { ...localUnread.value };
+  delete rest[id];
+  localUnread.value = rest;
+  if (unread.value[id]) {
+    const next = { ...unread.value };
+    delete next[id];
+    unread.value = next;
+  }
+}
+
+/** The mute switch, for a channel that is not the open one. */
+async function muteChannelById(id: string, muted: boolean): Promise<void> {
+  const s = session.value;
+  const profile = myProfileId.value;
+  const serverId = activeServer.value;
+  if (!s || !profile || !serverId) return;
+  const next = { ...mutedChannels.value };
+  if (muted) next[id] = true;
+  else delete next[id];
+  mutedChannels.value = next;
+  try {
+    await setChannelMute(s, profile, serverId, id, muted);
+  } catch (e) {
+    const revert = { ...mutedChannels.value };
+    if (muted) delete revert[id];
+    else revert[id] = true;
+    mutedChannels.value = revert;
+    showError(e instanceof Error ? e.message : String(e));
+  }
+}
+function openInvite(): void {
+  inviteOpen.value = true;
+}
+function openServerNotify(): void {
+  notifyOpen.value = true;
+}
+function openAddServer(): void {
+  createError.value = '';
+  addServerOpen.value = true;
 }
 
 async function openRoles(): Promise<void> {
@@ -2555,7 +2741,7 @@ watch([activeServer, activeChannel], () => {
       <button v-if="failedSend" class="retry" @click="retrySend">Retry</button>
       <button v-if="failedSend" class="dismiss" @click="failedSend = null">Dismiss</button>
     </div>
-    <ServerRail :servers="servers" :active-id="activeServer" @select="pickServer" />
+    <ServerRail :servers="servers" :active-id="activeServer" @select="pickServer" @add="openAddServer" />
     <RoomList
       :server-name="server?.name ?? ''"
       :channels="channels"
@@ -2564,6 +2750,17 @@ watch([activeServer, activeChannel], () => {
       :live="live"
       @select="pickChannel"
       @servers="openServers"
+      @settings="openServerSettings"
+      @create-channel="openCreateChannel"
+      @create-category="openCreateCategory"
+      @invite="openInvite"
+      @server-notifications="openServerNotify"
+      @mark-server-read="markServerRead(activeServer)"
+      @mark-channel-read="markChannelReadById"
+      @mute-channel="muteChannelById"
+      @rename-channel="openRenameChannel"
+      @delete-channel="(c: Channel) => { deleteError = ''; deleteTarget = c }"
+      :can-manage="canManageServer"
       @account="openAccount"
       @notifications="openNotifications"
       :unread-notifications="unreadNotifications"
@@ -2854,21 +3051,64 @@ watch([activeServer, activeChannel], () => {
     />
     <ServerAdminSheet
       v-if="createOpen"
-      :servers="servers"
-      :active-id="activeServer"
-      :channels="channels"
-      :instance-url="session?.instance ? `https://${session.instance}` : ''"
-      :busy="createBusy"
-      :error="createError"
-      :on-join-server="onCreateServer"
-      :on-join-channel="onCreateChannel"
-      :on-create-invite="onCreateInvite"
-      :notify="serverNotify[activeServer]"
-      :on-notify="setServerNotify"
+      :server-name="server?.name ?? 'this server'"
       :on-roles="onOpenRoles"
       :on-bans="serverPermissions.BAN_MEMBERS === true || serverPermissions.ADMINISTRATOR === true ? openBans : undefined"
       :on-reports="me?.role ? openReports : undefined"
       @close="createOpen = false"
+    />
+    <AddServerSheet
+      v-if="addServerOpen"
+      :busy="createBusy"
+      :error="createError"
+      @create="onCreateServer"
+      @join="addServerOpen = false; inviteSeed = ''; joinOpen = true"
+      @close="addServerOpen = false"
+    />
+    <CreateChannelSheet
+      v-if="createChannelOpen"
+      :server-name="server?.name ?? 'this server'"
+      :categories="channelCategories"
+      :busy="createBusy"
+      :error="createError"
+      @create="onCreateChannel"
+      @close="createChannelOpen = false"
+    />
+    <InviteSheet
+      v-if="inviteOpen"
+      :server-name="server?.name ?? 'this server'"
+      :on-create="onCreateInvite"
+      @close="inviteOpen = false"
+    />
+    <ServerNotifySheet
+      v-if="notifyOpen"
+      :server-name="server?.name ?? 'this server'"
+      :notify="serverNotify[activeServer]"
+      :on-notify="setServerNotify"
+      @close="notifyOpen = false"
+    />
+    <PromptSheet
+      v-if="promptOpen"
+      :title="promptTitle"
+      label="Name"
+      :initial="promptInitial"
+      :placeholder="promptKind === 'category' ? 'Projects' : 'off-topic'"
+      :submit-label="promptSubmitLabel"
+      :busy="promptBusy"
+      :error="promptError"
+      @submit="onPromptSubmit"
+      @close="promptOpen = false"
+    />
+    <ConfirmSheet
+      v-if="deleteTarget"
+      title="Delete channel"
+      :text="`#${deleteTarget.name} and everything said in it will be gone. There is no undo.`"
+      confirm-label="Delete channel"
+      danger
+      :busy="deleteBusy"
+      :error="deleteError"
+      @confirm="onDeleteChannel"
+      @close="deleteTarget = null"
     />
     <DiscoverSheet
       v-if="discoverOpen"
@@ -2960,7 +3200,7 @@ watch([activeServer, activeChannel], () => {
       @select="(id) => { pickServer(id); serversOpen = false; void checkRules(id); }"
       @join="serversOpen = false; inviteSeed = ''; joinOpen = true"
       @discover="serversOpen = false; openDiscover()"
-      @create="serversOpen = false; createError = ''; createOpen = true"
+      @create="serversOpen = false; createError = ''; addServerOpen = true"
       @mark-read="serversOpen = false; markServerRead(activeServer)"
       @close="closeServers"
     />

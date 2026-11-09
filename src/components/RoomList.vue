@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, ref } from 'vue';
 import Icon from './Icon.vue';
+import ServerMenu from './ServerMenu.vue';
 import type { Channel } from '../data/mock';
 import type { Conversation } from '../services/data';
 
@@ -16,14 +17,66 @@ const props = defineProps<{
   categoryUnread?: Record<string, number>;
   /** Presence of the people in the conversations, keyed by profile id. */
   dmPresence?: Record<string, { online: boolean; status: number; label: string }>;
+  /** May this person manage the open server: roles, channels, categories. */
+  canManage?: boolean;
 }>();
 const emit = defineEmits<{
   (e: 'select', id: string): void;
   (e: 'servers'): void;
+  (e: 'settings'): void;
+  (e: 'create-channel'): void;
+  (e: 'create-category'): void;
+  (e: 'invite'): void;
+  (e: 'server-notifications'): void;
+  (e: 'mark-server-read'): void;
+  (e: 'mark-channel-read', id: string): void;
+  (e: 'mute-channel', id: string, muted: boolean): void;
+  (e: 'rename-channel', channel: Channel): void;
+  (e: 'delete-channel', channel: Channel): void;
   (e: 'account'): void;
   (e: 'notifications'): void;
   (e: 'new-dm'): void;
 }>();
+
+const menuOpen = ref(false);
+/** Which channel's context menu is open, and where it was asked for. */
+const channelMenu = ref<{ channel: Channel; top: number } | null>(null);
+let pressTimer: ReturnType<typeof setTimeout> | null = null;
+let pressed: { id: string; x: number; y: number } | null = null;
+
+/** A long press is how a phone asks for a context menu; a right click is how a desktop does. */
+function startPress(event: PointerEvent, channel: Channel): void {
+  if (event.button !== 0) return;
+  pressed = { id: channel.id, x: event.clientX, y: event.clientY };
+  cancelPress();
+  pressTimer = setTimeout(() => {
+    const row = (event.currentTarget as HTMLElement).getBoundingClientRect();
+    channelMenu.value = { channel, top: row.bottom + 4 };
+    pressTimer = null;
+  }, 420);
+}
+
+function cancelPress(): void {
+  if (pressTimer) clearTimeout(pressTimer);
+  pressTimer = null;
+  pressed = null;
+}
+
+function movePress(event: PointerEvent): void {
+  if (!pressed || !pressTimer) return;
+  if (Math.abs(event.clientX - pressed.x) > 8 || Math.abs(event.clientY - pressed.y) > 8) cancelPress();
+}
+
+function openMenu(event: MouseEvent, channel: Channel): void {
+  event.preventDefault();
+  const row = (event.currentTarget as HTMLElement).getBoundingClientRect();
+  channelMenu.value = { channel, top: row.bottom + 4 };
+}
+
+function copyId(id: string): void {
+  void navigator.clipboard?.writeText(id).catch(() => undefined);
+  channelMenu.value = null;
+}
 
 const groups = computed(() => {
   const out: { title: string; items: Channel[] }[] = [];
@@ -39,10 +92,26 @@ const groups = computed(() => {
 <template>
   <aside class="rooms">
     <header class="rooms-head">
-      <button class="server-switch" title="Servers" @click="emit('servers')">
+      <!-- The name of the server opens what belongs to *this* server. Switching servers is the
+           rail on the left (and the last item in this menu on a narrow screen). -->
+      <button class="server-switch" :title="`${serverName} menu`" @click="menuOpen = !menuOpen">
         <span class="server-name">{{ serverName }}</span>
         <Icon name="chevron" :size="16" />
       </button>
+      <ServerMenu
+        v-if="menuOpen"
+        :server-name="serverName"
+        :can-manage="!!props.canManage"
+        :live="props.live"
+        @close="menuOpen = false"
+        @settings="menuOpen = false; emit('settings')"
+        @create-channel="menuOpen = false; emit('create-channel')"
+        @create-category="menuOpen = false; emit('create-category')"
+        @invite="menuOpen = false; emit('invite')"
+        @notifications="menuOpen = false; emit('server-notifications')"
+        @mark-read="menuOpen = false; emit('mark-server-read')"
+        @switch-server="menuOpen = false; emit('servers')"
+      />
     </header>
 
     <div class="search">
@@ -96,6 +165,11 @@ const groups = computed(() => {
           class="row"
           :class="{ active: c.id === activeId, unread: !!c.unread && c.id !== activeId }"
           @click="emit('select', c.id)"
+          @pointerdown="startPress($event, c)"
+          @pointermove="movePress"
+          @pointerup="cancelPress"
+          @pointercancel="cancelPress"
+          @contextmenu="openMenu($event, c)"
         >
           <Icon :name="c.kind === 'voice' ? 'volume' : 'hash'" :size="16" />
           <span class="name">{{ c.name }}</span>
@@ -105,6 +179,36 @@ const groups = computed(() => {
           <span v-else-if="c.unread" class="badge" />
         </button>
       </section>
+
+      <!-- A channel's own actions, where the channel is. Upstream has the same menu; ours used to
+           have only the mute bell in the header, so renaming or deleting a channel was impossible. -->
+      <template v-if="channelMenu">
+        <div class="menu-backdrop" @click="channelMenu = null" />
+        <nav class="channel-menu" :style="{ top: `${channelMenu.top}px` }" role="menu">
+          <button role="menuitem" @click="emit('mark-channel-read', channelMenu.channel.id); channelMenu = null">
+            <Icon name="check" :size="15" /> Mark as read
+          </button>
+          <button role="menuitem" @click="copyId(channelMenu.channel.id)">
+            <Icon name="hash" :size="15" /> Copy channel ID
+          </button>
+          <button
+            role="menuitem"
+            @click="emit('mute-channel', channelMenu.channel.id, !channelMenu.channel.muted); channelMenu = null"
+          >
+            <Icon :name="channelMenu.channel.muted ? 'bell' : 'bell-off'" :size="15" />
+            {{ channelMenu.channel.muted ? 'Unmute channel' : 'Mute channel' }}
+          </button>
+          <template v-if="props.canManage">
+            <div class="menu-split" />
+            <button role="menuitem" @click="emit('rename-channel', channelMenu.channel); channelMenu = null">
+              <Icon name="poll" :size="15" /> Edit channel
+            </button>
+            <button class="danger" role="menuitem" @click="emit('delete-channel', channelMenu.channel); channelMenu = null">
+              <Icon name="close" :size="15" /> Delete channel
+            </button>
+          </template>
+        </nav>
+      </template>
     </div>
 
     <!-- Notification history sits with the account, as in the official client: it is about you,
@@ -132,7 +236,36 @@ const groups = computed(() => {
 </template>
 
 <style scoped>
+.menu-backdrop { position: fixed; inset: 0; z-index: 44; }
+.channel-menu {
+  position: absolute;
+  z-index: 45;
+  left: var(--sp-300);
+  right: var(--sp-200);
+  display: flex;
+  flex-direction: column;
+  padding: var(--sp-100);
+  border: 1px solid var(--bg-line);
+  border-radius: var(--radius-lg);
+  background: var(--sf-container);
+  box-shadow: var(--shadow-3);
+}
+.channel-menu button {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-300);
+  padding: var(--sp-300);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  font-size: var(--fs-md);
+  text-align: left;
+}
+.channel-menu button:hover { background: var(--sfv-container); }
+.channel-menu button.danger { color: var(--critical); }
+.menu-split { height: 1px; margin: var(--sp-100) 0; background: var(--bg-line); }
 .rooms {
+  /* The server menu is anchored to this column, not to the viewport. */
+  position: relative;
   width: var(--rooms-width);
   min-height: 0;
   display: flex;
