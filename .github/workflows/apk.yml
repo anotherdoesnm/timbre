@@ -151,9 +151,12 @@ jobs:
           # not know them, so this cannot make things worse.
           export GRADLE_OPTS="-Dorg.gradle.internal.http.connectionTimeout=120000 -Dorg.gradle.internal.http.socketTimeout=120000"
           warm() {
-            cd "$GITHUB_WORKSPACE/src-tauri/gen/android"
+            # The `cd` lives inside a subshell on purpose: run in the step's own shell it leaves
+            # the working directory in gen/android, and the tauri CLI below then says it cannot
+            # find a Tauri project (it looks in the current folder).
             for attempt in 1 2 3; do
-              if ./gradlew --version > /tmp/gradle-warmup.log 2>&1; then
+              if ( cd "$GITHUB_WORKSPACE/src-tauri/gen/android" && ./gradlew --version ) \
+                > /tmp/gradle-warmup.log 2>&1; then
                 echo "gradle distribution ready on attempt $attempt"
                 return 0
               fi
