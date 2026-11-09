@@ -2038,9 +2038,9 @@ async function openThreadById(id: string, name?: string, parentMessageId?: strin
   try {
     const page = await fetchThreadMessages(s, id);
     threadMessages.value = page.messages;
-    const parent =
-      (parentMessageId && (liveMessages.value[ch.id] ?? []).find((m) => m.id === parentMessageId)) ||
-      (liveMessages.value[ch.id] ?? []).find((m) => m.id === page.messages[0]?.id);
+    const parent = parentMessageId
+      ? (liveMessages.value[ch.id] ?? []).find((m) => m.id === parentMessageId)
+      : undefined;
     threadParent.value =
       parent ??
       ({
