@@ -116,6 +116,28 @@ jobs:
           # unsigned; the script adds one and fails loudly if the template changes shape.
           python3 scripts/patch-android-signing.py
           npm run build
+
+          # The wrapper downloads gradle-9.6.1-bin.zip itself, and its built-in HTTP timeout is ten
+          # seconds — on 2026-11-08 the nightly died on exactly that, after everything else had
+          # already compiled: "Downloading ... failed: timeout (10000ms)". Fetching the
+          # distribution once, with retries, before the real build keeps one slow minute from
+          # costing a night. The system properties raise the same timeout for the build itself;
+          # gradle ignores them if it does not know them, so this cannot make things worse.
+          export GRADLE_OPTS="-Dorg.gradle.internal.http.connectionTimeout=120000 -Dorg.gradle.internal.http.socketTimeout=120000"
+          (
+            cd src-tauri/gen/android
+            for attempt in 1 2 3 4; do
+              if ./gradlew --version > /tmp/gradle-warmup.log 2>&1; then
+                echo "gradle distribution cached on attempt $attempt"
+                break
+              fi
+              echo "gradle warm-up attempt $attempt failed:" >&2
+              tail -5 /tmp/gradle-warmup.log >&2
+              sleep $((attempt * 15))
+            done
+            head -5 /tmp/gradle-warmup.log || true
+          )
+
           # Split per ABI and ship only arm64-v8a: one universal APK is ~124 MiB, the arm64 one is a
           # quarter of that, and no phone this client runs on is 32-bit.
           npx tauri android build --apk --split-per-abi --target aarch64
