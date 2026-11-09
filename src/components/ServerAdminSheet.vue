@@ -107,15 +107,15 @@ async function copy(): Promise<void> {
 
 <template>
   <div class="backdrop" @click.self="emit('close')">
-    <div class="sheet" role="dialog" aria-label="Create">
+    <div class="sheet" role="dialog" aria-label="Server settings">
       <header>
-        <span>Create</span>
+        <span>Server settings</span>
         <button class="close" aria-label="Close" @click="emit('close')"><Icon name="close" :size="18" /></button>
       </header>
 
       <nav class="tabs">
-        <button :class="{ on: tab === 'server' }" @click="tab = 'server'">Server</button>
-        <button :class="{ on: tab === 'channel' }" @click="tab = 'channel'">Channel</button>
+        <button :class="{ on: tab === 'server' }" @click="tab = 'server'">This server</button>
+        <button :class="{ on: tab === 'channel' }" @click="tab = 'channel'">New channel</button>
         <button :class="{ on: tab === 'invite' }" @click="tab = 'invite'">Invite</button>
         <button :class="{ on: tab === 'alerts' }" @click="tab = 'alerts'">Alerts</button>
       </nav>
@@ -123,6 +123,23 @@ async function copy(): Promise<void> {
       <p v-if="localError || error" class="error">{{ localError || error }}</p>
 
       <template v-if="tab === 'server'">
+        <!-- Management first: this is the tab the sheet opens on, and roles, bans and the report
+             queue are what somebody came here for. They used to sit at the bottom of Alerts. -->
+        <template v-if="props.onRoles || props.onBans || props.onReports">
+          <p class="lead">Manage <strong>{{ activeServer?.name ?? 'this server' }}</strong></p>
+          <button v-if="props.onRoles" class="ghost-wide" @click="props.onRoles?.()">
+            <Icon name="shield" :size="14" /> Roles and permissions
+          </button>
+          <button v-if="props.onBans" class="ghost-wide" @click="props.onBans?.()">
+            <Icon name="bell-off" :size="14" /> Banned members
+          </button>
+          <button v-if="props.onReports" class="ghost-wide" @click="props.onReports?.()">
+            <Icon name="inbox" :size="14" /> Reports
+          </button>
+          <p class="fine">Permissions for one channel live behind the "…" in that channel's header.</p>
+        </template>
+
+        <p class="lead">Create a server</p>
         <label class="field">
           <span class="label">Name</span>
           <input v-model="serverName" class="input" maxlength="60" placeholder="My place" />
@@ -177,15 +194,6 @@ async function copy(): Promise<void> {
           <span>{{ props.notify?.muted ? 'Muted — the badges still move' : 'Mute this server' }}</span>
         </button>
         <p class="fine">A per-channel mute always wins over this.</p>
-        <button class="ghost-wide" @click="props.onRoles?.()">
-          <Icon name="shield" :size="14" /> Roles and permissions
-        </button>
-        <button v-if="props.onBans" class="ghost-wide" @click="props.onBans?.()">
-          <Icon name="bell-off" :size="14" /> Banned members
-        </button>
-        <button v-if="props.onReports" class="ghost-wide" @click="props.onReports?.()">
-          <Icon name="inbox" :size="14" /> Reports
-        </button>
       </template>
 
       <template v-else>

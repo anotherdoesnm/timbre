@@ -60,9 +60,11 @@ const broken = ref<Record<string, true>>({});
         <span class="tile add-tile"><Icon name="search" :size="16" /></span>
         <span class="name">Discover public servers</span>
       </button>
+      <!-- The way into roles, bans, reports, per-server alerts and creating a place. It used to be
+           reachable only through "Create a server", which is not where anybody looks for it. -->
       <button class="row add" @click="emit('create')">
-        <span class="tile add-tile"><Icon name="plus" :size="16" /></span>
-        <span class="name">Create a server</span>
+        <span class="tile add-tile"><Icon name="shield" :size="16" /></span>
+        <span class="name">Server settings</span>
       </button>
     </div>
   </div>
