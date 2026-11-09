@@ -924,8 +924,10 @@ async function boot() {
     }
     const list = await fetchServers(s, String(profile?.id ?? ''));
     liveServers.value = list;
+    // Signed in is live, even with no servers yet: otherwise a fresh account was shown the mock
+    // skin ("demo data") while its own name sat in the corner, and nothing suggested what to do.
+    live.value = true;
     if (list.length) {
-      live.value = true;
       activeServer.value = list[0].id;
       unread.value = await fetchUnreadCounts(s);
       mutedChannels.value = await fetchMutedChannels(s, String(profile?.id ?? ''));
@@ -2810,6 +2812,10 @@ watch([activeServer, activeChannel], () => {
       @delete-channel="(c: Channel) => { deleteError = ''; deleteTarget = c }"
       :can-manage="canManageServer"
       :custom-emoji="customEmoji"
+      :no-servers="live && !servers.length"
+      @add-server="openAddServer"
+      @join-server="inviteSeed = ''; joinOpen = true"
+      @discover="openDiscover"
       @account="openAccount"
       @notifications="openNotifications"
       :unread-notifications="unreadNotifications"
@@ -2818,10 +2824,27 @@ watch([activeServer, activeChannel], () => {
       :category-unread="categoryUnread"
       @new-dm="newDmOpen = true"
     />
+    <main v-if="!channel && live" class="chat empty-app">
+      <div class="empty-card">
+        <div class="empty-icon"><Icon name="hash" :size="26" /></div>
+        <h2>{{ servers.length ? 'Pick a channel' : 'No servers yet' }}</h2>
+        <p v-if="servers.length">The channel list on the left has everything you are in.</p>
+        <p v-else>
+          You are signed in as <strong>{{ me?.name ?? 'you' }}</strong> on this instance. Join a
+          place, or make one of your own.
+        </p>
+        <div v-if="!servers.length" class="empty-actions">
+          <button class="primary" @click="openAddServer">Create a server</button>
+          <button class="ghost-wide" @click="inviteSeed = ''; joinOpen = true">Join with an invite</button>
+          <button class="ghost-wide" @click="openDiscover">Discover public servers</button>
+        </div>
+      </div>
+    </main>
     <main v-if="channel" class="chat">
       <ChatHeader
         :channel="channel"
         :direct="isDirect(channel.id)"
+        :can-manage="canManageOverrides"
         :custom-emoji="customEmoji"
         :members-open="membersOpen"
         :muted="!!mutedChannels[channel.id]"
@@ -3271,6 +3294,45 @@ watch([activeServer, activeChannel], () => {
 </template>
 
 <style scoped>
+/* No servers yet: the whole pane says so, instead of the app looking half-loaded. */
+.empty-app {
+  display: grid;
+  place-items: center;
+  padding: var(--sp-500) var(--sp-300);
+}
+.empty-card {
+  max-width: 380px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-300);
+  text-align: center;
+}
+.empty-icon {
+  width: 56px;
+  height: 56px;
+  margin: 0 auto;
+  display: grid;
+  place-items: center;
+  border-radius: var(--radius-lg);
+  background: var(--sfv-container);
+  color: var(--text-secondary);
+}
+.empty-card h2 { margin: 0; font-size: 1.25rem; }
+.empty-card p { margin: 0; color: var(--text-secondary); }
+.empty-actions { display: flex; flex-direction: column; gap: var(--sp-200); margin-top: var(--sp-200); }
+.empty-actions .primary {
+  padding: var(--sp-300);
+  border-radius: var(--radius-lg);
+  background: var(--primary-main);
+  color: var(--primary-on);
+  font-weight: 600;
+}
+.empty-actions .ghost-wide {
+  padding: var(--sp-300);
+  border-radius: var(--radius-lg);
+  background: var(--sfv-container);
+  color: var(--text);
+}
 /* The shell has no window title to count unread messages in, so a mention lands here instead:
    one line, tappable, gone after a few seconds. */
 .toast {

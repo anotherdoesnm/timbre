@@ -15,6 +15,8 @@ defineProps<{
   /** Unread threads in this channel, for the badge next to the icon. */
   threads?: number;
   customEmoji?: CustomEmoji[];
+  /** Who may change this channel's permissions; without it the "…" is noise. */
+  canManage?: boolean;
 }>();
 const emit = defineEmits<{
   (e: 'toggle-members'): void;
@@ -67,6 +69,14 @@ const emit = defineEmits<{
         @click="emit('toggle-mute')"
       >
         <Icon :name="muted ? 'bell-off' : 'bell'" :size="18" />
+      </button>
+      <button
+        v-if="canManage"
+        class="action"
+        title="Channel settings"
+        @click="emit('channel-settings')"
+      >
+        <Icon name="dots" :size="18" />
       </button>
       <button class="action" :class="{ on: membersOpen }" title="Members" @click="emit('toggle-members')">
         <Icon name="users" :size="18" />

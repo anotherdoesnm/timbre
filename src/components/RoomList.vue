@@ -23,6 +23,8 @@ const props = defineProps<{
   canManage?: boolean;
   /** For shortcodes in a conversation's name. */
   customEmoji?: CustomEmoji[];
+  /** Signed in, but a member of nothing yet: the list has to offer a way in. */
+  noServers?: boolean;
 }>();
 const emit = defineEmits<{
   (e: 'select', id: string): void;
@@ -40,6 +42,9 @@ const emit = defineEmits<{
   (e: 'account'): void;
   (e: 'notifications'): void;
   (e: 'new-dm'): void;
+  (e: 'add-server'): void;
+  (e: 'join-server'): void;
+  (e: 'discover'): void;
 }>();
 
 const menuOpen = ref(false);
@@ -112,7 +117,7 @@ const groups = computed(() => {
       <!-- The name of the server opens what belongs to *this* server. Switching servers is the
            rail on the left (and the last item in this menu on a narrow screen). -->
       <button class="server-switch" :title="`${serverName} menu`" @click="menuOpen = !menuOpen">
-        <span class="server-name">{{ serverName }}</span>
+        <span class="server-name">{{ serverName || 'No servers' }}</span>
         <Icon name="chevron" :size="16" />
       </button>
       <ServerMenu
@@ -169,6 +174,21 @@ const groups = computed(() => {
           <span v-else-if="d.unread" class="badge" />
         </button>
         <p v-if="!props.dms?.length" class="dm-empty">No conversations yet</p>
+      </section>
+
+      <!-- A fresh account on an instance sees an empty sidebar; without this it also sees no way
+           to fill it, because every action lives behind a server that does not exist yet. -->
+      <section v-if="props.noServers" class="group empty-servers">
+        <p class="empty-lead">You are not in any server yet.</p>
+        <button class="empty-action primary" @click="emit('add-server')">
+          <Icon name="plus" :size="14" /> Create a server
+        </button>
+        <button class="empty-action" @click="emit('join-server')">
+          <Icon name="at" :size="14" /> Join with an invite
+        </button>
+        <button class="empty-action" @click="emit('discover')">
+          <Icon name="search" :size="14" /> Discover public servers
+        </button>
       </section>
 
       <section v-for="g in groups" :key="g.title" class="group">
@@ -253,6 +273,19 @@ const groups = computed(() => {
 </template>
 
 <style scoped>
+.empty-servers { display: flex; flex-direction: column; gap: var(--sp-200); padding: var(--sp-300) var(--sp-200); }
+.empty-lead { margin: 0 0 var(--sp-100); color: var(--text-tertiary); font-size: var(--fs-sm); }
+.empty-action {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-200);
+  padding: var(--sp-200) var(--sp-300);
+  border-radius: var(--radius-lg);
+  background: var(--sfv-container);
+  color: var(--text);
+  text-align: left;
+}
+.empty-action.primary { background: var(--primary-container); color: var(--primary-on-container); font-weight: 600; }
 .menu-backdrop { position: fixed; inset: 0; z-index: 44; }
 .channel-menu {
   position: absolute;
