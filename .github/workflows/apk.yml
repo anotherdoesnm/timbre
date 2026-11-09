@@ -136,7 +136,9 @@ jobs:
           path: |
             ~/.gradle/wrapper/dists
             ~/.gradle/caches
-          key: gradle-${{ runner.os }}-${{ steps.prepare.outputs.gradle }}-${{ hashFiles('src-tauri/gen/android/gradle/wrapper/gradle-wrapper.properties') }}
+          # Keyed on the version alone: the URL inside the wrapper can flip between the mirror and
+          # the official host on a bad day, and a key that moved with it would miss every other run.
+          key: gradle-${{ runner.os }}-${{ steps.prepare.outputs.gradle }}
           restore-keys: |
             gradle-${{ runner.os }}-${{ steps.prepare.outputs.gradle }}-
 
@@ -148,19 +150,27 @@ jobs:
           # properties raise the same timeouts for the build itself; gradle ignores them if it does
           # not know them, so this cannot make things worse.
           export GRADLE_OPTS="-Dorg.gradle.internal.http.connectionTimeout=120000 -Dorg.gradle.internal.http.socketTimeout=120000"
-          (
-            cd src-tauri/gen/android
-            for attempt in 1 2 3 4; do
+          warm() {
+            cd "$GITHUB_WORKSPACE/src-tauri/gen/android"
+            for attempt in 1 2 3; do
               if ./gradlew --version > /tmp/gradle-warmup.log 2>&1; then
                 echo "gradle distribution ready on attempt $attempt"
-                break
+                return 0
               fi
               echo "gradle warm-up attempt $attempt failed:" >&2
               tail -5 /tmp/gradle-warmup.log >&2
               sleep $((attempt * 15))
             done
-            head -5 /tmp/gradle-warmup.log || true
-          )
+            return 1
+          }
+          # The mirror first, since a cache filled from it is the cache this run reuses. If it is
+          # the host having a bad hour, the official URL gets its own three attempts.
+          warm || {
+            echo "the mirror did not answer; falling back to services.gradle.org" >&2
+            python3 scripts/patch-gradle-mirror.py --revert
+            warm || exit 1
+          }
+          head -5 /tmp/gradle-warmup.log || true
 
           # Split per ABI and ship only arm64-v8a: one universal APK is ~124 MiB, the arm64 one is a
           # quarter of that, and no phone this client runs on is 32-bit.

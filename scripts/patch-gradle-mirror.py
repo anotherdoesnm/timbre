@@ -6,8 +6,9 @@ second connect timeout, once with a run of 504s lasting longer than the retries.
 release of the same file is served from the same network as the runner, which is the whole point.
 
 The version is not hardcoded: the wrapper file says which distribution it wants (Tauri pins it),
-and only the host is rewritten. If the mirror does not answer for that version, the file is left
-alone — a build that downloads slowly is better than a build that cannot download at all.
+and only the host is rewritten. The original URL is written next to the file so the build step can
+put it back if the mirror turns out to be the broken one — both hosts have been down at different
+hours today, and a cache only helps if the URL it was filled with is the URL in use.
 
 Runs after `tauri android init`, because `gen/android` is generated per platform.
 """
@@ -15,10 +16,10 @@ Runs after `tauri android init`, because `gen/android` is generated per platform
 import pathlib
 import re
 import sys
-import urllib.error
-import urllib.request
 
 WRAPPER = pathlib.Path("src-tauri/gen/android/gradle/wrapper/gradle-wrapper.properties")
+# Where the build step looks when it wants the official URL back.
+ORIGINAL = pathlib.Path("src-tauri/gen/android/.gradle-original-url")
 MIRROR = "https://github.com/gradle/gradle-distributions/releases/download/v{version}/gradle-{version}-bin.zip"
 LINE = re.compile(r"^(distributionUrl=)(.*)$", re.MULTILINE)
 TIMEOUT = re.compile(r"^networkTimeout=[0-9]+$", re.MULTILINE)
@@ -27,17 +28,21 @@ TIMEOUT_MS = 120000
 DIST = re.compile(r"gradle-([0-9][0-9.]*)-bin\.zip")
 
 
-def reachable(url: str) -> bool:
-    request = urllib.request.Request(url, method="HEAD")
-    try:
-        with urllib.request.urlopen(request, timeout=25) as response:
-            return response.status == 200
-    except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError) as error:
-        print(f"mirror not reachable ({error}); keeping the original distribution", file=sys.stderr)
-        return False
+def revert() -> int:
+    """Puts the official URL back — called by the build step when the mirror will not answer."""
+    if not (WRAPPER.is_file() and ORIGINAL.is_file()):
+        print("nothing to revert to", file=sys.stderr)
+        return 0
+    original = ORIGINAL.read_text().strip()
+    text = WRAPPER.read_text()
+    WRAPPER.write_text(LINE.sub(lambda m: m.group(1) + original, text, count=1))
+    print(f"back to {original}")
+    return 0
 
 
 def main() -> int:
+    if "--revert" in sys.argv:
+        return revert()
     if not WRAPPER.is_file():
         print(f"no {WRAPPER}, nothing to point anywhere", file=sys.stderr)
         return 0
@@ -55,8 +60,9 @@ def main() -> int:
     if current == target:
         print(f"already on the mirror: {version.group(1)}")
         return 0
-    if not reachable(target):
-        return 0
+    # No reachability probe: a HEAD that answers 504 says nothing about the GET that follows, and
+    # the build step already knows how to fall back.
+    ORIGINAL.write_text(current + "\n")
     updated = LINE.sub(lambda m: m.group(1) + target, text, count=1)
     if TIMEOUT.search(updated):
         updated = TIMEOUT.sub(f"networkTimeout={TIMEOUT_MS}", updated)
