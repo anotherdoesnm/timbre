@@ -98,7 +98,10 @@ jobs:
           echo "TIMBRE_KEY_ALIAS=$KEY_ALIAS" >> "$GITHUB_ENV"
           echo "TIMBRE_KEY_PASSWORD=$KEY_PASSWORD" >> "$GITHUB_ENV"
 
-      - name: build the release APK
+      - name: prepare the android project
+        # Everything that can fail on our own code fails here, before any Gradle cache is touched:
+        # types, signing, the web bundle. The APK step below is then only about compiling.
+        id: prepare
         run: |
           set -eo pipefail
           npm ci
@@ -115,20 +118,41 @@ jobs:
           # The generated project has no signing config at all, so a release APK would come out
           # unsigned; the script adds one and fails loudly if the template changes shape.
           python3 scripts/patch-android-signing.py
+          # `services.gradle.org` has taken this workflow down twice: a ten second connect timeout,
+          # then a run of 504s that outlasted the retries below. GitHub's release of the same zip is
+          # served from the network the runner is already on.
+          python3 scripts/patch-gradle-mirror.py
+          version=$(grep -oE 'gradle-[0-9.]+-bin\.zip' \
+            src-tauri/gen/android/gradle/wrapper/gradle-wrapper.properties | head -1 | sed -e 's/gradle-//' -e 's/-bin\.zip//')
+          echo "gradle=$version" >> "$GITHUB_OUTPUT"
+          echo "wrapper wants gradle $version"
           npm run build
 
-          # The wrapper downloads gradle-9.6.1-bin.zip itself, and its built-in HTTP timeout is ten
-          # seconds — on 2026-11-08 the nightly died on exactly that, after everything else had
-          # already compiled: "Downloading ... failed: timeout (10000ms)". Fetching the
-          # distribution once, with retries, before the real build keeps one slow minute from
-          # costing a night. The system properties raise the same timeout for the build itself;
-          # gradle ignores them if it does not know them, so this cannot make things worse.
+      - uses: actions/cache@v4
+        # A warm cache means the distribution is not downloaded at all; a cold one still gets the
+        # mirror and the retries. The key moves with the wrapper's own version, so a Tauri bump
+        # invalidates it without anybody remembering to.
+        with:
+          path: |
+            ~/.gradle/wrapper/dists
+            ~/.gradle/caches
+          key: gradle-${{ runner.os }}-${{ steps.prepare.outputs.gradle }}-${{ hashFiles('src-tauri/gen/android/gradle/wrapper/gradle-wrapper.properties') }}
+          restore-keys: |
+            gradle-${{ runner.os }}-${{ steps.prepare.outputs.gradle }}-
+
+      - name: build the release APK
+        run: |
+          set -eo pipefail
+          # The wrapper's own HTTP timeout is ten seconds and it does not retry: fetching the
+          # distribution once, with retries, keeps one slow minute from costing a night. The system
+          # properties raise the same timeouts for the build itself; gradle ignores them if it does
+          # not know them, so this cannot make things worse.
           export GRADLE_OPTS="-Dorg.gradle.internal.http.connectionTimeout=120000 -Dorg.gradle.internal.http.socketTimeout=120000"
           (
             cd src-tauri/gen/android
             for attempt in 1 2 3 4; do
               if ./gradlew --version > /tmp/gradle-warmup.log 2>&1; then
-                echo "gradle distribution cached on attempt $attempt"
+                echo "gradle distribution ready on attempt $attempt"
                 break
               fi
               echo "gradle warm-up attempt $attempt failed:" >&2
