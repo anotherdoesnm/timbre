@@ -24,6 +24,10 @@ const props = defineProps<{
   focusId?: string | null;
   hasMore?: boolean;
   loadingOlder?: boolean;
+  /** The "#channel / first message" card at the top. Off inside a thread, where it is noise. */
+  intro?: boolean;
+  /** What the top of the list is called: a channel starts, a thread starts. */
+  endLabel?: string;
 }>();
 const emit = defineEmits<{
   (e: 'load-older'): void;
@@ -279,7 +283,7 @@ watch(
     </div>
 
     <template v-else>
-      <div class="intro">
+      <div v-if="intro !== false" class="intro">
         <div class="intro-icon"><Icon name="hash" :size="26" /></div>
         <h2>{{ live ? '#' + channel.name : 'Start of #' + channel.name }}</h2>
         <p v-if="!live">Skin prototype. The data is a mock — no session is attached.</p>
@@ -287,7 +291,9 @@ watch(
 
       <!-- Above the oldest message: this end of the list is where history stops. -->
       <div v-if="loadingOlder" class="older-hint">Loading earlier messages…</div>
-      <div v-else-if="hasMore === false && messages.length" class="older-hint">Start of the channel</div>
+      <div v-else-if="hasMore === false && messages.length" class="older-hint">
+        {{ endLabel ?? 'Start of the channel' }}
+      </div>
 
       <template v-for="m in messages" :key="m.id">
         <div v-if="m.id === unreadFromId" class="unread-divider"><span>New messages</span></div>

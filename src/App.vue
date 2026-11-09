@@ -86,8 +86,10 @@ import {
   setPreference,
   fetchChannelThreads,
   ensureThread,
+  fetchThreadInfo,
   fetchThreadMessages,
   fetchThreadSummaries,
+  fetchMessage,
   markThreadRead,
   type ThreadSummary,
   sendThreadMessage,
@@ -722,8 +724,18 @@ async function openChannel(channelId: string): Promise<void> {
   cursors.value[channelId] = { oldest: page.oldest, hasMore: page.hasMore };
   void refreshPinCount();
   void refreshThreadCounts();
+  // The anchor is the message *after* the last one this person read, found by id rather than
+  // counted from the end: the counter comes from the instance's own sequence, and that sequence
+  // also moves for answers that live in a thread — which the channel list no longer shows. Counting
+  // put the "New messages" line above messages that had already been read.
+  const lastReadId = state?.lastReadMessageId ?? null;
+  const readAt = lastReadId ? page.messages.findIndex((m) => m.id === lastReadId) : -1;
   unreadAnchor.value =
-    pending > 0 ? page.messages[Math.max(0, page.messages.length - pending)]?.id ?? null : null;
+    pending <= 0
+      ? null
+      : readAt >= 0
+        ? page.messages[readAt + 1]?.id ?? null
+        : page.messages[Math.max(0, page.messages.length - pending)]?.id ?? null;
   if (pending > 0) {
     const newest = page.messages[page.messages.length - 1];
     void (isDirect(channelId)
@@ -2036,18 +2048,26 @@ async function openThreadById(id: string, name?: string, parentMessageId?: strin
   threadLoading.value = true;
   threadId.value = id;
   try {
-    const page = await fetchThreadMessages(s, id);
+    const [page, info] = await Promise.all([
+      fetchThreadMessages(s, id),
+      name && parentMessageId ? Promise.resolve(null) : fetchThreadInfo(s, id).catch(() => null),
+    ]);
     threadMessages.value = page.messages;
-    const parent = parentMessageId
-      ? (liveMessages.value[ch.id] ?? []).find((m) => m.id === parentMessageId)
-      : undefined;
+    const parentId = parentMessageId ?? info?.parentMessageId ?? undefined;
+    const parent = parentId
+      ? ((liveMessages.value[ch.id] ?? []).find((m) => m.id === parentId) ??
+        (await fetchMessage(s, parentId).catch(() => null)))
+      : null;
+    // The panel shows the message being answered. Falling back to a card with the thread's name
+    // is honest about what is known, but it is not the message — so the parent is fetched when the
+    // way in was the thread id and nobody had loaded it yet.
     threadParent.value =
       parent ??
       ({
-        id: parentMessageId ?? '',
+        id: parentId ?? '',
         author: { name: '', initial: '?', color: 'var(--primary-main)', role: null },
         time: '',
-        text: name ?? 'Thread',
+        text: name ?? info?.name ?? 'Thread',
       } as Message);
     if (myProfileId.value) await markThreadRead(s, id, myProfileId.value);
     threadList.value = threadList.value.map((item) =>

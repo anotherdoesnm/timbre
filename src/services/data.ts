@@ -1839,6 +1839,44 @@ export async function markThreadRead(
   }
 }
 
+/**
+ * One message by id, with its author, its emoji parts and its quote resolved.
+ *
+ * A thread opened from the "started a thread" line knows only the thread's id: the parent message
+ * is not on screen and was never loaded. Fetching it here is what lets the panel show the message
+ * being answered instead of a placeholder with the thread's name in it.
+ */
+export async function fetchMessage(session: Session, messageId: string): Promise<Message | null> {
+  if (!messageId) return null;
+  const page = await fetchMessagePage(session, `id=eq.${encodeURIComponent(messageId)}`);
+  return page.messages[0] ?? null;
+}
+
+/**
+ * The thread's own row: what it is called and which message it hangs off.
+ *
+ * `active_threads_view` is enough for the list, but it only knows threads that have activity;
+ * the plain `threads` row is there from the moment the thread is created.
+ */
+export async function fetchThreadInfo(
+  session: Session,
+  threadId: string
+): Promise<{ id: string; name: string; parentMessageId: string | null } | null> {
+  if (!threadId) return null;
+  const rows = await rest<Row[]>(
+    session,
+    'threads',
+    `id=eq.${encodeURIComponent(threadId)}&select=id,name,parent_message_id&limit=1`
+  ).catch(() => [] as Row[]);
+  const row = rows[0];
+  if (!row) return null;
+  return {
+    id: String(row.id),
+    name: typeof row.name === 'string' ? row.name : '',
+    parentMessageId: typeof row.parent_message_id === 'string' ? row.parent_message_id : null,
+  };
+}
+
 /** The thread of a message, if one exists. */
 export async function fetchThreadForMessage(
   session: Session,

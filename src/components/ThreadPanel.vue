@@ -64,6 +64,8 @@ const channel = computed<Channel>(
       :messages="messages"
       :has-more="false"
       :loading-older="false"
+      :intro="false"
+      end-label="Start of the thread"
       :my-id="myId"
       :custom-emoji="customEmoji"
       @react="(m, e, mine) => emit('react', m, e, mine)"
