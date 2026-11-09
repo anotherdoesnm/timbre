@@ -3,40 +3,29 @@
 Notable changes to Timbre, newest first. The format follows [Keep a
 Changelog](https://keepachangelog.com/en/1.1.0/), and the project follows semantic versioning.
 
-## [Unreleased] — the 0.11.0 line
-
-### Fixed
-
-- **Custom emoji in a message body.** A shortcode was being parsed as markdown emphasis before
-  anybody looked it up: `:har_hype::mony_l:` became `:har` + *italic* `hype::mony` + `l:`, so the
-  names never matched and the message read as raw shortcodes. Shortcodes are now their own token,
-  matched before emphasis, and `_emphasis_` only fires on word boundaries, so `snake_case_word`
-  survives too. Verified against the message that showed it: six of six names resolve to the
-  pictures their parts shipped.
-- **Thread answers in the channel.** A reply keeps its parent's `channel_id`, so the channel query
-  returned the whole thread a second time, out of order and without the message being answered.
-  The channel view now asks for `thread_id=is.null`; verified on `#support`: 4 of the newest 12 rows
-  were thread replies before, 0 after. The "N replies in thread" count now also refreshes when an
-  answer lands while the channel is open.
+## [0.11.0] — 2026-11-09
 
 ### Added
 
+- **Server menu.** The server's name at the top of the channel list opens what belongs to *this*
+  server: settings, create channel, create category, invite, notifications, mark as read, switch
+  server. Creating a server moved to the rail's "+" — making a place is not a property of the place
+  you are in, and having it inside "Create a server" was why nobody found settings.
+- **Channel editing that edits the channel**: name, topic and category in one save. Before this,
+  "Edit channel" offered a name and nothing else.
+- **A channel's own actions** on long press (right click on a desktop): mark as read, copy channel
+  ID, mute, and for managers — rename and delete. Renaming and deleting did not exist at all.
+- **Categories can be created** from the server menu, and a new channel picks its category instead
+  of landing in whichever one its type happened to match.
 - **"X started a thread" is a way into the thread.** The instance writes that line as a system
   message and puts the thread's id and name in its metadata; the line now opens the thread instead
   of only reporting that one exists.
-
-### Added
-
 - **Per-channel permission overrides.** A "…" in the channel header opens the channel's permissions:
   pick a role, then allow or deny each of twelve channel-scoped permissions (see, send, thread, attach,
   react, mention everyone, manage messages, pin…). "Neither" is neutral and lets the server's roles
   decide. The instance stores both masks on one row per (channel, role); since the unique index that
   would allow an upsert is partial, the write is PATCH-then-INSERT, and clearing both masks deletes the
   row instead of leaving a meaningless one.
-
-
-### Added
-
 - **The ban list**, with unban. `get_server_bans` answers only to `BAN_MEMBERS` (it refuses with
   `Missing BAN_MEMBERS permission`), so the entry point appears only when `get_user_permissions`
   grants it; unbanning is `unban_server_member` and the row leaves the list at once.
@@ -45,57 +34,35 @@ Changelog](https://keepachangelog.com/en/1.1.0/), and the project follows semant
   that goes to the reporter. `get_reports_with_details` answers `Permission denied: moderator access
   required` to anybody else, so the entry point follows the profile's moderator flag rather than
   pretending everyone can see it.
-
-
-### Added
-
 - **Moderation: kick and ban.** A "…" on any member opens actions, gated by what
   `get_user_permissions` says this person may do (`KICK_MEMBERS`, `BAN_MEMBERS`, or
   `ADMINISTRATOR`), with a reason. The call is `kick_server_member` / `ban_server_member`, which the
   instance checks against permissions *and* rank, and whose refusal is shown in its own words —
   verified live: a plain member attempting a kick gets `Missing KICK_MEMBERS permission`.
-
   **Reporting** goes through `create_report` — the table itself is not writable by a client, which is
   what a first check mistook for "reports do not exist". A person is reported from the moderation
   sheet, a message from its menu, with the instance's own reasons (`spam`, `harassment`,
   `impersonation`, `nsfw`, `illegal_content`, `other`).
-
-
-### Added
-
 - **Roles.** The manage sheet opens a roles list — colour, name, how many people hold each — with the
   default role marked. Tapping one shows the members with a toggle, and an owner (or a moderator the
   instance grants `MANAGE_ROLES`) can also create a role: name, colour, and a set of permission
   switches that write the Discord-style bitfield the schema stores. Deleting is offered for any role
   that is not the default.
-
   The gate is the instance's own answer: `get_user_permissions` decides whether the screen may write
   anything, and the instance's refusal is shown as it words it — a non-owner creating a role gets
   "A new role must rank below your highest role" rather than a generic policy error.
-
-
-### Added
-
 - **Search that can be aimed.** `in:#channel`, `from:person`, `has:image`, `has:link`, `before:` and
   `after:` are parsed out of the box and sent as the RPC's own arguments (`p_channel_id`,
   `p_user_id`, `p_has_media`/`p_has_url`, `p_from_date`/`p_to_date`), with the recognised filters
   shown as chips and an unknown name reported instead of silently ignored. `in:dm` drops the server
   scope, because a conversation is not in one. Words left over are what the full-text search gets, so
   "everything in #general last week" works with no terms at all.
-
-
-### Added
-
 - **GIFs**, through the instance's own klipy proxy (`/api/federation/gifs/…`, authenticated with the
   user's token — the key never reaches a client). The composer's GIF button opens trending, typing
   searches, and picking one sends a `url` part pointing at the file, which this client renders as the
   picture and other clients inline too. An instance without the key says so instead of failing
   quietly. Verified against the flagship: trending and search return items, and the url part inserts
   with 201.
-
-
-### Added
-
 - **Per-server notification defaults**, in the create/manage sheet's new "Alerts" tab: everything,
   mentions only, or nothing, plus a mute for the whole server. They live in `notification_channels`
   as a row with `server_id` and no `channel_id` — the same table channel mutes use — and a channel's
@@ -103,10 +70,6 @@ Changelog](https://keepachangelog.com/en/1.1.0/), and the project follows semant
 - **Sound selection** — silent, soft, ping or chime — chosen in notification settings and synthesised
   with three oscillator envelopes rather than shipped as audio files. The choice is a local
   preference (`timbre.sound`), because the instance has no table for it.
-
-
-### Added
-
 - **Swipe to reply** — dragging a message to the right arms a reply to it, the way every phone chat
   does it; a vertical drag is still a scroll.
 - **Forward and copy link** in the message menu, for every message and not only your own. A copied
@@ -118,26 +81,14 @@ Changelog](https://keepachangelog.com/en/1.1.0/), and the project follows semant
   notes cannot drift from the release.
 - **Presence dots in the conversation list**, fetched for the people you talk to rather than only for
   the server you have open.
-
-
-### Added
-
 - **A threads list.** Threads had no front door: a reply only showed as "N replies" under its parent,
   and a thread somebody else kept talking in was invisible. The channel header opens a list of its
   open threads by activity — name, replies, how long ago — with an unread dot driven by
   `thread_members.last_read_at`, and a badge on the icon counting them. Opening a thread from the
   list works without its parent message being on screen, and records the read marker.
-
-
-### Added
-
 - **Unread that is visible where the decision is made.** Servers in the rail and in the switcher
   carry the sum of their channels' unread, categories say how much is inside them, and the servers
   sheet has "Mark this server read" (`mark_server_as_read`, then the counters clear locally too).
-
-
-### Added
-
 - **Presence.** The member list is a roster of who is *here* now, not just who joined: a heartbeat
   keeps this tab online (`presence_heartbeat(p_device_id, p_status, …)`), `get_presence` fills the
   list, and `server-presence:<id>` keeps it live. Online/away/offline dots, with the instance's own
@@ -146,20 +97,45 @@ Changelog](https://keepachangelog.com/en/1.1.0/), and the project follows semant
   while the composer changes and clears after a pause, and shows "…is typing" above the composer.
   Nothing is sent to the instance for it, so it costs no rows.
 
+### Changed
+
+- **Settings stopped being a place where things are built.** The sheet behind "Server settings" is
+  now only settings (roles, bans, reports); creating a server, a channel, an invite and the
+  per-server notifications each got a sheet of their own, opened from the place they concern.
+- **The roles sheet got a member search**, for handing a role to one person in a long roster.
 
 ### Fixed
 
+- **Shortcodes the emoji list never had.** A message can name an emoji this client's fetched list
+  does not contain, and then it rendered as `:name:` text. The renderer now asks the instance about
+  exactly the names it could not resolve, once, and re-reads the paragraph when the answer lands.
+- **Copied message links pointed nowhere.** They were `https://<instance>/?channel=…&message=…`,
+  which only this app could have understood from the instance's origin. They are now the instance's
+  own shape — `/chat/<server>/<channel>?messageId=…`, `/dm/<conversation>?messageId=…` — taken from
+  the official client's bundle, and the app parses that shape as well as the old one.
+- **"New messages" sat above messages already read.** The line was placed by counting back from the
+  end by the unread number, and that number also moves for answers that live in threads. It is now
+  anchored on the last message this person read, by id.
+- **The thread panel drew the channel's intro card**, mock sentence and all, and showed a placeholder
+  instead of the parent message when the thread was opened from a link. It now names itself, and the
+  parent is fetched and shown.
+- **Custom emoji in a message body.** A shortcode was being parsed as markdown emphasis before
+  anybody looked it up: `:har_hype::mony_l:` became `:har` + *italic* `hype::mony` + `l:`, so the
+  names never matched and the message read as raw shortcodes. Shortcodes are now their own token,
+  matched before emphasis, and `_emphasis_` only fires on word boundaries, so `snake_case_word`
+  survives too. Verified against the message that showed it: six of six names resolve to the
+  pictures their parts shipped.
+- **Thread answers in the channel.** A reply keeps its parent's `channel_id`, so the channel query
+  returned the whole thread a second time, out of order and without the message being answered.
+  The channel view now asks for `thread_id=is.null`; verified on `#support`: 4 of the newest 12 rows
+  were thread replies before, 0 after. The "N replies in thread" count now also refreshes when an
+  answer lands while the channel is open.
 - **`:RIP:` from another pack stayed text.** A message part names its emoji together with the
   picture it shipped (`{type:'emoji', emoji:{id,name,url}}`); the renderer kept only the name and
   then looked it up in *this person's* packs, so an emoji from a pack they do not have came out as
   the shortcode. The part's own picture is used now.
 - **Initials without a tile.** A server whose picture failed to load showed its initials on a
   transparent background instead of the filled tile a server with no icon gets.
-
-
-
-### Fixed
-
 - **Broken server pictures in discovery.** Two causes, measured against the live instance's 27
   public servers: 3 icons point at *other* instances' storage (`db.spacify.cloud` answers 404,
   `db.chat.mstdn.ca` 403) and one row still carries the legacy `/default_server_icon.png` sentinel,

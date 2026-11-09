@@ -2154,13 +2154,24 @@ async function onGif(gif: Gif): Promise<void> {
 }
 
 /** A link to one message, in this client's own query form. */
+/**
+ * The link to one message, in the instance's own shape.
+ *
+ * `https://<instance>/chat/<server>/<channel>?messageId=<id>` is what the official client builds
+ * (its bundle: `/chat/${server_id}/${channel_id}?messageId=`), so a link copied here opens the
+ * message in whichever client the recipient uses. This used to be `/?channel=&message=`, which
+ * only this app could have understood — and only if it were served from the instance's origin.
+ */
 function messageLink(m: Message): string {
   const s = session.value;
   const ch = channel.value;
   if (!s || !ch) return '';
-  const base = `https://${s.instance}/`;
-  const params = new URLSearchParams({ channel: ch.id, message: m.id });
-  return `${base}?${params.toString()}`;
+  const base = `https://${s.instance}`;
+  const id = encodeURIComponent(m.id);
+  if (isDirect(ch.id)) return `${base}/dm/${encodeURIComponent(ch.id)}?messageId=${id}`;
+  const serverId = activeServer.value || server.value?.id || '';
+  if (!serverId) return `${base}/chat?messageId=${id}`;
+  return `${base}/chat/${encodeURIComponent(serverId)}/${encodeURIComponent(ch.id)}?messageId=${id}`;
 }
 
 async function copyMessageLink(m: Message): Promise<void> {
@@ -2197,10 +2208,21 @@ async function onForward(channelId: string): Promise<void> {
  * Deep link: `?channel=<id>&message=<id>`. A link the client itself copies has to open where it
  * says, otherwise "copy link" is a button that produces text nobody can use.
  */
+/**
+ * Opening a link somebody pasted: the instance's own `/chat/<server>/<channel>?messageId=` and
+ * `/dm/<conversation>`, plus the older `?channel=&message=` this app used to hand out.
+ */
 async function openFromLink(): Promise<void> {
   const params = new URLSearchParams(location.search);
-  const channelId = params.get('channel');
-  const messageId = params.get('message');
+  let channelId = params.get('channel');
+  const messageId = params.get('message') ?? params.get('messageId');
+  const parts = location.pathname.split('/').filter(Boolean);
+  if (!channelId && parts[0] === 'chat') {
+    // `/chat/<server>/<channel>` or `/chat/<server>/thread/<thread>` — a thread id is not a channel,
+    // so that one is left to the channel list rather than opened as an empty conversation.
+    channelId = parts[2] === 'thread' ? null : (parts[2] ?? null);
+  }
+  if (!channelId && parts[0] === 'dm') channelId = parts[1] ?? null;
   if (!channelId) return;
   for (const [serverId, list] of Object.entries(liveChannels.value)) {
     if (list.some((c) => c.id === channelId)) {

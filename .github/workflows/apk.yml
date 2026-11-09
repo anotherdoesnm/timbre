@@ -257,6 +257,9 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: out/*.apk
-          prerelease: true
+          # A tag is a release, not a preview: `prerelease: true` here marked every version as a
+          # pre-release, including the ones handed to people as "the new version".
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          make_latest: true
           # The changelog is the release note: one place to write it, no copy to drift.
           body_path: CHANGELOG.md
