@@ -2,8 +2,10 @@
 import { computed, ref } from 'vue';
 import Icon from './Icon.vue';
 import ServerMenu from './ServerMenu.vue';
+import EmojiText from './EmojiText.vue';
 import type { Channel } from '../data/mock';
 import type { Conversation } from '../services/data';
+import type { CustomEmoji } from '../services/emoji';
 
 const props = defineProps<{
   serverName: string;
@@ -19,6 +21,8 @@ const props = defineProps<{
   dmPresence?: Record<string, { online: boolean; status: number; label: string }>;
   /** May this person manage the open server: roles, channels, categories. */
   canManage?: boolean;
+  /** For shortcodes in a conversation's name. */
+  customEmoji?: CustomEmoji[];
 }>();
 const emit = defineEmits<{
   (e: 'select', id: string): void;
@@ -43,15 +47,28 @@ const menuOpen = ref(false);
 const channelMenu = ref<{ channel: Channel; top: number } | null>(null);
 let pressTimer: ReturnType<typeof setTimeout> | null = null;
 let pressed: { id: string; x: number; y: number } | null = null;
+/** A long press also produces a click; opening the menu and the channel together is not a feature. */
+let swallowClick = false;
+
+function onRowClick(channel: Channel): void {
+  if (swallowClick) {
+    swallowClick = false;
+    return;
+  }
+  emit('select', channel.id);
+}
 
 /** A long press is how a phone asks for a context menu; a right click is how a desktop does. */
 function startPress(event: PointerEvent, channel: Channel): void {
   if (event.button !== 0) return;
   pressed = { id: channel.id, x: event.clientX, y: event.clientY };
+  // Read the row's position now: `currentTarget` is only valid while the event is being dispatched,
+  // and it is null by the time the long press fires. That was a TypeError on every long press.
+  const bottom = (event.currentTarget as HTMLElement).getBoundingClientRect().bottom;
   cancelPress();
   pressTimer = setTimeout(() => {
-    const row = (event.currentTarget as HTMLElement).getBoundingClientRect();
-    channelMenu.value = { channel, top: row.bottom + 4 };
+    channelMenu.value = { channel, top: bottom + 4 };
+    swallowClick = true;
     pressTimer = null;
   }, 420);
 }
@@ -146,7 +163,7 @@ const groups = computed(() => {
             :class="{ off: !props.dmPresence[d.other.id].online }"
             :title="props.dmPresence[d.other.id].label"
           />
-          <span class="name">{{ d.title }}</span>
+          <span class="name"><EmojiText :text="d.title" :emoji="props.customEmoji" /></span>
           <Icon v-if="d.muted" name="bell-off" :size="13" class="muted-mark" />
           <span v-if="d.mentions" class="badge mention">{{ d.mentions }}</span>
           <span v-else-if="d.unread" class="badge" />
@@ -164,7 +181,7 @@ const groups = computed(() => {
           :key="c.id"
           class="row"
           :class="{ active: c.id === activeId, unread: !!c.unread && c.id !== activeId }"
-          @click="emit('select', c.id)"
+          @click="onRowClick(c)"
           @pointerdown="startPress($event, c)"
           @pointermove="movePress"
           @pointerup="cancelPress"

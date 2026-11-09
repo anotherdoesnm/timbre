@@ -737,6 +737,11 @@ const channelMessages = computed(() => {
 async function openChannel(channelId: string): Promise<void> {
   const s = session.value;
   if (!s || !live.value || !channelId) return;
+  // Before the first server loads, `activeChannel` is the mock channel the skin was built around
+  // ("c1"). Asking the instance for its messages is a 400 nobody needs to see in the console.
+  if (!isDirect(channelId) && !Object.values(liveChannels.value).some((list) => list.some((c) => c.id === channelId))) {
+    return;
+  }
   const state = unread.value[channelId];
   const pending = state?.unread ?? 0;
   const limit = pending > 0 ? Math.min(pending + 20, 120) : 50;
@@ -2464,6 +2469,13 @@ async function loadConversations(): Promise<void> {
   try {
     conversations.value = await fetchConversations(s);
     void loadDirectPresence();
+    // People put shortcodes in their display names (`Duga:vibePls:`), and a conversation title is
+    // just that name. Ask for the ones this account's list is missing, so the sidebar and the
+    // header show a picture instead of a spelling.
+    const names = conversations.value
+      .flatMap((c) => [...c.title.matchAll(/:([a-z0-9_+-]{1,64}):/gi)].map((m) => m[1]))
+      .filter(Boolean);
+    if (names.length) void resolveEmojiNames([...new Set(names)]).catch(() => undefined);
   } catch {
     /* a sidebar section is not worth an error banner */
   }
@@ -2797,6 +2809,7 @@ watch([activeServer, activeChannel], () => {
       @rename-channel="openRenameChannel"
       @delete-channel="(c: Channel) => { deleteError = ''; deleteTarget = c }"
       :can-manage="canManageServer"
+      :custom-emoji="customEmoji"
       @account="openAccount"
       @notifications="openNotifications"
       :unread-notifications="unreadNotifications"
@@ -2808,6 +2821,8 @@ watch([activeServer, activeChannel], () => {
     <main v-if="channel" class="chat">
       <ChatHeader
         :channel="channel"
+        :direct="isDirect(channel.id)"
+        :custom-emoji="customEmoji"
         :members-open="membersOpen"
         :muted="!!mutedChannels[channel.id]"
         :pins="pinnedCount"
@@ -2826,6 +2841,7 @@ watch([activeServer, activeChannel], () => {
         :channel="channel"
         :messages="channelMessages"
         :live="live"
+        :intro="!isDirect(channel.id)"
         :unread-from-id="unreadAnchor"
         :focus-id="focusId"
         :has-more="cursors[channel.id]?.hasMore ?? false"
@@ -2856,6 +2872,7 @@ watch([activeServer, activeChannel], () => {
       </p>
       <Composer
         :channel-name="channel.name"
+        :direct="isDirect(channel.id)"
         :disabled="!!channel.encrypted"
         :sending="sending"
         :reply-to="replyTarget"

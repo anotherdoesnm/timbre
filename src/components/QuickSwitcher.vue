@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue';
+import { computed, nextTick, onMounted, ref } from 'vue';
 import Icon from './Icon.vue';
 import type { Channel } from '../data/mock';
 import type { Conversation } from '../services/data';
@@ -21,6 +21,9 @@ const emit = defineEmits<{
 }>();
 
 const query = ref('');
+const field = ref<HTMLInputElement | null>(null);
+// The whole point of Ctrl+K is that you can type immediately.
+onMounted(() => nextTick(() => field.value?.focus()));
 
 interface Item {
   key: string;
@@ -92,7 +95,7 @@ function onKey(event: KeyboardEvent): void {
         placeholder="Channel or person"
         autocomplete="off"
         spellcheck="false"
-        autofocus
+        ref="field"
         @keydown="onKey"
       />
       <p v-if="!shown.length" class="hint">Nothing matches.</p>

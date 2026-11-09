@@ -1,15 +1,20 @@
 <script setup lang="ts">
 import Icon from './Icon.vue';
+import EmojiText from './EmojiText.vue';
+import type { CustomEmoji } from '../services/emoji';
 import type { Channel } from '../data/mock';
 
 defineProps<{
   channel: Channel;
+  /** A conversation is not a channel: no `#`, no hash. */
+  direct?: boolean;
   membersOpen: boolean;
   live?: boolean;
   muted?: boolean;
   pins?: number;
   /** Unread threads in this channel, for the badge next to the icon. */
   threads?: number;
+  customEmoji?: CustomEmoji[];
 }>();
 const emit = defineEmits<{
   (e: 'toggle-members'): void;
@@ -26,8 +31,8 @@ const emit = defineEmits<{
   <header class="head">
     <div class="left">
       <button class="back" title="Back" @click="emit('back')"><Icon name="reply" :size="18" /></button>
-      <Icon :name="channel.kind === 'voice' ? 'volume' : 'hash'" :size="20" />
-      <span class="name">{{ channel.name }}</span>
+      <Icon :name="direct ? 'at' : channel.kind === 'voice' ? 'volume' : 'hash'" :size="20" />
+      <span class="name"><EmojiText :text="channel.name" :emoji="customEmoji" /></span>
       <Icon v-if="channel.encrypted" name="lock" :size="14" class="lock" />
       <span class="tag">{{ live ? 'live' : 'demo' }}</span>
       <span class="topic">Timbre — a client for Harmony</span>

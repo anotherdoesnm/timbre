@@ -8,6 +8,8 @@ import type { CustomEmoji } from '../services/emoji';
 const props = defineProps<{
   disabled?: boolean;
   channelName: string;
+  /** A conversation: the placeholder says the person's name, not `#name`. */
+  direct?: boolean;
   sending?: boolean;
   /** An attachment is still uploading: sending now would post a message pointing at nothing. */
   uploading?: boolean;
@@ -134,7 +136,7 @@ function send() {
         v-model="text"
         :disabled="disabled"
         rows="1"
-        :placeholder="disabled ? 'Encrypted channel — no keys on this device' : `Message #${channelName}`"
+        :placeholder="disabled ? 'Encrypted channel — no keys on this device' : direct ? `Message ${channelName}` : `Message #${channelName}`"
         @keydown.enter.exact.prevent="submit"
       />
       <div class="bar">

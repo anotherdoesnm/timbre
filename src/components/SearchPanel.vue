@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue';
+import { nextTick, onMounted, ref, watch } from 'vue';
 import Icon from './Icon.vue';
 import type { SearchHit } from '../services/data';
 
@@ -18,7 +18,12 @@ const emit = defineEmits<{
   (e: 'close'): void;
 }>();
 const query = ref('');
+const field = ref<HTMLInputElement | null>(null);
 let timer: ReturnType<typeof setTimeout> | null = null;
+
+// `autofocus` only applies to markup that existed when the document was parsed; a panel that opens
+// later has to focus itself, or the first keystroke goes into the message list behind it.
+onMounted(() => nextTick(() => field.value?.focus()));
 
 watch(query, (value) => {
   if (timer) clearTimeout(timer);
@@ -33,8 +38,8 @@ watch(query, (value) => {
       <header>
         <Icon name="search" :size="16" />
         <input
+          ref="field"
           v-model="query"
-          autofocus
           placeholder="Search — try in:#channel from:someone has:image"
         />
         <button class="close" aria-label="Close" @click="emit('close')"><Icon name="close" :size="16" /></button>

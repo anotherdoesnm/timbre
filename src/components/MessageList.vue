@@ -2,6 +2,7 @@
 import { computed, nextTick, ref, watch } from 'vue';
 import Icon from './Icon.vue';
 import EmojiPicker from './EmojiPicker.vue';
+import EmojiText from './EmojiText.vue';
 import PollCard from './PollCard.vue';
 import { resolveEmoji, type CustomEmoji } from '../services/emoji';
 import type { Channel, Message } from '../data/mock';
@@ -52,6 +53,11 @@ const emit = defineEmits<{
   (e: 'edit', m: Message): void;
   (e: 'delete', m: Message): void;
 }>();
+
+// A short list rather than a full emoji keyboard: the instance has its own emoji table, and
+// wiring that (with search and custom uploads) is its own step.
+/** Emoji the instance offers on top of Unicode, loaded once by the shell. */
+const customEmoji = computed(() => props.customEmoji ?? []);
 const scroller = ref<HTMLElement | null>(null);
 // On a phone there is no hover: the toolbar would sit on every message forever. A tap
 // selects one message and shows its toolbar.
@@ -74,37 +80,6 @@ watch(
   () => customEmoji.value.length,
   () => segmentCache.clear()
 );
-
-/**
- * Emoji found on demand, keyed by lowercased name. Filled when a message names something the
- * fetched list did not have; the segments are re-parsed once it lands.
- */
-const extraEmoji = ref<Record<string, string>>({});
-const asked = new Set<string>();
-const pendingNames = new Set<string>();
-let flushTimer: ReturnType<typeof setTimeout> | null = null;
-
-function scheduleResolve(): void {
-  if (flushTimer || !props.resolveEmoji || !pendingNames.size) return;
-  // Out of the render pass: a fetch is not something to start while painting.
-  flushTimer = setTimeout(async () => {
-    flushTimer = null;
-    const names = [...pendingNames].filter((n) => !asked.has(n)).slice(0, 40);
-    pendingNames.clear();
-    if (!names.length) return;
-    for (const n of names) asked.add(n);
-    try {
-      const found = await props.resolveEmoji!(names);
-      const fresh = Object.entries(found).filter(([name]) => !(name in extraEmoji.value));
-      if (!fresh.length) return;
-      extraEmoji.value = { ...extraEmoji.value, ...Object.fromEntries(fresh) };
-      // The paragraphs were cached with the shortcode as text; they have to be read again.
-      segmentCache.clear();
-    } catch {
-      /* a missing picture is not worth an error dialog */
-    }
-  }, 120);
-}
 
 /** A display name can carry shortcodes too (`y4my4m:fire:`); they are pictures there as well. */
 function nameSegments(name: string): Segment[] {
@@ -157,10 +132,38 @@ const broken = ref<Record<string, true>>({});
 // `/default_avatar.webp` is served by the instance, not by us; if it is missing the message
 // should show initials rather than a torn image.
 const brokenAvatars = ref<Record<string, true>>({});
-// A short list rather than a full emoji keyboard: the instance has its own emoji table, and
-// wiring that (with search and custom uploads) is its own step.
-/** Emoji the instance offers on top of Unicode, loaded once by the shell. */
-const customEmoji = computed(() => props.customEmoji ?? []);
+
+/**
+ * Emoji found on demand, keyed by lowercased name. Filled when a message names something the
+ * fetched list did not have; the segments are re-parsed once it lands.
+ */
+const extraEmoji = ref<Record<string, string>>({});
+const asked = new Set<string>();
+const pendingNames = new Set<string>();
+let flushTimer: ReturnType<typeof setTimeout> | null = null;
+
+function scheduleResolve(): void {
+  if (flushTimer || !props.resolveEmoji || !pendingNames.size) return;
+  // Out of the render pass: a fetch is not something to start while painting.
+  flushTimer = setTimeout(async () => {
+    flushTimer = null;
+    const names = [...pendingNames].filter((n) => !asked.has(n)).slice(0, 40);
+    pendingNames.clear();
+    if (!names.length) return;
+    for (const n of names) asked.add(n);
+    try {
+      const found = await props.resolveEmoji!(names);
+      const fresh = Object.entries(found).filter(([name]) => !(name in extraEmoji.value));
+      if (!fresh.length) return;
+      extraEmoji.value = { ...extraEmoji.value, ...Object.fromEntries(fresh) };
+      // The paragraphs were cached with the shortcode as text; they have to be read again.
+      segmentCache.clear();
+    } catch {
+      /* a missing picture is not worth an error dialog */
+    }
+  }, 120);
+}
+
 
 /**
  * A reaction written as a name (`toothy` or the legacy `:toothy:`) is a custom emoji, and the
@@ -341,6 +344,8 @@ watch(
       <div v-else-if="hasMore === false && messages.length" class="older-hint">
         {{ endLabel ?? 'Start of the channel' }}
       </div>
+      <!-- An empty conversation used to be a blank pane with a composer under it. -->
+      <div v-else-if="live && !messages.length" class="older-hint">No messages yet — say something.</div>
 
       <template v-for="m in messages" :key="m.id">
         <div v-if="m.id === unreadFromId" class="unread-divider"><span>New messages</span></div>
@@ -371,8 +376,8 @@ watch(
         </div>
         <div class="body">
           <div v-if="m.replyTo" class="quote">
-            <span class="quote-author">{{ m.replyTo.author }}</span>
-            <span class="quote-text">{{ m.replyTo.text }}</span>
+            <span class="quote-author"><EmojiText :text="m.replyTo.author" :emoji="customEmoji" /></span>
+            <span class="quote-text"><EmojiText :text="m.replyTo.text" :emoji="customEmoji" /></span>
           </div>
           <header v-if="!m.grouped && !m.system" class="meta">
             <span class="author">
@@ -402,7 +407,7 @@ watch(
             class="thread-link started-thread"
             @click.stop="emit('open-thread', m)"
           >
-            {{ m.text }}<span class="thread-arrow">›</span>
+            <EmojiText :text="m.text" :emoji="customEmoji" /><span class="thread-arrow">›</span>
           </button>
           <p v-else-if="m.text" class="text">
             <template v-for="(seg, i) in segments(m)" :key="i">
