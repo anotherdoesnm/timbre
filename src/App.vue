@@ -1072,6 +1072,9 @@ function onLiveEvent(channelId: string, event: MessageEvent): void {
         // Reading a channel marks it read; without this the badge grows while you watch it.
         const newest = page.messages[page.messages.length - 1];
         if (newest) void markChannelRead(s, channelId, newest.id);
+        // An answer that landed in a thread does not change the channel list, but it does change
+        // the "N replies in thread" line — which is the only sign it exists.
+        if (record.thread_id) void refreshThreadCounts();
       })
       .catch(() => undefined);
     return;
@@ -2017,33 +2020,50 @@ async function openThreads(): Promise<void> {
 
 /** Opens a thread straight from the list, without needing its parent message on screen. */
 async function openThreadFromList(thread: ThreadSummary): Promise<void> {
+  await openThreadById(thread.id, thread.name, thread.parentMessageId);
+}
+
+/**
+ * Opens a thread by id alone — the thread list knows one, and so does the "started a thread"
+ * system message, which carries the id in its metadata and no parent message at all.
+ */
+async function openThreadById(id: string, name?: string, parentMessageId?: string): Promise<void> {
   const s = session.value;
   const ch = channel.value;
-  if (!s || !ch) return;
+  if (!s || !ch || !id) return;
   threadsOpen.value = false;
   threadOpen.value = true;
   threadLoading.value = true;
-  threadId.value = thread.id;
+  threadId.value = id;
   try {
-    const page = await fetchThreadMessages(s, thread.id);
+    const page = await fetchThreadMessages(s, id);
     threadMessages.value = page.messages;
+    const parent =
+      (parentMessageId && (liveMessages.value[ch.id] ?? []).find((m) => m.id === parentMessageId)) ||
+      (liveMessages.value[ch.id] ?? []).find((m) => m.id === page.messages[0]?.id);
     threadParent.value =
-      (liveMessages.value[ch.id] ?? []).find((m) => m.id === thread.parentMessageId) ??
+      parent ??
       ({
-        id: thread.parentMessageId,
+        id: parentMessageId ?? '',
         author: { name: '', initial: '?', color: 'var(--primary-main)', role: null },
         time: '',
-        text: thread.name,
+        text: name ?? 'Thread',
       } as Message);
-    if (myProfileId.value) await markThreadRead(s, thread.id, myProfileId.value);
+    if (myProfileId.value) await markThreadRead(s, id, myProfileId.value);
     threadList.value = threadList.value.map((item) =>
-      item.id === thread.id ? { ...item, unread: false } : item
+      item.id === id ? { ...item, unread: false } : item
     );
   } catch (e) {
     showError(e instanceof Error ? e.message : String(e));
   } finally {
     threadLoading.value = false;
   }
+}
+
+/** "y4my4m started a thread" — the system message already names the thread it opened. */
+async function openThreadSystemMessage(m: Message): Promise<void> {
+  if (!m.threadId) return;
+  await openThreadById(m.threadId, m.threadName ?? m.text);
 }
 
 /** Unread threads in the open channel: the header badge. */
@@ -2569,6 +2589,7 @@ watch([activeServer, activeChannel], () => {
         @pin="onPin"
         @vote="onVote"
         @thread="openThread"
+        @open-thread="openThreadSystemMessage"
         @forward="(m) => (forwardTarget = m)"
         @copy-link="copyMessageLink"
         @report="(m) => (reportMessageTarget = m)"

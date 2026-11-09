@@ -28,6 +28,8 @@ export interface MessageRow {
   created_at: string;
   is_deleted?: boolean;
   is_system?: boolean;
+  /** Set on an answer that lives in a thread; the channel itself only lists the parents. */
+  thread_id?: string | null;
   /** `mentions` and the webhook fields live here, not in the message body. */
   metadata?: unknown;
 }

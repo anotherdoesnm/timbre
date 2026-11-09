@@ -33,6 +33,8 @@ const emit = defineEmits<{
   (e: 'pin', m: Message, pinned: boolean): void;
   (e: 'vote', pollId: string, optionIds: string[]): void;
   (e: 'thread', m: Message): void;
+  /** A system message that names its thread: "X started a thread". */
+  (e: 'open-thread', m: Message): void;
   (e: 'forward', m: Message): void;
   (e: 'copy-link', m: Message): void;
   (e: 'report', m: Message): void;
@@ -339,7 +341,17 @@ watch(
             <span class="time">{{ m.time }}</span>
             <span v-if="m.edited" class="edited">(edited)</span>
           </header>
-          <p v-if="m.text" class="text">
+          <!-- The instance writes "X started a thread" as a system message and puts the thread's
+               id in its metadata. Left as a paragraph it is a note about a door with no handle. -->
+          <button
+            v-if="m.threadId"
+            type="button"
+            class="thread-link started-thread"
+            @click.stop="emit('open-thread', m)"
+          >
+            {{ m.text }}<span class="thread-arrow">›</span>
+          </button>
+          <p v-else-if="m.text" class="text">
             <template v-for="(seg, i) in segments(m)" :key="i">
               <code v-if="seg.kind === 'code'">{{ seg.text }}</code>
               <strong v-else-if="seg.kind === 'bold'">{{ seg.text }}</strong>
@@ -721,6 +733,28 @@ watch(
 }
 .msg.system .text { color: var(--text-tertiary); font-size: var(--fs-sm); font-style: italic; }
 .msg.system .avatar-col { visibility: hidden; }
+/* "3 replies in thread": the only sign of the answers that moved elsewhere. */
+.thread-link {
+  display: block;
+  margin: 2px 0 0;
+  padding: 0;
+  background: none;
+  border: 0;
+  color: var(--primary-main);
+  font-size: var(--fs-sm);
+  text-align: left;
+  cursor: pointer;
+}
+.thread-link:hover { text-decoration: underline; }
+/* A system line that is also a way in: keeps the muted italic of the line it replaces, and says
+   "pressable" with the arrow and the hover rather than turning into a button-shaped blob. */
+.started-thread {
+  margin: 2px 0;
+  color: var(--text-tertiary);
+  font-style: italic;
+}
+.started-thread:hover { color: var(--primary-main); }
+.thread-arrow { padding-left: 4px; font-style: normal; }
 .tools {
   position: absolute;
   top: -14px;

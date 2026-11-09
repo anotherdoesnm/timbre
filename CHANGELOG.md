@@ -5,6 +5,26 @@ Changelog](https://keepachangelog.com/en/1.1.0/), and the project follows semant
 
 ## [Unreleased] — the 0.11.0 line
 
+### Fixed
+
+- **Custom emoji in a message body.** A shortcode was being parsed as markdown emphasis before
+  anybody looked it up: `:har_hype::mony_l:` became `:har` + *italic* `hype::mony` + `l:`, so the
+  names never matched and the message read as raw shortcodes. Shortcodes are now their own token,
+  matched before emphasis, and `_emphasis_` only fires on word boundaries, so `snake_case_word`
+  survives too. Verified against the message that showed it: six of six names resolve to the
+  pictures their parts shipped.
+- **Thread answers in the channel.** A reply keeps its parent's `channel_id`, so the channel query
+  returned the whole thread a second time, out of order and without the message being answered.
+  The channel view now asks for `thread_id=is.null`; verified on `#support`: 4 of the newest 12 rows
+  were thread replies before, 0 after. The "N replies in thread" count now also refreshes when an
+  answer lands while the channel is open.
+
+### Added
+
+- **"X started a thread" is a way into the thread.** The instance writes that line as a system
+  message and puts the thread's id and name in its metadata; the line now opens the thread instead
+  of only reporting that one exists.
+
 ### Added
 
 - **Per-channel permission overrides.** A "…" in the channel header opens the channel's permissions:

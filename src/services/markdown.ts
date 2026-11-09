@@ -27,11 +27,15 @@ export interface Segment {
   image?: string;
 }
 
-// Order matters: code before emphasis, bold before italic, and a mention may not swallow the
-// `@` of an email (hence the boundary check below). A `#` reference must start with a letter, so
-// "issue #42" stays text while `#new-builds` becomes a link to the channel.
+// Order matters: code before everything (a shortcode in backticks is code), then a `:name:`
+// shortcode, then emphasis. A shortcode has to win over `_…_`, because names are full of
+// underscores: `:har_hype::mony_l:` used to parse as `:har` + italic `hype::mony` + `l:`, and the
+// emoji in the middle never matched anything — the message read as bare shortcodes.
+// Emphasis only fires on word boundaries, so `snake_case_word` stays a word.
+// A mention may not swallow the `@` of an email (hence the boundary check below). A `#` reference
+// must start with a letter, so "issue #42" stays text while `#new-builds` becomes a link.
 const PATTERN =
-  /(`[^`\n]+`)|(\*\*[^*\n]+\*\*)|(\*[^*\n]+\*)|(_[^_\n]+_)|(https?:\/\/[^\s<>"]+)|(^|[\s(])@([a-z0-9_.-]{2,32})|(^|[\s(])#([a-z][a-z0-9_-]{1,31})(?![a-z0-9_-])/gi;
+  /(`[^`\n]+`)|((?<![\w]):[a-z0-9_+-]{1,64}:)|(\*\*[^*\n]+\*\*)|(\*[^*\n]+\*)|((?<![\w])_[^_\n]+_(?![\w]))|(https?:\/\/[^\s<>"]+)|(^|[\s(])@([a-z0-9_.-]{2,32})|(^|[\s(])#([a-z][a-z0-9_-]{1,31})(?![a-z0-9_-])/gi;
 
 /** Trailing punctuation belongs to the sentence, not to the URL. */
 function trimUrl(url: string): { url: string; tail: string } {
@@ -56,11 +60,15 @@ export function parseSegments(input: string): Segment[] {
 
   PATTERN.lastIndex = 0;
   while ((m = PATTERN.exec(text)) !== null) {
-    const [whole, code, bold, italic, underscore, url, boundary, handle, chBoundary, channel] = m;
+    const [whole, code, shortcode, bold, italic, underscore, url, boundary, handle, chBoundary, channel] = m;
     if (m.index > last) pushText(text.slice(last, m.index));
 
     if (code) {
       out.push({ kind: 'code', text: code.slice(1, -1) });
+    } else if (shortcode) {
+      // Kept verbatim: whether it has a picture is decided later, against the emoji this person
+      // has. Parsing it here is what stops the underscores inside it from being read as italics.
+      pushText(shortcode);
     } else if (bold) {
       out.push({ kind: 'bold', text: bold.slice(2, -2) });
     } else if (italic) {

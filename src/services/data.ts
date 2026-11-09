@@ -678,7 +678,15 @@ export async function fetchMessages(
   channelId: string,
   opts: { limit?: number; before?: string } = {}
 ): Promise<MessagePage> {
-  return fetchMessagePage(session, `channel_id=eq.${encodeURIComponent(channelId)}`, opts);
+  // `thread_id=is.null`: a thread's answers keep the parent's `channel_id`, so asking for the
+  // channel alone returned them twice — once in the thread and once in the channel, out of order
+  // and without the message they answer. The channel shows what was said in it; a thread shows
+  // what was said in it.
+  return fetchMessagePage(
+    session,
+    `channel_id=eq.${encodeURIComponent(channelId)}&thread_id=is.null`,
+    opts
+  );
 }
 
 /** A joined server's welcome screen, including the rules the instance wants accepted. */
@@ -2064,6 +2072,12 @@ async function fetchMessagePage(
     const parts = m.encrypted
       ? { text: 'Encrypted message — no keys on this device', images: [] as string[] }
       : renderContentParts(m.content);
+    // "y4my4m started a thread" is a system message whose metadata names the thread it opened
+    // (`{type:'thread_created', thread_id, thread_name}`). Keeping the id turns that line from a
+    // note into the way into the thread.
+    const meta = (m.metadata ?? null) as Record<string, unknown> | null;
+    const threadId = meta && typeof meta.thread_id === 'string' ? meta.thread_id : undefined;
+    const threadName = meta && typeof meta.thread_name === 'string' ? meta.thread_name : undefined;
     return {
       id: String(m.id),
       author,
@@ -2073,6 +2087,7 @@ async function fetchMessagePage(
       // The message knows which emoji it shipped, picture included; that beats re-resolving a name
       // against this person's own packs (a foreign pack's `:RIP:` otherwise comes out as text).
       ...('emojis' in parts && parts.emojis.length ? { emojis: parts.emojis } : {}),
+      ...(threadId ? { threadId, threadName } : {}),
       edited:
         typeof m.updated_at === 'string' &&
         typeof m.created_at === 'string' &&

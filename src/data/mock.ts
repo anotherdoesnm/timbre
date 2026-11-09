@@ -42,6 +42,13 @@ export interface Message {
   pinned?: boolean;
   /** Emoji the message names, with the picture each part shipped. */
   emojis?: { name: string; url?: string; id?: string }[];
+  /**
+   * The thread this line is about: a message whose answer lives in one, or the "started a thread"
+   * system message, whose metadata already names it.
+   */
+  threadId?: string;
+  /** The thread's name, when the system message carried one. */
+  threadName?: string;
   /** A poll attached to the message, once its votes are known. */
   poll?: {
     id: string;
