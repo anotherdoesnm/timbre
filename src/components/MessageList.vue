@@ -28,6 +28,12 @@ const props = defineProps<{
   intro?: boolean;
   /** What the top of the list is called: a channel starts, a thread starts. */
   endLabel?: string;
+  /**
+   * Ask the instance about shortcodes this client has no picture for. The list of emoji is fetched
+   * once and can be incomplete (a pack added since, a name that fell off a page); a message is not
+   * wrong just because the list is.
+   */
+  resolveEmoji?: (names: string[]) => Promise<Record<string, string>>;
 }>();
 const emit = defineEmits<{
   (e: 'load-older'): void;
@@ -69,6 +75,37 @@ watch(
   () => segmentCache.clear()
 );
 
+/**
+ * Emoji found on demand, keyed by lowercased name. Filled when a message names something the
+ * fetched list did not have; the segments are re-parsed once it lands.
+ */
+const extraEmoji = ref<Record<string, string>>({});
+const asked = new Set<string>();
+const pendingNames = new Set<string>();
+let flushTimer: ReturnType<typeof setTimeout> | null = null;
+
+function scheduleResolve(): void {
+  if (flushTimer || !props.resolveEmoji || !pendingNames.size) return;
+  // Out of the render pass: a fetch is not something to start while painting.
+  flushTimer = setTimeout(async () => {
+    flushTimer = null;
+    const names = [...pendingNames].filter((n) => !asked.has(n)).slice(0, 40);
+    pendingNames.clear();
+    if (!names.length) return;
+    for (const n of names) asked.add(n);
+    try {
+      const found = await props.resolveEmoji!(names);
+      const fresh = Object.entries(found).filter(([name]) => !(name in extraEmoji.value));
+      if (!fresh.length) return;
+      extraEmoji.value = { ...extraEmoji.value, ...Object.fromEntries(fresh) };
+      // The paragraphs were cached with the shortcode as text; they have to be read again.
+      segmentCache.clear();
+    } catch {
+      /* a missing picture is not worth an error dialog */
+    }
+  }, 120);
+}
+
 /** A display name can carry shortcodes too (`y4my4m:fire:`); they are pictures there as well. */
 function nameSegments(name: string): Segment[] {
   return withEmoji([{ kind: 'text', text: name }]);
@@ -94,8 +131,18 @@ function withEmoji(
     }
     let last = 0;
     for (const match of seg.text.matchAll(pattern)) {
-      const url = ownUrl(match[1]) ?? customEmojiUrl(match[1]);
-      if (!url || match.index === undefined) continue;
+      const url =
+        ownUrl(match[1]) ??
+        customEmojiUrl(match[1]) ??
+        extraEmoji.value[match[1].toLowerCase()];
+      if (!url) {
+        if (!asked.has(match[1])) {
+          pendingNames.add(match[1]);
+          scheduleResolve();
+        }
+        continue;
+      }
+      if (match.index === undefined) continue;
       if (match.index > last) out.push({ kind: 'text', text: seg.text.slice(last, match.index) });
       out.push({ kind: 'emoji', text: match[0], image: url });
       last = match.index + match[0].length;

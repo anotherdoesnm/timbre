@@ -35,6 +35,13 @@ const granted = ref<number>(0);
 
 const role = computed(() => props.roles.find((r) => r.id === selected.value) ?? null);
 const holders = computed(() => (role.value ? props.assignments[role.value.id] ?? [] : []));
+/** A guild can be long; finding the one person to give a role should not be scrolling. */
+const query = ref('');
+const visibleMembers = computed(() => {
+  const q = query.value.trim().toLowerCase();
+  if (!q) return props.members;
+  return props.members.filter((p) => p.name.toLowerCase().includes(q));
+});
 
 function has(userId: string, roleId: string): boolean {
   return (props.assignments[userId] ?? []).includes(roleId);
@@ -80,8 +87,9 @@ async function submit(): Promise<void> {
           {{ holders.length }} {{ holders.length === 1 ? 'member' : 'members' }}
           <template v-if="role.isDefault"> · the default role, held by everyone</template>
         </p>
+        <input v-if="members.length > 8" v-model="query" class="input" placeholder="Find a member" />
         <button
-          v-for="person in members"
+          v-for="person in visibleMembers"
           :key="person.id ?? person.name"
           class="row"
           :disabled="!canManage || busy"

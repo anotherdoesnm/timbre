@@ -857,6 +857,41 @@ export async function fetchCustomEmojis(
 }
 
 /**
+ * Looks up emoji by name, for the shortcodes a message carries but this person's list did not have.
+ *
+ * The list is fetched once (instance emoji plus the servers they are in), and a message can name
+ * something that is not in it: a pack that arrived after the page loaded, an emoji this client
+ * scoped away, a name that fell off the end of a page. Rather than render `:name:` and call it a
+ * day, the unresolved names from a message are asked for directly — same table, same rules, just a
+ * question about exactly these names.
+ */
+export async function fetchEmojiByName(
+  session: Session,
+  serverIds: string[],
+  names: string[]
+): Promise<Record<string, string>> {
+  const wanted = [...new Set(names.map((n) => n.trim()).filter(Boolean))].slice(0, 40);
+  if (!wanted.length) return {};
+  // Emoji names are `[a-z0-9_+-]`, so nothing here needs quoting for a PostgREST `in.(...)` list.
+  const list = wanted.map((n) => n.replace(/[^a-z0-9_+-]/gi, '')).filter(Boolean).join(',');
+  if (!list) return {};
+  const scope = serverIds.length
+    ? `or=(server_id.is.null,server_id.in.(${serverIds.map(encodeURIComponent).join(',')}))&`
+    : 'server_id=is.null&';
+  const rows = await rest<Record<string, unknown>[]>(
+    session,
+    'emojis',
+    `${scope}name=in.(${list})&select=name,url&limit=100`
+  ).catch(() => [] as Record<string, unknown>[]);
+  const out: Record<string, string> = {};
+  for (const row of rows) {
+    if (typeof row.name !== 'string' || typeof row.url !== 'string') continue;
+    out[row.name.toLowerCase()] = row.url;
+  }
+  return out;
+}
+
+/**
  * Adds a category, the heading channels are filed under.
  *
  * `channel_categories` is a plain table: the instance's own trigger creates the default pair per
@@ -894,8 +929,22 @@ export async function createCategory(
   return id;
 }
 
-/** Renames a channel. Same table the create path writes, one column of it. */
-export async function renameChannel(session: Session, channelId: string, name: string): Promise<void> {
+/**
+ * Edits a channel: its name, its topic (`description`), the category it is filed under.
+ *
+ * The instance keeps all three on the row itself, so this is one PATCH rather than a rename here
+ * and a move there. Only the keys given are sent — a partial edit must not blank the others.
+ */
+export async function updateChannel(
+  session: Session,
+  channelId: string,
+  patch: { name?: string; description?: string | null; category?: string | null }
+): Promise<void> {
+  const body: Record<string, unknown> = {};
+  if (patch.name !== undefined) body.name = patch.name.trim().toLowerCase().replace(/\s+/g, '-');
+  if (patch.description !== undefined) body.description = patch.description?.trim() || null;
+  if (patch.category !== undefined) body.category = patch.category || null;
+  if (!Object.keys(body).length) return;
   const res = await fetch(
     `${session.supabaseUrl}/rest/v1/channels?id=eq.${encodeURIComponent(channelId)}`,
     {
@@ -906,13 +955,18 @@ export async function renameChannel(session: Session, channelId: string, name: s
         'Content-Type': 'application/json',
         Prefer: 'return=minimal',
       },
-      body: JSON.stringify({ name: name.trim().toLowerCase().replace(/\s+/g, '-') }),
+      body: JSON.stringify(body),
     }
   );
   if (!res.ok) {
-    const body = await res.text().catch(() => '');
-    throw new Error(`rename channel: ${res.status} ${body.slice(0, 140)}`);
+    const text = await res.text().catch(() => '');
+    throw new Error(`edit channel: ${res.status} ${text.slice(0, 140)}`);
   }
+}
+
+/** Renames a channel. Kept for callers that only have a name. */
+export async function renameChannel(session: Session, channelId: string, name: string): Promise<void> {
+  await updateChannel(session, channelId, { name });
 }
 
 /** Deletes a channel. The instance refuses this to anybody without `MANAGE_CHANNELS`. */

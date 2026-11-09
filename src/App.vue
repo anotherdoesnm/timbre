@@ -42,6 +42,7 @@ import InviteSheet from './components/InviteSheet.vue';
 import ServerNotifySheet from './components/ServerNotifySheet.vue';
 import PromptSheet from './components/PromptSheet.vue';
 import ConfirmSheet from './components/ConfirmSheet.vue';
+import EditChannelSheet from './components/EditChannelSheet.vue';
 import RulesSheet from './components/RulesSheet.vue';
 import type { CustomEmoji } from './services/emoji';
 import AuthScreen from './components/AuthScreen.vue';
@@ -112,7 +113,8 @@ import {
   type SearchFilters,
   createCategory,
   deleteChannel,
-  renameChannel,
+  fetchEmojiByName,
+  updateChannel,
   createServer,
   createChannel,
   createInvite,
@@ -264,9 +266,6 @@ const notifyOpen = ref(false);
 const promptOpen = ref(false);
 const promptBusy = ref(false);
 const promptError = ref('');
-/** What the one-field sheet is for: a new category, or renaming a channel. */
-const promptKind = ref<'category' | 'rename-channel'>('category');
-const promptChannel = ref<Channel | null>(null);
 const deleteTarget = ref<Channel | null>(null);
 const deleteBusy = ref(false);
 const deleteError = ref('');
@@ -1273,6 +1272,28 @@ async function refreshCustomEmoji(): Promise<void> {
   }
 }
 
+/**
+ * Asks the instance about the shortcodes a message used but this client's list did not have.
+ *
+ * The big list is fetched for the sidebar's packs; a message can still name something outside it.
+ * Anything found here also joins the picker's list, so the next message with that emoji is free.
+ */
+async function resolveEmojiNames(names: string[]): Promise<Record<string, string>> {
+  const s = session.value;
+  if (!s || !names.length) return {};
+  const found = await fetchEmojiByName(
+    s,
+    liveServers.value.map((server) => server.id),
+    names
+  );
+  const known = new Set(customEmoji.value.map((e) => e.name.toLowerCase()));
+  const additions = Object.entries(found)
+    .filter(([name]) => !known.has(name))
+    .map(([name, url]) => ({ name, url }));
+  if (additions.length) customEmoji.value = [...customEmoji.value, ...additions];
+  return found;
+}
+
 const emojiServerNames = computed<Record<string, string>>(() => {
   const map: Record<string, string> = {};
   for (const server of liveServers.value) map[server.id] = server.name;
@@ -1896,50 +1917,43 @@ function openCreateChannel(): void {
   createChannelOpen.value = true;
 }
 function openCreateCategory(): void {
-  promptKind.value = 'category';
-  promptChannel.value = null;
   promptError.value = '';
   promptOpen.value = true;
 }
+
+const editChannelTarget = ref<Channel | null>(null);
+const editChannelBusy = ref(false);
+const editChannelError = ref('');
 
 function openRenameChannel(channel: Channel): void {
-  promptKind.value = 'rename-channel';
-  promptChannel.value = channel;
-  promptError.value = '';
-  promptOpen.value = true;
+  editChannelError.value = '';
+  editChannelTarget.value = channel;
 }
 
-/** One sheet, two jobs: the submit label and the initial value follow the job. */
-const promptTitle = computed(() =>
-  promptKind.value === 'category' ? 'Create category' : 'Rename channel'
-);
-const promptSubmitLabel = computed(() =>
-  promptKind.value === 'category' ? 'Create category' : 'Rename'
-);
-const promptInitial = computed(() =>
-  promptKind.value === 'rename-channel' ? (promptChannel.value?.name ?? '') : ''
-);
-
-async function onPromptSubmit(value: string): Promise<void> {
-  if (promptKind.value === 'category') {
-    await createCategoryFromPrompt(value);
-    return;
-  }
+async function onEditChannel(patch: {
+  name: string;
+  description: string | null;
+  category: string | null;
+}): Promise<void> {
   const s = session.value;
-  const ch = promptChannel.value;
+  const ch = editChannelTarget.value;
   const serverId = activeServer.value;
   if (!s || !ch || !serverId) return;
-  promptBusy.value = true;
-  promptError.value = '';
+  editChannelBusy.value = true;
+  editChannelError.value = '';
   try {
-    await renameChannel(s, ch.id, value);
+    await updateChannel(s, ch.id, patch);
     liveChannels.value[serverId] = await fetchChannels(s, serverId);
-    promptOpen.value = false;
+    editChannelTarget.value = null;
   } catch (e) {
-    promptError.value = e instanceof Error ? e.message : String(e);
+    editChannelError.value = e instanceof Error ? e.message : String(e);
   } finally {
-    promptBusy.value = false;
+    editChannelBusy.value = false;
   }
+}
+
+async function onPromptSubmit(value: string): Promise<void> {
+  await createCategoryFromPrompt(value);
 }
 
 async function onDeleteChannel(): Promise<void> {
@@ -2797,6 +2811,7 @@ watch([activeServer, activeChannel], () => {
         @load-older="loadOlder(channel.id)"
         :my-id="myProfileId"
         :custom-emoji="customEmoji"
+        :resolve-emoji="resolveEmojiNames"
       :server-names="emojiServerNames"
         @reply="(m) => (replyTarget = { id: m.id, author: m.author.name, text: m.text.slice(0, 120) })"
         @edit="(m) => (editing = { id: m.id, text: m.text })"
@@ -2876,6 +2891,7 @@ watch([activeServer, activeChannel], () => {
         :sending="threadSending"
         :my-id="myProfileId"
         :custom-emoji="customEmoji"
+        :resolve-emoji="resolveEmojiNames"
       :server-names="emojiServerNames"
         :draft-key="threadId ? `thread:${threadId}` : 'thread'"
         @close="closeThread"
@@ -3089,15 +3105,23 @@ watch([activeServer, activeChannel], () => {
     />
     <PromptSheet
       v-if="promptOpen"
-      :title="promptTitle"
+      title="Create category"
       label="Name"
-      :initial="promptInitial"
-      :placeholder="promptKind === 'category' ? 'Projects' : 'off-topic'"
-      :submit-label="promptSubmitLabel"
+      placeholder="Projects"
+      submit-label="Create category"
       :busy="promptBusy"
       :error="promptError"
       @submit="onPromptSubmit"
       @close="promptOpen = false"
+    />
+    <EditChannelSheet
+      v-if="editChannelTarget"
+      :channel="editChannelTarget"
+      :categories="channelCategories"
+      :busy="editChannelBusy"
+      :error="editChannelError"
+      @save="onEditChannel"
+      @close="editChannelTarget = null"
     />
     <ConfirmSheet
       v-if="deleteTarget"
