@@ -1971,8 +1971,14 @@ async function fetchMessagePage(
   // user_id, so both have to be resolved or the line says nothing about who joined.
   const subjectOf = (m: Row): string | null => {
     const meta = (m.metadata ?? null) as Record<string, unknown> | null;
-    const id = meta && typeof meta.subject_id === 'string' ? meta.subject_id : null;
-    return id;
+    if (!meta) return null;
+    // `subject_id` is who a join/leave line is about; a thread line names its author `actor_id`,
+    // which is why "started a thread" used to arrive with no name in front of it.
+    for (const key of ['subject_id', 'actor_id'] as const) {
+      const id = meta[key];
+      if (typeof id === 'string' && id) return id;
+    }
+    return null;
   };
   const ids = [
     ...new Set(
