@@ -815,7 +815,9 @@ watch(
 .thread-arrow { padding-left: 4px; font-style: normal; }
 .tools {
   position: absolute;
-  top: -14px;
+  /* Inside the message, not straddling its top edge: on a phone the bar used to cover the last
+     line of the message above it. */
+  top: 4px;
   right: var(--sp-300);
   display: none;
   gap: 2px;
